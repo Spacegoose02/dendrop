@@ -28,7 +28,11 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: gradle
+      # The runner already has the SDK; this accepts licenses and adds what compileSdk 36 needs.
+      # (The action's default package list includes "tools", which no longer exists.)
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
       - run: npm ci
       - run: npm run sync
       - name: Build the debug APK
