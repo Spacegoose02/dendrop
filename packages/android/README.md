@@ -37,9 +37,9 @@ notification is skipped while the app is open, and cleared when it's opened.
 
 Channels: **Messages** and **Calls**, both changeable in Android's settings for the app.
 
-### What the server needs to do (not built yet)
+### What the server does
 
-The app is ready; the server side is a follow-up in `packages/server`. The app talks to:
+The server side is in `packages/server` (PR #10). The app talks to:
 
 | Request | Body | Meaning |
 | --- | --- | --- |
@@ -51,7 +51,10 @@ To notify, the server POSTs to the endpoint: a Web Push message (RFC 8291 `aes12
 keys above) whose plaintext is `{"type":"message"}` or `{"type":"call"}`. Encryption is
 recommended but optional; a plain POST with that JSON body also works. Send it when a user gets a
 DM (or a mention) and has no gateway connection open, and drop subscriptions whose endpoint
-answers 404 or 410. Until the server has these routes, the setup page says "your server doesn't
+answers 404 or 410. The server sends `{"type":"call"}` to every phone when a call starts (urgency
+high, 45 second TTL), and `{"type":"message"}` only when the person has no gateway connection
+open. Push endpoints must be `https://`; set `DENDROP_PUSH_ALLOW_HTTP=true` on the server to
+allow a plain-HTTP ntfy server on your home network. On a server without these routes, the setup page says "your server doesn't
 send phone notifications yet", and the app retries on its own once it's updated.
 
 ## Building the APK
