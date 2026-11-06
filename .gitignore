@@ -3,3 +3,5 @@ dist/
 *.tsbuildinfo
 .env
 data/
+packages/desktop/release/
+packages/desktop/dist-test/

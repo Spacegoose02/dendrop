@@ -8,6 +8,7 @@ COPY packages/shared/package.json packages/shared/
 COPY packages/theme/package.json packages/theme/
 COPY packages/server/package.json packages/server/
 COPY packages/web/package.json packages/web/
+COPY packages/desktop/package.json packages/desktop/
 RUN npm ci --ignore-scripts
 COPY packages/shared packages/shared
 COPY packages/theme packages/theme
@@ -28,6 +29,7 @@ COPY packages/shared/package.json packages/shared/
 COPY packages/theme/package.json packages/theme/
 COPY packages/server/package.json packages/server/
 COPY packages/web/package.json packages/web/
+COPY packages/desktop/package.json packages/desktop/
 RUN npm ci --omit=dev --ignore-scripts --workspace @dendrop/server --workspace @dendrop/shared \
     && npm cache clean --force
 COPY --from=build /app/packages/shared/dist packages/shared/dist

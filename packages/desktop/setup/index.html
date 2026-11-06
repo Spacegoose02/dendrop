@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:" />
+    <title>Connect to your Dendrop server</title>
+    <style>
+      /* The Den theme's tokens (packages/theme/src/tokens.css), copied because this page loads before the server. */
+      :root { --dd-bg-sidebar: #1a1d22; --dd-bg-main: #20242a; --dd-bg-raised: #2a2f37; --dd-bg-input: #16181c; --dd-border: #343a44; --dd-text: #e9e6e1; --dd-text-muted: #a3a8b1; --dd-accent: #f2a541; --dd-accent-strong: #ffb85c; --dd-accent-text: #1a1206; --dd-danger: #e5605a; color-scheme: dark; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--dd-bg-main); color: var(--dd-text); font: 16px/1.5 "Nunito", "Segoe UI", system-ui, sans-serif; }
+      form { width: min(420px, calc(100vw - 32px)); box-sizing: border-box; background: var(--dd-bg-sidebar); border: 1px solid var(--dd-border); border-radius: 16px; padding: 2rem; display: flex; flex-direction: column; gap: 1rem; text-align: center; }
+      h1 { margin: 0; font-size: 1.6rem; }
+      input { font: inherit; padding: 0.75em 1em; border-radius: 10px; border: 1px solid var(--dd-border); background: var(--dd-bg-input); color: inherit; }
+      input:focus { outline: 2px solid var(--dd-accent); outline-offset: 1px; }
+      button { font: inherit; font-weight: 700; padding: 0.75em; border: 0; border-radius: 10px; background: var(--dd-accent); color: var(--dd-accent-text); cursor: pointer; }
+      button:hover { background: var(--dd-accent-strong); }
+      button:disabled { opacity: 0.6; cursor: wait; }
+      .muted { color: var(--dd-text-muted); margin: 0; }
+      .error { color: var(--dd-danger); min-height: 1.5em; margin: 0; }
+      img { align-self: center; }
+    </style>
+  </head>
+  <body>
+    <form id="f">
+      <img src="../build/icon.png" width="96" height="96" alt="" />
+      <h1>Welcome to Dendrop</h1>
+      <p class="muted">Enter your Dendrop server's address, for example <b>https://chat.example.com</b> or <b>tower:8080</b>.</p>
+      <input id="url" placeholder="https://chat.example.com" autofocus required spellcheck="false" autocomplete="url" />
+      <button id="go">Connect</button>
+      <p class="error" id="err" role="alert"></p>
+    </form>
+    <script>
+      const clean = (x) => String((x && x.message) || x).replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
+      document.getElementById("f").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const err = document.getElementById("err");
+        const go = document.getElementById("go");
+        err.textContent = "";
+        go.disabled = true;
+        go.textContent = "Connecting…";
+        try {
+          await window.dendropSetup.connect(document.getElementById("url").value);
+        } catch (x) {
+          err.textContent = clean(x);
+          go.disabled = false;
+          go.textContent = "Connect";
+        }
+      });
+    </script>
+  </body>
+</html>

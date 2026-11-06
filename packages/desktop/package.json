@@ -1,0 +1,74 @@
+{
+  "name": "@dendrop/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dendrop desktop app for Windows 11 and Linux",
+  "homepage": "https://github.com/Spacegoose02/dendrop",
+  "author": {
+    "name": "Spacegoose02",
+    "email": "208424520+Spacegoose02@users.noreply.github.com"
+  },
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "tsc -p . && node scripts/bundle.mjs",
+    "test": "tsc -p tsconfig.test.json && node --test \"dist-test/test/**/*.test.js\"",
+    "start": "npm run build && electron .",
+    "dist": "npm run build && electron-builder --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never"
+  },
+  "devDependencies": {
+    "@dendrop/shared": "0.1.0",
+    "@types/ws": "^8.5.12",
+    "electron": "44.10.0",
+    "electron-builder": "^26.0.0",
+    "esbuild": "^0.25.0",
+    "ws": "^8.18.0"
+  },
+  "build": {
+    "appId": "io.github.spacegoose02.dendrop",
+    "productName": "Dendrop",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**",
+      "setup/**",
+      "build/*.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.png",
+      "executableName": "Dendrop"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "artifactName": "Dendrop-Setup-${version}.${ext}",
+      "include": "build/installer.nsh"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Network;InstantMessaging",
+      "icon": "build/icon.png",
+      "executableName": "dendrop",
+      "maintainer": "Spacegoose02 <208424520+Spacegoose02@users.noreply.github.com>",
+      "syncDesktopName": true
+    },
+    "artifactName": "Dendrop-${version}-${os}-${arch}.${ext}",
+    "publish": null,
+    "portable": {
+      "artifactName": "Dendrop-${version}-portable.${ext}"
+    }
+  },
+  "desktopName": "dendrop.desktop"
+}
