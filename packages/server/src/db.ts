@@ -72,6 +72,21 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX messages_conversation ON messages(conversation_id, id);
   `,
+  `
+  ALTER TABLE users ADD COLUMN read_receipts INTEGER NOT NULL DEFAULT 1;
+
+  -- Files sent in messages. The bytes live in <data>/uploads/<id>.
+  CREATE TABLE attachments (
+    id TEXT PRIMARY KEY,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    content_type TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX attachments_message ON attachments(message_id);
+  `,
 ];
 
 export function now(): string {

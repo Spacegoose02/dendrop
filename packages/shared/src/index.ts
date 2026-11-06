@@ -9,6 +9,8 @@ export interface PublicUser {
 export interface Me extends PublicUser {
   email: string | null;
   isSuperAdmin: boolean;
+  /** Tell others when you've read their messages. Off means you don't see theirs either. */
+  readReceipts: boolean;
 }
 
 export type FriendState = "friends" | "incoming" | "outgoing";
@@ -21,6 +23,12 @@ export interface Friend {
   online?: boolean;
 }
 
+export interface ReadState {
+  userId: number;
+  /** The newest message this person has seen, or null before they've opened the conversation. */
+  messageId: number | null;
+}
+
 export interface Conversation {
   id: number;
   /** True for a group DM (more than two people, or named). */
@@ -29,6 +37,16 @@ export interface Conversation {
   members: PublicUser[];
   lastMessageAt: string | null;
   createdAt: string;
+  reads: ReadState[];
+}
+
+export interface Attachment {
+  id: string;
+  name: string;
+  size: number;
+  contentType: string;
+  /** Where to download it; pictures can be shown inline from here. */
+  url: string;
 }
 
 export interface Message {
@@ -38,8 +56,9 @@ export interface Message {
   body: string;
   createdAt: string;
   editedAt: string | null;
-  /** Deleted messages keep their place in the history but lose their text. */
+  /** Deleted messages keep their place in the history but lose their text and files. */
   deleted: boolean;
+  attachments: Attachment[];
 }
 
 export interface AuthInfo {
@@ -50,10 +69,19 @@ export interface AuthInfo {
   signup: boolean;
 }
 
+/** GET /api/server: what this server allows, for signed-in clients. */
+export interface ServerInfo {
+  maxUploadBytes: number;
+}
+
+/** Pictures the web client shows inline. Everything else is offered as a download. */
+export const INLINE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
 /** Limits that the server and clients both check. */
 export const LIMITS = {
   messageLength: 4000,
   groupMembers: 10,
+  attachmentsPerMessage: 10,
   usernameLength: 32,
   displayNameLength: 64,
   pageSize: 50,
@@ -68,6 +96,7 @@ export type ServerEvent =
   | { type: "friend.updated"; friend: Friend }
   | { type: "friend.removed"; userId: number }
   | { type: "typing"; conversationId: number; userId: number }
+  | { type: "read"; conversationId: number; userId: number; messageId: number }
   | { type: "presence"; userId: number; online: boolean };
 
 /** Events a client sends over the gateway. Everything else goes through the HTTP API. */

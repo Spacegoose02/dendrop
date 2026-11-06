@@ -4,6 +4,8 @@ import { api, connectGateway, logout } from "./api.ts";
 import { Chat } from "./Chat.tsx";
 import { Friends } from "./Friends.tsx";
 import { Avatar } from "./Avatar.tsx";
+import { NewGroup } from "./NewGroup.tsx";
+import { Settings } from "./Settings.tsx";
 import { conversationTitle, type History } from "./util.ts";
 
 export type View = { kind: "friends" } | { kind: "conversation"; id: number };
@@ -12,7 +14,9 @@ export type View = { kind: "friends" } | { kind: "conversation"; id: number };
  * The main layout: server rail, sidebar (DMs), main pane (friends or a chat).
  * Holds the live state the gateway keeps up to date.
  */
-export function Shell({ me, onSignedOut }: { me: Me; onSignedOut: () => void }) {
+export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () => void }) {
+  const [me, setMe] = useState(initialMe);
+  const [dialog, setDialog] = useState<"group" | "settings" | null>(null);
   const [connected, setConnected] = useState(false);
   const [view, setView] = useState<View>({ kind: "friends" });
   /** On phones only one column shows: the DM list, or what's open. */
@@ -103,6 +107,15 @@ export function Shell({ me, onSignedOut }: { me: Me; onSignedOut: () => void }) 
           });
           break;
         }
+        case "read":
+          setConversations((cs) =>
+            cs.map((c) =>
+              c.id === e.conversationId
+                ? { ...c, reads: [...c.reads.filter((r) => r.userId !== e.userId), { userId: e.userId, messageId: e.messageId }] }
+                : c,
+            ),
+          );
+          break;
         case "typing":
           setTyping((t) => ({ ...t, [e.conversationId]: { ...(t[e.conversationId] ?? {}), [e.userId]: Date.now() } }));
           break;
@@ -176,7 +189,12 @@ export function Shell({ me, onSignedOut }: { me: Me; onSignedOut: () => void }) 
             Friends
             {incoming > 0 && <span className="badge">{incoming}</span>}
           </button>
-          <div className="section-label">Conversations</div>
+          <div className="section-label with-action">
+            Conversations
+            <button className="ghost" onClick={() => setDialog("group")} title="New group chat" aria-label="New group chat">
+              ＋
+            </button>
+          </div>
           {conversations.length === 0 && <p className="muted small">No conversations yet.</p>}
           {conversations.map((c) => {
             const others = c.members.filter((m) => m.id !== me.id);
@@ -203,6 +221,9 @@ export function Shell({ me, onSignedOut }: { me: Me; onSignedOut: () => void }) 
             <strong>{me.displayName}</strong>
             <span className="muted">@{me.username}</span>
           </div>
+          <button className="ghost" onClick={() => setDialog("settings")} title="Settings" aria-label="Settings">
+            ⚙
+          </button>
           <button className="ghost" onClick={() => void logout().then(onSignedOut)} title="Sign out">
             Sign out
           </button>
@@ -225,6 +246,28 @@ export function Shell({ me, onSignedOut }: { me: Me; onSignedOut: () => void }) 
           />
         )}
       </main>
+      {dialog === "group" && (
+        <NewGroup
+          friends={friends}
+          onClose={() => setDialog(null)}
+          onCreated={(c) => {
+            setDialog(null);
+            setConversations((cs) => [c, ...cs.filter((x) => x.id !== c.id)]);
+            open({ kind: "conversation", id: c.id });
+          }}
+        />
+      )}
+      {dialog === "settings" && (
+        <Settings
+          me={me}
+          onClose={() => setDialog(null)}
+          onSaved={(m) => {
+            setMe(m);
+            // Turning receipts on or off changes whose reads this person can see.
+            void api<Conversation[]>("/api/conversations").then(setConversations);
+          }}
+        />
+      )}
     </div>
   );
 }

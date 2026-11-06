@@ -9,6 +9,7 @@ export interface UserRecord {
   passwordHash: string | null;
   oidcSubject: string | null;
   isSuperAdmin: boolean;
+  readReceipts: boolean;
   createdAt: string;
 }
 
@@ -20,6 +21,7 @@ interface Row {
   password_hash: string | null;
   oidc_subject: string | null;
   is_super_admin: number;
+  read_receipts: number;
   created_at: string;
 }
 
@@ -31,11 +33,12 @@ const fromRow = (r: Row): UserRecord => ({
   passwordHash: r.password_hash,
   oidcSubject: r.oidc_subject,
   isSuperAdmin: !!r.is_super_admin,
+  readReceipts: !!r.read_receipts,
   createdAt: r.created_at,
 });
 
 export const toPublic = (u: UserRecord): PublicUser => ({ id: u.id, username: u.username, displayName: u.displayName });
-export const toMe = (u: UserRecord): Me => ({ ...toPublic(u), email: u.email, isSuperAdmin: u.isSuperAdmin });
+export const toMe = (u: UserRecord): Me => ({ ...toPublic(u), email: u.email, isSuperAdmin: u.isSuperAdmin, readReceipts: u.readReceipts });
 
 export interface NewUser {
   username: string;
@@ -82,7 +85,11 @@ export class UserRepo {
     return this.byId(Number(res.lastInsertRowid))!;
   }
 
-  update(id: number, patch: { displayName?: string; oidcSubject?: string; isSuperAdmin?: boolean; passwordHash?: string }): UserRecord {
+  update(
+    id: number,
+    patch: { displayName?: string; oidcSubject?: string; isSuperAdmin?: boolean; passwordHash?: string; readReceipts?: boolean },
+  ): UserRecord {
+    if (patch.readReceipts !== undefined) this.db.prepare("UPDATE users SET read_receipts = ? WHERE id = ?").run(patch.readReceipts ? 1 : 0, id);
     if (patch.displayName !== undefined) this.db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run(patch.displayName, id);
     if (patch.oidcSubject !== undefined) this.db.prepare("UPDATE users SET oidc_subject = ? WHERE id = ?").run(patch.oidcSubject, id);
     if (patch.isSuperAdmin !== undefined) this.db.prepare("UPDATE users SET is_super_admin = ? WHERE id = ?").run(patch.isSuperAdmin ? 1 : 0, id);

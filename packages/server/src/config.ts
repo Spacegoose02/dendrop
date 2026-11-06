@@ -11,6 +11,8 @@ export interface ServerConfig {
   localLogin: boolean;
   /** Anyone can make a local account. Off by default: people sign in through TinyAuth instead. */
   signup: boolean;
+  /** Largest file a message can carry. */
+  maxUploadBytes: number;
   oidc: {
     issuer: string;
     clientId: string;
@@ -35,6 +37,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     webDir: env.DENDROP_WEB_DIR ?? null,
     localLogin: bool(env.DENDROP_LOCAL_LOGIN, true),
     signup: bool(env.DENDROP_SIGNUP, false),
+    maxUploadBytes: Math.max(1, Number(env.DENDROP_MAX_UPLOAD_MB) || 25) * 1024 * 1024,
     oidc: {
       issuer: (env.DENDROP_OIDC_ISSUER ?? "").trim(),
       clientId: (env.DENDROP_OIDC_CLIENT_ID ?? "").trim(),
