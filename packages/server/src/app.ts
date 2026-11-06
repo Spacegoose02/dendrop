@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cookie from "@fastify/cookie";
+import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
@@ -12,6 +13,8 @@ import type { ServerConfig } from "./config.js";
 import { openDb, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { Gateway } from "./gateway.js";
+import { PushService } from "./push.js";
+import { pushRoutes } from "./routes/push.js";
 import { authRoutes } from "./routes/auth.js";
 import { dmRoutes } from "./routes/dms.js";
 import { toMe, UserRepo, type UserRecord } from "./users.js";
@@ -30,9 +33,12 @@ export interface Context {
   sessions: SessionService;
   oidc: OidcService;
   gateway: Gateway;
+  push: PushService;
   /** Hooks for the gateway, so features can react to events from clients. */
   onClientEvent: ((user: UserRecord, event: ClientEvent) => void)[];
   onPresence: ((userId: number, online: boolean) => void)[];
+  /** How long calls ring before they count as missed; shorter in tests. */
+  callRingMs?: number;
 }
 
 export interface BuiltApp {
@@ -40,7 +46,11 @@ export interface BuiltApp {
   ctx: Context;
 }
 
-export async function buildApp(config: ServerConfig, db: Db = openDb(path.join(config.dataDir, "dendrop.db"))): Promise<BuiltApp> {
+export async function buildApp(
+  config: ServerConfig,
+  db: Db = openDb(path.join(config.dataDir, "dendrop.db")),
+  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2] } = {},
+): Promise<BuiltApp> {
   const app = Fastify({ logger: process.env.NODE_ENV === "test" ? false : { level: process.env.DENDROP_LOG_LEVEL ?? "info" }, trustProxy: true });
   const users = new UserRepo(db);
   const ctx: Context = {
@@ -50,11 +60,14 @@ export async function buildApp(config: ServerConfig, db: Db = openDb(path.join(c
     sessions: new SessionService(db, users),
     oidc: new OidcService(config, users),
     gateway: new Gateway(),
+    push: new PushService(db, { publicUrl: config.publicUrl, allowHttp: config.pushAllowHttp }, options.pushPost),
     onClientEvent: [],
     onPresence: [],
+    callRingMs: options.callRingMs,
   };
 
   await app.register(cookie);
+  await app.register(multipart, { limits: { fileSize: config.maxUploadBytes } });
   await app.register(websocket, { options: { maxPayload: 64 * 1024 } });
 
   app.setErrorHandler((err: Error & { statusCode?: number; validation?: unknown }, req, reply) => {
@@ -76,6 +89,7 @@ export async function buildApp(config: ServerConfig, db: Db = openDb(path.join(c
 
   await app.register(async (api) => authRoutes(api, ctx));
   await app.register(async (api) => dmRoutes(api, ctx));
+  await app.register(async (api) => pushRoutes(api, ctx));
   await app.register(async (api) => gatewayRoute(api, ctx));
 
   serveWeb(app, config);

@@ -6,7 +6,7 @@ feature board into a build order.
 
 **Top priority:** private direct messaging (text and calls) between people you trust, so Dendrop can replace Discord DMs first.
 
-**Current state:** Phase 0 is in place, and Phase 1 has sign-in, friends and live text DMs. The
+**Current state:** Phase 0 is in place, and Phase 1 has sign-in, friends, live DMs and group chats, files, emoji, read receipts, and voice and video calls. The
 status column is updated as each piece lands.
 
 ---
@@ -145,7 +145,7 @@ color palettes, and naming. No other app's logos, names, or artwork.
 
 | Column | Card | Phase | Status |
 | --- | --- | --- | --- |
-| Systems | New Chat | 1 | Partial: DMs from the friends list; group DM picker still to do |
+| Systems | New Chat | 1 | Done (DMs and group chats) |
 | Systems | Windows 11 | 2 | Missing |
 | Systems | Android APK | 2 | Missing |
 | Systems | Linux | 2 | Missing |
@@ -164,8 +164,8 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Backbone | Private chat / direct message | 1 | Partial: text DMs and group DMs live; E2EE to come |
 | Backbone | Screen sharing | 4 | Missing |
 | Backbone | Game streaming | 4 | Missing |
-| Backbone | Voice chat | 1 (DM calls), 4 (channels) | Missing |
-| Backbone | Phone notifications | 2 | Missing |
+| Backbone | Voice chat | 1 (DM calls), 4 (channels) | Partial: voice and video calls in DMs and group chats |
+| Backbone | Phone notifications | 2 | Partial: server sends content-free pushes; Android app in #7 |
 | Backbone | Speaker settings | 4 | Missing |
 | Backbone | Microphone settings | 4 | Missing |
 | Backbone | Friend invites | 1 | Done |
@@ -173,16 +173,16 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Backbone | Lock channels / owner chooses members | 3 | Missing |
 | Backbone | Creator is owner of chat server | 3 | Missing |
 | Backbone | Approval needed to create servers | 3 | Missing |
-| Features | Message read receipts | 1 | Missing |
-| Features | Emojis | 1 | Missing |
+| Features | Message read receipts | 1 | Done |
+| Features | Emojis | 1 | Partial: built-in picker; search and custom emoji in Phase 7 |
 | Features | GIFs | 3 | Missing |
 | Features | Custom app icons | 7 | Missing |
-| Features | File uploading | 1 | Missing |
+| Features | File uploading | 1 | Done (pictures inline, other files download) |
 | Features | Custom emoji upload, sections | 7 | Missing |
 | Features | Themes (dark, nuclear, gaming, laser) | 7 | Missing |
 | Features | Pop-out chats | 2 | Missing |
 | Features | Android chat bubbles for DMs | 2 | Missing |
-| Features | Activity privacy | 1 | Missing |
+| Features | Activity privacy | 1 | Partial: read receipts can be turned off |
 | Features | Invite links | 3 | Missing |
 | Features | Server chat profile / rename | 7 | Missing |
 | Features | Server chat banner | 7 | Missing |

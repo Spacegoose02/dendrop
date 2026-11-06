@@ -211,3 +211,17 @@
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+.account-settings label {
+  display: block;
+  max-width: 420px;
+}
+.account-save {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.account-save .small {
+  margin: 0;
+}

@@ -1,10 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { LIMITS, type Conversation, type Me, type Message } from "@dendrop/shared";
-import { api } from "./api.ts";
+import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
+import { INLINE_IMAGE_TYPES, LIMITS, type Attachment, type Call, type Conversation, type Me, type Message } from "@dendrop/shared";
+import { api, apiForm } from "./api.ts";
+import { EMOJI } from "./emoji.ts";
 import { Avatar } from "./Avatar.tsx";
 import { conversationTitle, type History } from "./util.ts";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+const bytes = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 const day = (iso: string) => new Date(iso).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
 
 /** Messages from the same person within 5 minutes share one header. */
@@ -20,6 +22,10 @@ export function Chat({
   typingIds,
   sendTyping,
   onBack,
+  callsEnabled,
+  call,
+  inThisCall,
+  onCall,
 }: {
   me: Me;
   conversation: Conversation;
@@ -29,6 +35,10 @@ export function Chat({
   typingIds: number[];
   sendTyping: () => void;
   onBack: () => void;
+  callsEnabled: boolean;
+  call: Call | undefined;
+  inThisCall: boolean;
+  onCall: (video: boolean) => void;
 }) {
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
@@ -38,6 +48,12 @@ export function Chat({
   const stickToBottom = useRef(true);
   const lastTypingSent = useRef(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [sending, setSending] = useState(false);
+  const [showEmoji, setShowEmoji] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const lastMarked = useRef(0);
 
   const members = new Map(conversation.members.map((m) => [m.id, m]));
   const others = conversation.members.filter((m) => m.id !== me.id);
@@ -58,6 +74,58 @@ export function Chat({
     const el = listRef.current;
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [history?.messages.length, typingIds.length]);
+
+  // Tell the server how far this person has read, whenever new messages show while the window
+  // is in front.
+  const newest = history?.messages.at(-1)?.id ?? 0;
+  useEffect(() => {
+    const mark = () => {
+      if (!newest || newest <= lastMarked.current || document.visibilityState !== "visible" || !document.hasFocus()) return;
+      lastMarked.current = newest;
+      void api(`/api/conversations/${conversation.id}/read`, { body: { messageId: newest } }).catch(() => {
+        lastMarked.current = 0;
+      });
+    };
+    mark();
+    addEventListener("focus", mark);
+    document.addEventListener("visibilitychange", mark);
+    return () => {
+      removeEventListener("focus", mark);
+      document.removeEventListener("visibilitychange", mark);
+    };
+  }, [conversation.id, newest]);
+
+  const addFiles = (list: FileList | File[] | null) => {
+    if (!list) return;
+    const incoming = [...list];
+    setFiles((f) => [...f, ...incoming].slice(0, LIMITS.attachmentsPerMessage));
+    inputRef.current?.focus();
+  };
+
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (e.clipboardData.files.length > 0) {
+      e.preventDefault();
+      addFiles(e.clipboardData.files);
+    }
+  };
+
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    addFiles(e.dataTransfer.files);
+  };
+
+  const insertEmoji = (emoji: string) => {
+    const el = inputRef.current;
+    const start = el?.selectionStart ?? draft.length;
+    const end = el?.selectionEnd ?? draft.length;
+    setDraft(draft.slice(0, start) + emoji + draft.slice(end));
+    setShowEmoji(false);
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
+  };
 
   const onScroll = () => {
     const el = listRef.current;
@@ -85,16 +153,31 @@ export function Chat({
 
   const send = async () => {
     const body = draft.trim();
-    if (!body) return;
+    if ((!body && files.length === 0) || sending) return;
+    const sendingFiles = files;
     setDraft("");
+    setFiles([]);
     setError(null);
     stickToBottom.current = true;
+    setSending(true);
     try {
-      const m = await api<Message>(`/api/conversations/${conversation.id}/messages`, { body: { body } });
+      const url = `/api/conversations/${conversation.id}/messages`;
+      let m: Message;
+      if (sendingFiles.length > 0) {
+        const form = new FormData();
+        form.append("body", body);
+        for (const f of sendingFiles) form.append("file", f, f.name);
+        m = await apiForm<Message>(url, form);
+      } else {
+        m = await api<Message>(url, { body: { body } });
+      }
       setHistory((h) => (h && !h.messages.some((x) => x.id === m.id) ? { ...h, messages: [...h.messages, m] } : (h ?? { messages: [m], hasMore: false })));
     } catch (err) {
       setDraft(body);
+      setFiles(sendingFiles);
       setError((err as Error).message);
+    } finally {
+      setSending(false);
     }
   };
 
@@ -141,8 +224,13 @@ export function Chat({
     }
   };
 
-  const typingNames = typingIds.filter((id) => id !== me.id).map((id) => members.get(id)?.displayName ?? "Someone");
   const messages = history?.messages ?? [];
+  // "Seen" goes under my newest message that someone else has read.
+  const myLast = [...messages].reverse().find((m) => m.authorId === me.id);
+  const seenBy = myLast
+    ? conversation.reads.filter((r) => r.userId !== me.id && r.messageId !== null && r.messageId >= myLast.id).map((r) => members.get(r.userId)?.displayName ?? "Someone")
+    : [];
+  const typingNames = typingIds.filter((id) => id !== me.id).map((id) => members.get(id)?.displayName ?? "Someone");
 
   return (
     <section className="pane chat">
@@ -157,9 +245,39 @@ export function Chat({
         )}
         <h2 className="ellipsis">{title}</h2>
         {conversation.isGroup && <span className="muted small">{conversation.members.length} members</span>}
+        {callsEnabled && !inThisCall && (
+          <span className="header-actions">
+            {call && call.joined.length > 0 ? (
+              <button className="accept small-button" onClick={() => onCall(false)}>
+                Join call ({call.joined.length})
+              </button>
+            ) : (
+              <>
+                <button className="ghost icon" onClick={() => onCall(false)} title="Voice call" aria-label="Voice call">
+                  📞
+                </button>
+                <button className="ghost icon" onClick={() => onCall(true)} title="Video call" aria-label="Video call">
+                  🎥
+                </button>
+              </>
+            )}
+          </span>
+        )}
       </header>
 
-      <div className="messages" ref={listRef} onScroll={onScroll}>
+      <div
+        className={`messages ${dragging ? "dragging" : ""}`}
+        ref={listRef}
+        onScroll={onScroll}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes("Files")) {
+            e.preventDefault();
+            setDragging(true);
+          }
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+      >
         {!history && <p className="muted center-text">Loading…</p>}
         {history && !history.hasMore && (
           <div className="chat-start">
@@ -209,10 +327,24 @@ export function Chat({
                   ) : m.deleted ? (
                     <p className="msg-body deleted">Message deleted</p>
                   ) : (
-                    <p className="msg-body">
-                      {m.body}
-                      {m.editedAt && <span className="muted small"> (edited)</span>}
-                    </p>
+                    <>
+                      {m.body && (
+                        <p className="msg-body">
+                          {m.body}
+                          {m.editedAt && <span className="muted small"> (edited)</span>}
+                        </p>
+                      )}
+                      {m.attachments.length > 0 && (
+                        <div className="attachments">
+                          {m.attachments.map((a) => (
+                            <AttachmentView key={a.id} a={a} />
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {m.id === myLast?.id && seenBy.length > 0 && (
+                    <div className="seen small muted">{conversation.isGroup ? `Seen by ${seenBy.join(", ")}` : "Seen"}</div>
                   )}
                 </div>
                 {mine && !m.deleted && editing?.id !== m.id && (
@@ -233,20 +365,85 @@ export function Chat({
 
       <footer className="composer">
         {error && <p className="error small">{error}</p>}
-        <textarea
-          ref={inputRef}
-          rows={1}
-          value={draft}
-          maxLength={LIMITS.messageLength}
-          placeholder={`Message ${title}`}
-          onChange={(e) => onDraft(e.target.value)}
-          onKeyDown={onKey}
-        />
+        {files.length > 0 && (
+          <div className="pending-files">
+            {files.map((f, i) => (
+              <span className="file-chip" key={`${f.name}-${i}`}>
+                <span className="ellipsis">{f.name}</span>
+                <span className="muted small">{bytes(f.size)}</span>
+                <button className="ghost" onClick={() => setFiles(files.filter((_, j) => j !== i))} aria-label={`Remove ${f.name}`}>
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="composer-row" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+          <button className="ghost icon" onClick={() => fileRef.current?.click()} title="Add files" aria-label="Add files">
+            ＋
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              addFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <textarea
+            ref={inputRef}
+            rows={1}
+            value={draft}
+            maxLength={LIMITS.messageLength}
+            placeholder={`Message ${title}`}
+            onChange={(e) => onDraft(e.target.value)}
+            onKeyDown={onKey}
+            onPaste={onPaste}
+          />
+          <div className="emoji-wrap">
+            <button className="ghost icon" onClick={() => setShowEmoji(!showEmoji)} title="Emoji" aria-label="Emoji" aria-expanded={showEmoji}>
+              🙂
+            </button>
+            {showEmoji && (
+              <div className="emoji-picker" role="listbox" aria-label="Emoji">
+                {EMOJI.map((e) => (
+                  <button key={e} className="ghost" onClick={() => insertEmoji(e)} aria-label={e}>
+                    {e}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button className="primary send" onClick={() => void send()} disabled={sending || (!draft.trim() && files.length === 0)} aria-label="Send">
+            {sending ? "…" : "Send"}
+          </button>
+        </div>
         <div className="typing small muted" aria-live="polite">
           {typingNames.length === 1 && `${typingNames[0]} is typing…`}
           {typingNames.length > 1 && `${typingNames.join(", ")} are typing…`}
         </div>
       </footer>
     </section>
+  );
+}
+
+function AttachmentView({ a }: { a: Attachment }) {
+  if (INLINE_IMAGE_TYPES.includes(a.contentType)) {
+    return (
+      <a href={a.url} target="_blank" rel="noreferrer" className="attachment-image">
+        <img src={a.url} alt={a.name} loading="lazy" />
+      </a>
+    );
+  }
+  return (
+    <a href={a.url} className="attachment-file" download={a.name}>
+      <span className="file-icon" aria-hidden>
+        📄
+      </span>
+      <span className="ellipsis">{a.name}</span>
+      <span className="muted small">{bytes(a.size)}</span>
+    </a>
   );
 }
