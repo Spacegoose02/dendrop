@@ -13,6 +13,8 @@ export interface ServerConfig {
   signup: boolean;
   /** Largest file a message can carry. */
   maxUploadBytes: number;
+  /** Allow http:// push endpoints, for a ntfy server on the home network. */
+  pushAllowHttp: boolean;
   /** Voice and video through a LiveKit server. Calls are off unless all three are set. */
   livekit: { url: string; apiKey: string; apiSecret: string };
   oidc: {
@@ -40,6 +42,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     localLogin: bool(env.DENDROP_LOCAL_LOGIN, true),
     signup: bool(env.DENDROP_SIGNUP, false),
     maxUploadBytes: Math.max(1, Number(env.DENDROP_MAX_UPLOAD_MB) || 25) * 1024 * 1024,
+    pushAllowHttp: bool(env.DENDROP_PUSH_ALLOW_HTTP, false),
     livekit: {
       url: (env.DENDROP_LIVEKIT_URL ?? "").trim(),
       apiKey: (env.DENDROP_LIVEKIT_API_KEY ?? "").trim(),

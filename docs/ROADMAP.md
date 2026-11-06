@@ -165,7 +165,7 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Backbone | Screen sharing | 4 | Missing |
 | Backbone | Game streaming | 4 | Missing |
 | Backbone | Voice chat | 1 (DM calls), 4 (channels) | Partial: voice and video calls in DMs and group chats |
-| Backbone | Phone notifications | 2 | Missing |
+| Backbone | Phone notifications | 2 | Partial: server sends content-free pushes; Android app in #7 |
 | Backbone | Speaker settings | 4 | Missing |
 | Backbone | Microphone settings | 4 | Missing |
 | Backbone | Friend invites | 1 | Done |

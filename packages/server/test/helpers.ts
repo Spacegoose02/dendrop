@@ -14,7 +14,7 @@ export interface TestServer extends BuiltApp {
 }
 
 /** A server on a random port with its own data folder. */
-export async function startServer(env: Record<string, string> = {}, options: { callRingMs?: number } = {}): Promise<TestServer> {
+export async function startServer(env: Record<string, string> = {}, options: Parameters<typeof buildApp>[2] = {}): Promise<TestServer> {
   const dir = mkdtempSync(path.join(tmpdir(), "dendrop-test-"));
   const config: ServerConfig = loadConfig({ DENDROP_DATA_DIR: dir, DENDROP_WEB_DIR: path.join(dir, "no-web"), ...env });
   const built = await buildApp(config, undefined, options);
