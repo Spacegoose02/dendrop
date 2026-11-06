@@ -34,6 +34,8 @@ export interface Context {
   /** Hooks for the gateway, so features can react to events from clients. */
   onClientEvent: ((user: UserRecord, event: ClientEvent) => void)[];
   onPresence: ((userId: number, online: boolean) => void)[];
+  /** How long calls ring before they count as missed; shorter in tests. */
+  callRingMs?: number;
 }
 
 export interface BuiltApp {
@@ -41,7 +43,11 @@ export interface BuiltApp {
   ctx: Context;
 }
 
-export async function buildApp(config: ServerConfig, db: Db = openDb(path.join(config.dataDir, "dendrop.db"))): Promise<BuiltApp> {
+export async function buildApp(
+  config: ServerConfig,
+  db: Db = openDb(path.join(config.dataDir, "dendrop.db")),
+  options: { callRingMs?: number } = {},
+): Promise<BuiltApp> {
   const app = Fastify({ logger: process.env.NODE_ENV === "test" ? false : { level: process.env.DENDROP_LOG_LEVEL ?? "info" }, trustProxy: true });
   const users = new UserRepo(db);
   const ctx: Context = {
@@ -53,6 +59,7 @@ export async function buildApp(config: ServerConfig, db: Db = openDb(path.join(c
     gateway: new Gateway(),
     onClientEvent: [],
     onPresence: [],
+    callRingMs: options.callRingMs,
   };
 
   await app.register(cookie);

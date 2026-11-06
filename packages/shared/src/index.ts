@@ -72,6 +72,28 @@ export interface AuthInfo {
 /** GET /api/server: what this server allows, for signed-in clients. */
 export interface ServerInfo {
   maxUploadBytes: number;
+  /** Voice and video calls work only when the server has LiveKit set up. */
+  calls: boolean;
+}
+
+/** A call in a conversation. Calls live in memory on the server while they last. */
+export interface Call {
+  conversationId: number;
+  startedBy: number;
+  startedAt: string;
+  /** Whether the person calling turned their camera on to start with. */
+  video: boolean;
+  /** People in the call right now. */
+  joined: number[];
+  /** People being rung who haven't answered or declined. */
+  ringing: number[];
+}
+
+/** What a client needs to join a call's LiveKit room. */
+export interface CallJoin {
+  call: Call;
+  url: string;
+  token: string;
 }
 
 /** Pictures the web client shows inline. Everything else is offered as a download. */
@@ -97,6 +119,8 @@ export type ServerEvent =
   | { type: "friend.removed"; userId: number }
   | { type: "typing"; conversationId: number; userId: number }
   | { type: "read"; conversationId: number; userId: number; messageId: number }
+  | { type: "call.updated"; call: Call }
+  | { type: "call.ended"; conversationId: number; missed: boolean }
   | { type: "presence"; userId: number; online: boolean };
 
 /** Events a client sends over the gateway. Everything else goes through the HTTP API. */

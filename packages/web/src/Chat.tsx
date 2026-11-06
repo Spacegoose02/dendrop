@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
-import { INLINE_IMAGE_TYPES, LIMITS, type Attachment, type Conversation, type Me, type Message } from "@dendrop/shared";
+import { INLINE_IMAGE_TYPES, LIMITS, type Attachment, type Call, type Conversation, type Me, type Message } from "@dendrop/shared";
 import { api, apiForm } from "./api.ts";
 import { EMOJI } from "./emoji.ts";
 import { Avatar } from "./Avatar.tsx";
@@ -22,6 +22,10 @@ export function Chat({
   typingIds,
   sendTyping,
   onBack,
+  callsEnabled,
+  call,
+  inThisCall,
+  onCall,
 }: {
   me: Me;
   conversation: Conversation;
@@ -31,6 +35,10 @@ export function Chat({
   typingIds: number[];
   sendTyping: () => void;
   onBack: () => void;
+  callsEnabled: boolean;
+  call: Call | undefined;
+  inThisCall: boolean;
+  onCall: (video: boolean) => void;
 }) {
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
@@ -237,6 +245,24 @@ export function Chat({
         )}
         <h2 className="ellipsis">{title}</h2>
         {conversation.isGroup && <span className="muted small">{conversation.members.length} members</span>}
+        {callsEnabled && !inThisCall && (
+          <span className="header-actions">
+            {call && call.joined.length > 0 ? (
+              <button className="accept small-button" onClick={() => onCall(false)}>
+                Join call ({call.joined.length})
+              </button>
+            ) : (
+              <>
+                <button className="ghost icon" onClick={() => onCall(false)} title="Voice call" aria-label="Voice call">
+                  📞
+                </button>
+                <button className="ghost icon" onClick={() => onCall(true)} title="Video call" aria-label="Video call">
+                  🎥
+                </button>
+              </>
+            )}
+          </span>
+        )}
       </header>
 
       <div

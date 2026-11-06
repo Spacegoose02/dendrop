@@ -5,6 +5,7 @@ import { pipeline } from "node:stream/promises";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { INLINE_IMAGE_TYPES, isUsername, LIMITS } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
+import { CallService } from "../calls.js";
 import { ConversationRepo, type NewAttachment } from "../conversations.js";
 import { HttpError } from "../errors.js";
 import { FriendRepo } from "../friends.js";
@@ -41,7 +42,11 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
   };
 
   // Presence goes to friends only, and typing to the other people in the conversation.
+  const calls = new CallService(config, gateway, ctx.callRingMs);
+  app.addHook("onClose", async () => calls.closeAll());
+
   ctx.onPresence.push((userId, online) => {
+    if (!online) calls.leaveAll(userId);
     const ids = friends.list(userId).filter((f) => f.state === "friends").map((f) => f.user.id);
     gateway.send(ids, { type: "presence", userId, online });
   });
@@ -187,6 +192,37 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
       .header("content-security-policy", "default-src 'none'; sandbox")
       .header("cache-control", "private, max-age=31536000, immutable")
       .send(createReadStream(path.join(uploads, a.id)));
+  });
+
+  // ---- Calls ------------------------------------------------------------------
+
+  app.get("/api/calls", async (req) => {
+    const me = requireUser(req);
+    return calls.forUser(me.id);
+  });
+
+  /** Starts a call in a conversation, or joins the one going. Returns a LiveKit token. */
+  app.post<{ Params: { id: string }; Body: { video?: unknown } }>("/api/conversations/:id/call", async (req) => {
+    const me = requireUser(req);
+    const cid = id(req.params.id);
+    member(cid, me.id);
+    return calls.join(cid, convos.memberIds(cid), me, req.body?.video === true);
+  });
+
+  app.post<{ Params: { id: string } }>("/api/conversations/:id/call/decline", async (req) => {
+    const me = requireUser(req);
+    const cid = id(req.params.id);
+    member(cid, me.id);
+    calls.decline(cid, me.id);
+    return { ok: true };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/conversations/:id/call/leave", async (req) => {
+    const me = requireUser(req);
+    const cid = id(req.params.id);
+    member(cid, me.id);
+    calls.leave(cid, me.id);
+    return { ok: true };
   });
 
   /** Marks messages up to `messageId` as read and tells the others, if receipts are on. */

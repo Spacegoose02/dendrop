@@ -24,6 +24,18 @@ Add an OIDC client in TinyAuth with the redirect URL
 `DENDROP_OIDC_CLIENT_ID` and `DENDROP_OIDC_CLIENT_SECRET`. Accounts are made the first time
 someone signs in. Once everyone uses TinyAuth you can set `DENDROP_LOCAL_LOGIN=false`.
 
+### Calls
+
+Voice and video go through [LiveKit](https://livekit.io), which runs as the second service in
+`docker-compose.yml`. Set `DENDROP_LIVEKIT_URL`, `DENDROP_LIVEKIT_API_KEY` and
+`DENDROP_LIVEKIT_API_SECRET` in `.env`, then:
+
+- put port 7880 behind your reverse proxy with HTTPS (e.g. `calls.example.com`) and use that
+  `wss://` address as `DENDROP_LIVEKIT_URL`;
+- forward 7881/tcp and 50000-50100/udp on your router so calls work away from home.
+
+Without those settings Dendrop runs as before and the call buttons don't show.
+
 ## Developing
 
 Node 22 or newer.

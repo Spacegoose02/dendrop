@@ -110,6 +110,7 @@ export function authRoutes(app: FastifyInstance, ctx: Context): void {
 
   app.get("/api/server", async (req): Promise<ServerInfo> => {
     requireUser(req);
-    return { maxUploadBytes: config.maxUploadBytes };
+    const l = config.livekit;
+    return { maxUploadBytes: config.maxUploadBytes, calls: !!(l.url && l.apiKey && l.apiSecret) };
   });
 }
