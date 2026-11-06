@@ -1,0 +1,46 @@
+/*
+ * Dendrop design tokens: the default "Den" raccoon theme.
+ * Every client styles itself with these variables only, so a theme is just another set of
+ * values on :root (or on [data-theme="..."]).
+ */
+:root,
+[data-theme="den"] {
+  /* Surfaces, darkest to lightest: the mask, the fur, the belly. */
+  --dd-bg-rail: #121418;
+  --dd-bg-sidebar: #1a1d22;
+  --dd-bg-main: #20242a;
+  --dd-bg-raised: #2a2f37;
+  --dd-bg-hover: #323843;
+  --dd-bg-input: #16181c;
+  --dd-border: #343a44;
+
+  /* Text */
+  --dd-text: #e9e6e1;
+  --dd-text-muted: #a3a8b1;
+  --dd-text-faint: #6e7480;
+
+  /* Accent: lantern amber, like eyes in the dark. Secondary: tail-ring grey. */
+  --dd-accent: #f2a541;
+  --dd-accent-strong: #ffb85c;
+  --dd-accent-text: #1a1206;
+  --dd-ring: #8c929c;
+
+  /* States */
+  --dd-online: #5cc98a;
+  --dd-danger: #e5605a;
+  --dd-warning: #e9c46a;
+
+  /* Shape and type */
+  --dd-radius-sm: 6px;
+  --dd-radius: 10px;
+  --dd-radius-lg: 16px;
+  --dd-font: "Nunito", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --dd-font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* Layout */
+  --dd-rail-width: 72px;
+  --dd-sidebar-width: 260px;
+  --dd-members-width: 240px;
+
+  color-scheme: dark;
+}

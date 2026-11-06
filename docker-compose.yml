@@ -1,0 +1,14 @@
+# Example deployment. Copy .env.example to .env, adjust it, then:
+#   docker compose up -d --build
+# LiveKit (voice and video) joins this file in Phase 1's calls work.
+services:
+  dendrop:
+    build: .
+    image: ${DENDROP_IMAGE:-ghcr.io/spacegoose02/dendrop:latest}
+    container_name: dendrop
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+    env_file: .env
+    volumes:
+      - ${APPDATA_PATH:-/mnt/user/appdata/dendrop}:/data

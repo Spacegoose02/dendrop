@@ -1,0 +1,12 @@
+{
+  "name": "@dendrop/theme",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Dendrop's design tokens. tokens.css for any client; index.ts for code that needs the values.",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.css": "./src/tokens.css"
+  }
+}
