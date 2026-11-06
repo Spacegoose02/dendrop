@@ -72,6 +72,41 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX messages_conversation ON messages(conversation_id, id);
   `,
+  `
+  ALTER TABLE users ADD COLUMN read_receipts INTEGER NOT NULL DEFAULT 1;
+
+  -- Files sent in messages. The bytes live in <data>/uploads/<id>.
+  CREATE TABLE attachments (
+    id TEXT PRIMARY KEY,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    content_type TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX attachments_message ON attachments(message_id);
+  `,
+  `
+  -- Where to send phone notifications (UnifiedPush / Web Push endpoints).
+  CREATE TABLE push_subscriptions (
+    endpoint TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    p256dh TEXT,
+    auth TEXT,
+    provider TEXT NOT NULL,
+    device_name TEXT,
+    created_at TEXT NOT NULL,
+    last_sent_at TEXT
+  );
+  CREATE INDEX push_subscriptions_user ON push_subscriptions(user_id);
+
+  -- Small server-wide settings, such as the VAPID keys made on first start.
+  CREATE TABLE server_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  `,
 ];
 
 export function now(): string {

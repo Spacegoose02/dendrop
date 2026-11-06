@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { isUsername, LIMITS, type AuthInfo } from "@dendrop/shared";
+import { isUsername, LIMITS, type AuthInfo, type ServerInfo } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
 import { hashPassword, verifyPassword } from "../auth/crypto.js";
 import { safeReturn } from "../auth/oidc.js";
@@ -95,10 +95,22 @@ export function authRoutes(app: FastifyInstance, ctx: Context): void {
 
   app.get("/api/me", async (req) => toMe(requireUser(req)));
 
-  app.patch<{ Body: { displayName?: unknown } }>("/api/me", async (req) => {
+  app.patch<{ Body: { displayName?: unknown; readReceipts?: unknown } }>("/api/me", async (req) => {
     const user = requireUser(req);
-    const name = req.body?.displayName;
-    if (typeof name !== "string" || !name.trim()) throw new HttpError(400, "A display name can't be empty");
-    return toMe(users.update(user.id, { displayName: name.trim().slice(0, LIMITS.displayNameLength) }));
+    const { displayName: name, readReceipts } = req.body ?? {};
+    if (name !== undefined && (typeof name !== "string" || !name.trim())) throw new HttpError(400, "A display name can't be empty");
+    if (readReceipts !== undefined && typeof readReceipts !== "boolean") throw new HttpError(400, "readReceipts is true or false");
+    return toMe(
+      users.update(user.id, {
+        displayName: typeof name === "string" ? name.trim().slice(0, LIMITS.displayNameLength) : undefined,
+        readReceipts: readReceipts as boolean | undefined,
+      }),
+    );
+  });
+
+  app.get("/api/server", async (req): Promise<ServerInfo> => {
+    requireUser(req);
+    const l = config.livekit;
+    return { maxUploadBytes: config.maxUploadBytes, calls: !!(l.url && l.apiKey && l.apiSecret) };
   });
 }

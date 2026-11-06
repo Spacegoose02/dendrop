@@ -14,10 +14,12 @@ import {
   type Theme,
   type ThemeFamily,
 } from "@dendrop/theme";
+import { LIMITS, type Me } from "@dendrop/shared";
+import { api } from "./api.ts";
 import "./settings.css";
 
-/** The gear button and the settings dialog it opens. Appearance is the only section so far. */
-export function SettingsButton() {
+/** The gear button and the settings dialog it opens: your account and privacy, then appearance. */
+export function SettingsButton({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
 
@@ -44,13 +46,13 @@ export function SettingsButton() {
         onClose={() => setOpen(false)}
         onClick={(e) => e.target === dialog.current && setOpen(false)}
       >
-        {open && <AppearancePane onDone={() => setOpen(false)} />}
+        {open && <SettingsPane me={me} onSaved={onSaved} onDone={() => setOpen(false)} />}
       </dialog>
     </>
   );
 }
 
-function AppearancePane({ onDone }: { onDone: () => void }) {
+function SettingsPane({ me, onSaved, onDone }: { me: Me; onSaved: (me: Me) => void; onDone: () => void }) {
   const [appearance, set] = useState<Appearance>(loadAppearance);
   const [family, setFamily] = useState<ThemeFamily | "all">(() => getTheme(loadAppearance().theme).family);
   const current = getTheme(appearance.theme);
@@ -65,11 +67,13 @@ function AppearancePane({ onDone }: { onDone: () => void }) {
   return (
     <div className="settings-body">
       <header className="settings-header">
-        <h2>Appearance</h2>
+        <h2>Settings</h2>
         <button className="ghost" onClick={onDone} aria-label="Close settings">
           Done
         </button>
       </header>
+
+      <AccountSection me={me} onSaved={onSaved} />
 
       <section>
         <h3>Theme</h3>
@@ -108,6 +112,64 @@ function AppearancePane({ onDone }: { onDone: () => void }) {
         </div>
       </section>
     </div>
+  );
+}
+
+/** Display name and read receipts. These are saved to your account, so they follow you to every device. */
+function AccountSection({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
+  const [displayName, setDisplayName] = useState(me.displayName);
+  const [readReceipts, setReadReceipts] = useState(me.readReceipts);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const changed = displayName.trim() !== me.displayName || readReceipts !== me.readReceipts;
+
+  const save = async () => {
+    setError(null);
+    try {
+      onSaved(await api<Me>("/api/me", { method: "PATCH", body: { displayName, readReceipts } }));
+      setStatus("Saved");
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  return (
+    <section className="account-settings">
+      <h3>Account</h3>
+      <label>
+        Display name
+        <input
+          value={displayName}
+          onChange={(e) => {
+            setDisplayName(e.target.value);
+            setStatus(null);
+          }}
+          maxLength={LIMITS.displayNameLength}
+        />
+      </label>
+      <h3>Privacy</h3>
+      <label className="toggle">
+        <input
+          type="checkbox"
+          checked={readReceipts}
+          onChange={(e) => {
+            setReadReceipts(e.target.checked);
+            setStatus(null);
+          }}
+        />
+        <span>
+          <strong>Read receipts</strong>
+          <span className="muted small">Let people see when you've read their messages. When this is off you won't see theirs either.</span>
+        </span>
+      </label>
+      {error && <p className="error">{error}</p>}
+      <div className="account-save">
+        <button className="primary" disabled={!changed} onClick={() => void save()}>
+          Save
+        </button>
+        {status && !changed && <span className="muted small">{status}</span>}
+      </div>
+    </section>
   );
 }
 

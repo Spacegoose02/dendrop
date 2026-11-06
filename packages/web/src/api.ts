@@ -22,6 +22,14 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   return data as T;
 }
 
+/** Multipart request, for messages with files. */
+export async function apiForm<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(path, { method: "POST", credentials: "same-origin", body: form });
+  const data = res.headers.get("content-type")?.includes("json") ? await res.json() : null;
+  if (!res.ok) throw new ApiError(res.status, (data as { error?: string } | null)?.error ?? res.statusText);
+  return data as T;
+}
+
 export const getAuthInfo = () => api<AuthInfo>("/api/auth/info");
 export const getMe = () => api<Me>("/api/me");
 export const logout = () => api<{ ok: true }>("/api/auth/logout", { method: "POST", body: {} });

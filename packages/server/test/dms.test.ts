@@ -1,32 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import WebSocket from "ws";
-import type { Conversation, Message, ServerEvent } from "@dendrop/shared";
-import { account, startServer, type TestServer } from "./helpers.js";
-
-/** A gateway connection that collects events. */
-async function listen(s: TestServer, cookie: string) {
-  const events: ServerEvent[] = [];
-  const ws = new WebSocket(`${s.url.replace("http", "ws")}/api/gateway`, { headers: { cookie } });
-  await new Promise<void>((resolve, reject) => {
-    ws.on("message", (d) => {
-      const e = JSON.parse(String(d)) as ServerEvent;
-      events.push(e);
-      if (e.type === "ready") resolve();
-    });
-    ws.once("error", reject);
-  });
-  const waitFor = async <T extends ServerEvent["type"]>(type: T, timeout = 2000): Promise<Extract<ServerEvent, { type: T }>> => {
-    const start = Date.now();
-    for (;;) {
-      const i = events.findIndex((e) => e.type === type);
-      if (i >= 0) return events.splice(i, 1)[0] as Extract<ServerEvent, { type: T }>;
-      if (Date.now() - start > timeout) throw new Error(`no ${type} event`);
-      await new Promise((r) => setTimeout(r, 10));
-    }
-  };
-  return { ws, events, waitFor };
-}
+import type { Conversation, Message } from "@dendrop/shared";
+import { account, listen, startServer, type TestServer } from "./helpers.js";
 
 describe("friends and direct messages", () => {
   let s: TestServer;

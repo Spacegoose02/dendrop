@@ -1,11 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { Conversation, Friend, Me, Message, PublicUser, ServerEvent } from "@dendrop/shared";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import type { Call, CallJoin, Conversation, Friend, Me, Message, PublicUser, ServerEvent, ServerInfo } from "@dendrop/shared";
 import { api, connectGateway, logout } from "./api.ts";
 import { Chat } from "./Chat.tsx";
 import { Friends } from "./Friends.tsx";
 import { Avatar } from "./Avatar.tsx";
+import { IncomingCall } from "./IncomingCall.tsx";
+import { NewGroup } from "./NewGroup.tsx";
 import { SettingsButton } from "./Settings.tsx";
 import { conversationTitle, type History } from "./util.ts";
+
+// The call code (LiveKit) is big, so it only loads when a call starts.
+const CallPanel = lazy(() => import("./CallPanel.tsx").then((m) => ({ default: m.CallPanel })));
 
 export type View = { kind: "friends" } | { kind: "conversation"; id: number };
 
@@ -13,7 +18,14 @@ export type View = { kind: "friends" } | { kind: "conversation"; id: number };
  * The main layout: server rail, sidebar (DMs), main pane (friends or a chat).
  * Holds the live state the gateway keeps up to date.
  */
-export function Shell({ me, onSignedOut }: { me: Me; onSignedOut: () => void }) {
+export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () => void }) {
+  const [me, setMe] = useState(initialMe);
+  const [dialog, setDialog] = useState<"group" | null>(null);
+  const [server, setServer] = useState<ServerInfo | null>(null);
+  const [calls, setCalls] = useState<Record<number, Call>>({});
+  /** The call this device is in. */
+  const [inCall, setInCall] = useState<CallJoin | null>(null);
+  const [callError, setCallError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [view, setView] = useState<View>({ kind: "friends" });
   /** On phones only one column shows: the DM list, or what's open. */
@@ -28,7 +40,14 @@ export function Shell({ me, onSignedOut }: { me: Me; onSignedOut: () => void }) 
   viewRef.current = view;
 
   const refresh = useCallback(async () => {
-    const [f, c] = await Promise.all([api<Friend[]>("/api/friends"), api<Conversation[]>("/api/conversations")]);
+    const [f, c, info, live] = await Promise.all([
+      api<Friend[]>("/api/friends"),
+      api<Conversation[]>("/api/conversations"),
+      api<ServerInfo>("/api/server"),
+      api<Call[]>("/api/calls"),
+    ]);
+    setServer(info);
+    setCalls(Object.fromEntries(live.map((x) => [x.conversationId, x])));
     setFriends(f);
     setOnline(new Set(f.filter((x) => x.online).map((x) => x.user.id)));
     setConversations(c);
@@ -104,6 +123,26 @@ export function Shell({ me, onSignedOut }: { me: Me; onSignedOut: () => void }) 
           });
           break;
         }
+        case "read":
+          setConversations((cs) =>
+            cs.map((c) =>
+              c.id === e.conversationId
+                ? { ...c, reads: [...c.reads.filter((r) => r.userId !== e.userId), { userId: e.userId, messageId: e.messageId }] }
+                : c,
+            ),
+          );
+          break;
+        case "call.updated":
+          setCalls((cs) => ({ ...cs, [e.call.conversationId]: e.call }));
+          break;
+        case "call.ended":
+          setCalls((cs) => {
+            const n = { ...cs };
+            delete n[e.conversationId];
+            return n;
+          });
+          setInCall((c) => (c?.call.conversationId === e.conversationId ? null : c));
+          break;
         case "typing":
           setTyping((t) => ({ ...t, [e.conversationId]: { ...(t[e.conversationId] ?? {}), [e.userId]: Date.now() } }));
           break;
@@ -155,6 +194,26 @@ export function Shell({ me, onSignedOut }: { me: Me; onSignedOut: () => void }) 
     open({ kind: "conversation", id: c.id });
   };
 
+  const startCall = async (conversationId: number, video: boolean) => {
+    if (inCall && inCall.call.conversationId !== conversationId) {
+      if (!confirm("Leave your current call and join this one?")) return;
+      void api(`/api/conversations/${inCall.call.conversationId}/call/leave`, { body: {} });
+      setInCall(null);
+    }
+    setCallError(null);
+    try {
+      const j = await api<CallJoin>(`/api/conversations/${conversationId}/call`, { body: { video } });
+      // Whoever answers with video starts with their camera on, like the caller.
+      setInCall({ ...j, call: { ...j.call, video, startedBy: video ? me.id : j.call.startedBy } });
+      open({ kind: "conversation", id: conversationId });
+    } catch (err) {
+      setCallError((err as Error).message);
+    }
+  };
+
+  // Ring for a call that's ringing this person, unless they're already in one.
+  const ringing = Object.values(calls).find((c) => c.ringing.includes(me.id) && c.conversationId !== inCall?.call.conversationId);
+
   const current = view.kind === "conversation" ? conversations.find((c) => c.id === view.id) : undefined;
   const incoming = friends.filter((f) => f.state === "incoming").length;
 
@@ -177,7 +236,12 @@ export function Shell({ me, onSignedOut }: { me: Me; onSignedOut: () => void }) 
             Friends
             {incoming > 0 && <span className="badge">{incoming}</span>}
           </button>
-          <div className="section-label">Conversations</div>
+          <div className="section-label with-action">
+            Conversations
+            <button className="ghost" onClick={() => setDialog("group")} title="New group chat" aria-label="New group chat">
+              ＋
+            </button>
+          </div>
           {conversations.length === 0 && <p className="muted small">No conversations yet.</p>}
           {conversations.map((c) => {
             const others = c.members.filter((m) => m.id !== me.id);
@@ -204,7 +268,14 @@ export function Shell({ me, onSignedOut }: { me: Me; onSignedOut: () => void }) 
             <strong>{me.displayName}</strong>
             <span className="muted">@{me.username}</span>
           </div>
-          <SettingsButton />
+          <SettingsButton
+            me={me}
+            onSaved={(m) => {
+              setMe(m);
+              // Turning receipts on or off changes whose reads this person can see.
+              void api<Conversation[]>("/api/conversations").then(setConversations);
+            }}
+          />
           <button className="ghost" onClick={() => void logout().then(onSignedOut)} title="Sign out">
             Sign out
           </button>
@@ -212,6 +283,27 @@ export function Shell({ me, onSignedOut }: { me: Me; onSignedOut: () => void }) 
       </aside>
 
       <main className="main">
+        {inCall && (
+          <Suspense fallback={<div className="call-bar muted">Joining the call…</div>}>
+          <CallPanel
+            key={inCall.call.conversationId}
+            me={me}
+            join={inCall}
+            conversation={conversations.find((c) => c.id === inCall.call.conversationId)}
+            compact={!(view.kind === "conversation" && view.id === inCall.call.conversationId)}
+            onOpen={() => open({ kind: "conversation", id: inCall.call.conversationId })}
+            onLeft={() => setInCall(null)}
+          />
+          </Suspense>
+        )}
+        {callError && (
+          <p className="error call-error" role="alert">
+            {callError}{" "}
+            <button className="link" onClick={() => setCallError(null)}>
+              Dismiss
+            </button>
+          </p>
+        )}
         {view.kind === "friends" && <Friends friends={friends} online={online} onMessage={messageFriend} onBack={() => setShowMain(false)} />}
         {view.kind === "conversation" && current && (
           <Chat
@@ -223,10 +315,39 @@ export function Shell({ me, onSignedOut }: { me: Me; onSignedOut: () => void }) 
             setHistory={(h) => setHistories((all) => ({ ...all, [current.id]: h(all[current.id]) }))}
             typingIds={Object.keys(typing[current.id] ?? {}).map(Number)}
             sendTyping={() => sendRef.current({ type: "typing", conversationId: current.id })}
+            callsEnabled={!!server?.calls}
+            call={calls[current.id]}
+            inThisCall={inCall?.call.conversationId === current.id}
+            onCall={(video) => void startCall(current.id, video)}
             onBack={() => setShowMain(false)}
           />
         )}
       </main>
+      {ringing && !dialog && (
+        <IncomingCall
+          me={me}
+          call={ringing}
+          conversation={conversations.find((c) => c.id === ringing.conversationId)}
+          onAccept={(video) => void startCall(ringing.conversationId, video)}
+          onDecline={() => {
+            const cid = ringing.conversationId;
+            // Hide it straight away; the server's update follows.
+            setCalls((cs) => ({ ...cs, [cid]: { ...cs[cid]!, ringing: cs[cid]!.ringing.filter((id) => id !== me.id) } }));
+            void api(`/api/conversations/${cid}/call/decline`, { body: {} });
+          }}
+        />
+      )}
+      {dialog === "group" && (
+        <NewGroup
+          friends={friends}
+          onClose={() => setDialog(null)}
+          onCreated={(c) => {
+            setDialog(null);
+            setConversations((cs) => [c, ...cs.filter((x) => x.id !== c.id)]);
+            open({ kind: "conversation", id: c.id });
+          }}
+        />
+      )}
     </div>
   );
 }
