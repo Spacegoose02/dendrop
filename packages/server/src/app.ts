@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cookie from "@fastify/cookie";
+import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
@@ -55,6 +56,7 @@ export async function buildApp(config: ServerConfig, db: Db = openDb(path.join(c
   };
 
   await app.register(cookie);
+  await app.register(multipart, { limits: { fileSize: config.maxUploadBytes } });
   await app.register(websocket, { options: { maxPayload: 64 * 1024 } });
 
   app.setErrorHandler((err: Error & { statusCode?: number; validation?: unknown }, req, reply) => {

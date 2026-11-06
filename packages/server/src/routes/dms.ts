@@ -1,7 +1,11 @@
-import type { FastifyInstance } from "fastify";
-import { isUsername } from "@dendrop/shared";
+import { randomBytes } from "node:crypto";
+import { createReadStream, createWriteStream, mkdirSync, rmSync, statSync } from "node:fs";
+import path from "node:path";
+import { pipeline } from "node:stream/promises";
+import type { FastifyInstance, FastifyRequest } from "fastify";
+import { INLINE_IMAGE_TYPES, isUsername, LIMITS } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
-import { ConversationRepo } from "../conversations.js";
+import { ConversationRepo, type NewAttachment } from "../conversations.js";
 import { HttpError } from "../errors.js";
 import { FriendRepo } from "../friends.js";
 
@@ -13,7 +17,12 @@ const id = (v: unknown): number => {
 
 /** Friends, direct messages and group DMs. */
 export function dmRoutes(app: FastifyInstance, ctx: Context): void {
-  const { db, users, gateway } = ctx;
+  const { db, users, gateway, config } = ctx;
+  const uploads = path.join(config.dataDir, "uploads");
+  mkdirSync(uploads, { recursive: true });
+  const removeFiles = (ids: string[]) => {
+    for (const f of ids) rmSync(path.join(uploads, f), { force: true });
+  };
   const friends = new FriendRepo(db, users);
   const convos = new ConversationRepo(db, users, friends);
 
@@ -113,13 +122,84 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     return convos.messages(cid, req.query.before ? id(req.query.before) : undefined, req.query.limit ? Number(req.query.limit) : undefined);
   });
 
-  app.post<{ Params: { id: string }; Body: { body?: unknown } }>("/api/conversations/:id/messages", async (req) => {
+  /**
+   * Reads a message from JSON ({ body }) or multipart (a "body" field plus files). Files are
+   * streamed to the uploads folder; on any error the ones already written are removed.
+   */
+  const readMessage = async (req: FastifyRequest): Promise<{ body: unknown; files: NewAttachment[] }> => {
+    if (!req.isMultipart()) return { body: (req.body as { body?: unknown } | undefined)?.body, files: [] };
+    const files: NewAttachment[] = [];
+    let body: unknown;
+    try {
+      for await (const part of req.parts({ limits: { fileSize: config.maxUploadBytes, files: LIMITS.attachmentsPerMessage, fields: 4 } })) {
+        if (part.type === "field") {
+          if (part.fieldname === "body") body = part.value;
+          continue;
+        }
+        if (files.length >= LIMITS.attachmentsPerMessage) throw new HttpError(400, `Up to ${LIMITS.attachmentsPerMessage} files per message`);
+        const fileId = randomBytes(16).toString("hex");
+        const dest = path.join(uploads, fileId);
+        files.push({ id: fileId, name: cleanName(part.filename), size: 0, contentType: cleanType(part.mimetype) });
+        await pipeline(part.file, createWriteStream(dest, { flags: "wx" }));
+        if (part.file.truncated) {
+          throw new HttpError(413, `Files can be up to ${Math.round(config.maxUploadBytes / 1024 / 1024)} MB`);
+        }
+        files[files.length - 1]!.size = statSync(dest).size;
+      }
+    } catch (err) {
+      removeFiles(files.map((f) => f.id));
+      if (err instanceof HttpError) throw err;
+      const code = (err as { code?: string }).code;
+      if (code === "FST_REQ_FILE_TOO_LARGE") throw new HttpError(413, `Files can be up to ${Math.round(config.maxUploadBytes / 1024 / 1024)} MB`);
+      if (code === "FST_FILES_LIMIT") throw new HttpError(400, `Up to ${LIMITS.attachmentsPerMessage} files per message`);
+      throw err;
+    }
+    return { body, files };
+  };
+
+  app.post<{ Params: { id: string } }>("/api/conversations/:id/messages", async (req) => {
     const me = requireUser(req);
     const cid = id(req.params.id);
     member(cid, me.id);
-    const m = convos.send(cid, me.id, req.body?.body);
+    const { body, files } = await readMessage(req);
+    let m;
+    try {
+      m = convos.send(cid, me.id, body, files);
+    } catch (err) {
+      removeFiles(files.map((f) => f.id));
+      throw err;
+    }
     gateway.send(convos.memberIds(cid), { type: "message.created", message: m });
     return m;
+  });
+
+  /** Downloads a file. Only pictures are shown in the browser; everything else downloads. */
+  app.get<{ Params: { id: string; name: string } }>("/api/attachments/:id/:name", async (req, reply) => {
+    const me = requireUser(req);
+    const a = /^[0-9a-f]{32}$/.test(req.params.id) ? convos.attachment(req.params.id, me.id) : undefined;
+    if (!a) throw new HttpError(404, "No such file");
+    const inline = INLINE_IMAGE_TYPES.includes(a.contentType);
+    return reply
+      .header("content-type", inline ? a.contentType : "application/octet-stream")
+      .header("content-length", a.size)
+      .header("content-disposition", `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(a.name)}`)
+      .header("x-content-type-options", "nosniff")
+      .header("content-security-policy", "default-src 'none'; sandbox")
+      .header("cache-control", "private, max-age=31536000, immutable")
+      .send(createReadStream(path.join(uploads, a.id)));
+  });
+
+  /** Marks messages up to `messageId` as read and tells the others, if receipts are on. */
+  app.post<{ Params: { id: string }; Body: { messageId?: unknown } }>("/api/conversations/:id/read", async (req) => {
+    const me = requireUser(req);
+    const cid = id(req.params.id);
+    member(cid, me.id);
+    const moved = convos.markRead(cid, me.id, id(req.body?.messageId));
+    if (moved && me.readReceipts) {
+      const others = convos.memberIds(cid).filter((u) => u !== me.id && users.byId(u)?.readReceipts);
+      gateway.send(others, { type: "read", conversationId: cid, userId: me.id, messageId: moved });
+    }
+    return { ok: true };
   });
 
   app.patch<{ Params: { id: string }; Body: { body?: unknown } }>("/api/messages/:id", async (req) => {
@@ -131,8 +211,19 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
 
   app.delete<{ Params: { id: string } }>("/api/messages/:id", async (req) => {
     const me = requireUser(req);
-    const m = convos.delete(id(req.params.id), me.id);
+    const { message: m, removedFiles } = convos.delete(id(req.params.id), me.id);
+    removeFiles(removedFiles);
     gateway.send(convos.memberIds(m.conversationId), { type: "message.updated", message: m });
     return m;
   });
+}
+
+/** A safe display name for an uploaded file: no paths or control characters. */
+function cleanName(name: string | undefined): string {
+  const base = path.basename(String(name ?? "").replace(/\\/g, "/")).replace(/[\u0000-\u001f\u007f"]/g, "").trim();
+  return (base || "file").slice(0, 200);
+}
+
+function cleanType(type: string | undefined): string {
+  return /^[\w.+-]+\/[\w.+-]+$/.test(type ?? "") ? type!.toLowerCase() : "application/octet-stream";
 }
