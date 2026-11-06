@@ -19,8 +19,8 @@ Compose stack on Unraid" and "one codebase for Windows, Linux, and Android".
 | Layer | Choice | Why |
 | --- | --- | --- |
 | Server API + realtime | TypeScript, Node, Fastify, WebSocket gateway | One language across server and clients |
-| Database | PostgreSQL (Drizzle or Prisma) | Relational data: servers, channels, roles, members |
-| Cache / pub-sub / presence | Redis | Typing, presence, fan-out across gateway instances |
+| Database | SQLite (built into Node), in the /data volume | One container to run and back up, like LootDen; Postgres only if it ever outgrows a family server |
+| Presence / typing | In memory in the server process | One server process per instance; Redis only if it ever needs several |
 | Voice, video, screen share | LiveKit (self-hosted SFU) | Handles WebRTC rooms, simulcast, screen share, game streaming |
 | File storage | Local volume, or MinIO (S3 API) | Uploads, avatars, custom emoji, banners |
 | Auth | TinyAuth as OIDC provider, app sessions in Postgres | SSO and MFA handled by TinyAuth |
@@ -30,15 +30,15 @@ Compose stack on Unraid" and "one codebase for Windows, Linux, and Android".
 | Push notifications | ntfy / UnifiedPush (self-hosted), FCM as an opt-in fallback | Phone notifications without depending on the desktop app |
 | Deployment | `docker-compose.yml` + Unraid template | One-command self-host |
 
-Suggested repo layout once code starts:
+Repo layout (npm workspaces, the same shape as LootDen):
 
 ```
-apps/server     # API + WebSocket gateway
-apps/web        # React client
-apps/desktop    # Electron shell
-apps/android    # Capacitor shell
-packages/shared # types, protocol, validation
-deploy/         # docker-compose, Unraid template, LiveKit + TinyAuth config
+packages/shared   # types and limits shared by the server and every client
+packages/theme    # design tokens (tokens.css) and theme ids; clients style only with these
+packages/server   # Fastify API, WebSocket gateway, SQLite, TinyAuth OIDC
+packages/web      # React client, also wrapped by the desktop and Android apps
+packages/desktop  # Electron app for Windows 11 and Linux
+packages/android  # Capacitor app (APK)
 ```
 
 ---

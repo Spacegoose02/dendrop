@@ -1,0 +1,27 @@
+{
+  "name": "dendrop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private, self-hosted chat for family and friends: direct messages, calls and chat servers.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/shared",
+    "packages/theme",
+    "packages/server",
+    "packages/web"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -b packages/shared packages/server && npm run build -w @dendrop/web",
+    "clean": "tsc -b --clean packages/shared packages/server",
+    "test": "tsc -b packages/shared packages/server && node --disable-warning=ExperimentalWarning --test \"packages/server/dist/test/**/*.test.js\"",
+    "dev:server": "tsc -b packages/shared packages/server && DENDROP_DATA_DIR=${DENDROP_DATA_DIR:-./data} node --disable-warning=ExperimentalWarning packages/server/dist/src/index.js",
+    "dev:web": "npm run dev -w @dendrop/web"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.0"
+  }
+}
