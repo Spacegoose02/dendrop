@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon for "Server settings": change the server or set up notifications. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="settings"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_monochrome"
+        android:shortcutShortLabel="@string/shortcut_settings_short"
+        android:shortcutLongLabel="@string/shortcut_settings_long">
+        <intent
+            android:action="io.github.spacegoose02.dendrop.SETTINGS"
+            android:targetPackage="io.github.spacegoose02.dendrop"
+            android:targetClass="io.github.spacegoose02.dendrop.MainActivity" />
+    </shortcut>
+</shortcuts>

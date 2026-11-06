@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- The debug build installs next to the release build, so it gets its own name. -->
+<resources>
+    <string name="app_name">Dendrop (debug)</string>
+    <string name="title_activity_main">Dendrop (debug)</string>
+</resources>

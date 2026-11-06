@@ -2,6 +2,9 @@
  * Dendrop design tokens: the default "Den" raccoon theme.
  * Every client styles itself with these variables only, so a theme is just another set of
  * values on :root (or on [data-theme="..."]).
+ *
+ * These are the Den defaults so the page is styled before any script runs. The other themes
+ * live in themes.ts and applyTheme() sets their values on the root element.
  */
 :root,
 [data-theme="den"] {
@@ -24,6 +27,9 @@
   --dd-accent-strong: #ffb85c;
   --dd-accent-text: #1a1206;
   --dd-ring: #8c929c;
+  --dd-accent-2: #8c929c;
+  /* Neon halo for accent elements; "none" except in laser and some nuclear themes. */
+  --dd-glow: none;
 
   /* States */
   --dd-online: #5cc98a;
