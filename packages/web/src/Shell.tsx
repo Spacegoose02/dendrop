@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Me } from "@dendrop/shared";
 import { connectGateway, logout } from "./api.ts";
+import { SettingsButton } from "./Settings.tsx";
 
 /**
  * The main layout: server rail, sidebar, main pane. The DM list and chat view fill the
@@ -32,6 +33,7 @@ export function Shell({ me, onSignedOut }: { me: Me; onSignedOut: () => void }) 
             <strong>{me.displayName}</strong>
             <span className="muted">@{me.username}</span>
           </div>
+          <SettingsButton />
           <button className="ghost" onClick={() => void logout().then(onSignedOut)} title="Sign out">
             Sign out
           </button>
