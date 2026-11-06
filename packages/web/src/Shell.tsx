@@ -4,6 +4,7 @@ import { api, connectGateway, logout } from "./api.ts";
 import { Chat } from "./Chat.tsx";
 import { Friends } from "./Friends.tsx";
 import { Avatar } from "./Avatar.tsx";
+import { SettingsButton } from "./Settings.tsx";
 import { conversationTitle, type History } from "./util.ts";
 
 export type View = { kind: "friends" } | { kind: "conversation"; id: number };
@@ -203,6 +204,7 @@ export function Shell({ me, onSignedOut }: { me: Me; onSignedOut: () => void }) 
             <strong>{me.displayName}</strong>
             <span className="muted">@{me.username}</span>
           </div>
+          <SettingsButton />
           <button className="ghost" onClick={() => void logout().then(onSignedOut)} title="Sign out">
             Sign out
           </button>
