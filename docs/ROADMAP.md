@@ -25,9 +25,9 @@ Compose stack on Unraid" and "one codebase for Windows, Linux, and Android".
 | File storage | Local volume, or MinIO (S3 API) | Uploads, avatars, custom emoji, banners |
 | Auth | TinyAuth as OIDC provider, app sessions in Postgres | SSO and MFA handled by TinyAuth |
 | Web client | React + Vite + TypeScript | Shared UI for every platform |
-| Desktop (Windows 11, Linux) | Tauri | Small binaries, tray, autostart, global keybinds, pop-out windows |
+| Desktop (Windows 11, Linux) | Electron (or Tauri) | Electron matches LootDen's desktop app, so tray, autostart, auto-update and packaging code can be reused; Tauri gives smaller binaries |
 | Android | Capacitor wrapping the same React app | APK builds, push notifications, native plugins for bubbles |
-| Push notifications | ntfy (self-hosted) or FCM for Android | Phone notifications without depending on the desktop app |
+| Push notifications | ntfy / UnifiedPush (self-hosted), FCM as an opt-in fallback | Phone notifications without depending on the desktop app |
 | Deployment | `docker-compose.yml` + Unraid template | One-command self-host |
 
 Suggested repo layout once code starts:
@@ -35,7 +35,7 @@ Suggested repo layout once code starts:
 ```
 apps/server     # API + WebSocket gateway
 apps/web        # React client
-apps/desktop    # Tauri shell
+apps/desktop    # Electron shell
 apps/android    # Capacitor shell
 packages/shared # types, protocol, validation
 deploy/         # docker-compose, Unraid template, LiveKit + TinyAuth config
@@ -72,35 +72,36 @@ Goal: you and your wife can log in and chat privately, replacing Discord DMs fir
 - Real-time text: send, edit, delete, typing indicators, history.
 - **Features → Message read receipts**, **Activity privacy** (hide online status / current activity).
 - **Features → Emojis**, **File uploading**.
-- **1:1 voice and video calls in DMs** (pulled forward from Phase 3, LiveKit with end-to-end encrypted media).
+- **1:1 voice and video calls in DMs** (pulled forward from Phase 4, LiveKit with end-to-end encrypted media).
 - End-to-end encryption for DMs: design it in from the start (see Privacy principles), even if the first cut ships with server-side encryption at rest.
 
-### Phase 2: Chat servers
+### Phase 2: Phone and PC apps
+Pulled up right after DMs, because chatting happens mostly from a phone and a PC.
+- **Systems → Android APK** (Capacitor build of the web client, sideloaded APK).
+- **Backbone → Phone notifications**, **Sounds → Notifications for incoming calls and messages** (content-free pushes through self-hosted ntfy/UnifiedPush; full-screen incoming call screen on Android).
+- **Features → Android chat bubbles for DMs** (native Bubbles API through a small Capacitor plugin).
+- **Systems → Windows 11**, **Linux** (desktop builds, installer, tray, auto-update).
+- **Systems → Automatically open when PC starts** (off by default).
+- **Systems → Keybinds** (push-to-talk, mute, deafen; global shortcuts on desktop).
+- **Features → Pop-out chats that separate from the main window**.
+
+### Phase 3: Chat servers
 - **Backbone → User needs to be approved to create chat servers** (super admin approval queue).
 - **Backbone → Ability for chat servers**, **Individual chat servers others can join, with ability to make private**, **Creator is owner of chat server**.
 - **Backbone → Lock channels, or owner chooses members** (per-channel permissions).
 - **Features → Invite links to chat servers**, **Backbone → Ability to browse other chat servers** (public server directory; private servers hidden).
 - **Features → GIFs** (off by default, since GIF search sends queries to a third party; can be proxied through the server).
 
-### Phase 3: Voice channels, screen share, and audio quality
+### Phase 4: Voice channels, screen share, and audio quality
 - **Backbone → Voice chat** in server channels, **Screen sharing**, **Game streaming** (LiveKit rooms).
 - **Backbone → Microphone settings**, **Speaker settings** (device pickers, volume, test tone).
 - **Systems → Automatically adjust input sensitivity**, **Noise suppression with various levels** (browser built-in, plus RNNoise for stronger levels).
 - **Systems → Advanced audio**: automatic gain control, advanced voice activity, bypass system audio processing, "no audio device detected" warnings, quality-of-service, "when I speak / when others speak" ducking.
 - **Sounds → Sounds for deafen, undeafen, mute, unmute** and other events.
 
-### Phase 4: Desktop and Android apps
-- **Systems → Windows 11**, **Linux** (Tauri builds, installer, auto-update).
-- **Systems → Automatically open when PC starts** (Tauri autostart, off by default).
-- **Systems → Keybinds** (push-to-talk, mute, deafen; global shortcuts on desktop).
-- **Features → Pop-out chats that separate from the main window**.
-- **Systems → Android APK** (Capacitor build).
-- **Backbone → Phone notifications**, **Sounds → Notifications for incoming calls and messages**.
-- **Features → Android chat bubbles for DMs** (native Bubbles API through a small Capacitor plugin).
-
 ### Phase 5: Kid-safe chat
-Built on Phase 1 roles, so it can start earlier if it is the priority.
-- **Link kid accounts with parents** (parent account owns one or more child accounts).
+Built on Phase 1 accounts, so it can start earlier if it becomes the priority.
+- **Link kid accounts with parents** (parent account owns one or more child accounts; can reuse LootDen's kid profiles, see Phase 8).
 - **Parental controls** dashboard: who the kid can DM, which servers they can join, friend request approval.
 - **Time-based controls** (allowed hours, daily limits).
 - **Profanity filters** (per-account, stricter for kids, configurable word lists).
@@ -118,8 +119,15 @@ Built on Phase 1 roles, so it can start earlier if it is the priority.
 - **Features → Themes**: a theme token system, then theme packs (10 dark, 10 nuclear, 10 gaming, 10 laser), with the raccoon theme as the default.
 
 ### Phase 8: Integrations
-- **Integrations → Lootden integration**. Needs a definition of what Lootden exposes (API, webhooks, bot?) before it can be scoped.
-- A general bot / webhook API, which also serves the kid-safe alert webhooks.
+- **Integrations → LootDen integration.** [LootDen](https://github.com/Spacegoose02/lootden) is the family's self-hosted game library. It already signs in with TinyAuth OIDC, runs on Docker/Unraid, tracks who is playing what on which PC, has kid profiles, game nights and a family screenshot wall, and today sends Discord status and Apprise alerts. Dendrop can take over the Discord parts:
+  - **Same sign-in:** both apps use the same TinyAuth users, so a LootDen profile and a Dendrop account line up by OIDC subject.
+  - **"Playing now" status:** LootDen's presence shows in Dendrop as your activity ("Playing Stardew Valley on Den-PC"), respecting Activity privacy. Replaces LootDen's Discord status.
+  - **Alerts into Dendrop:** LootDen's Apprise alerts (new games, requests, deals) post into a Dendrop channel or DM through an incoming webhook.
+  - **Game night:** a planned LootDen game night creates a Dendrop event with a voice channel, and "Surprise us" picks can be shared to chat.
+  - **Family wall:** Ctrl+Shift+S screenshots can be shared to a Dendrop channel, kid-safe filtering kept.
+  - **Kid accounts:** LootDen's kid profiles and parent links can seed Dendrop's kid-safe accounts (Phase 5), so a parent sets things up once.
+  - **Game links:** pasting a LootDen game link shows a card with cover art and a "Send to PC" button.
+- A general bot / webhook API, which the LootDen integration and the kid-safe alert webhooks both use.
 
 ---
 
@@ -138,47 +146,47 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Column | Card | Phase | Status |
 | --- | --- | --- | --- |
 | Systems | New Chat | 1 | Missing |
-| Systems | Windows 11 | 4 | Missing |
-| Systems | Android APK | 4 | Missing |
-| Systems | Linux | 4 | Missing |
+| Systems | Windows 11 | 2 | Missing |
+| Systems | Android APK | 2 | Missing |
+| Systems | Linux | 2 | Missing |
 | Systems | SSO with TinyAuth | 1 | Missing |
 | Systems | MFA usable | 1 | Missing |
-| Systems | Automatically adjust input sensitivity | 3 | Missing |
-| Systems | Noise suppression with levels | 3 | Missing |
-| Systems | Advanced audio switches | 3 | Missing |
-| Systems | Automatically open when PC starts | 4 | Missing |
-| Systems | Keybinds | 4 | Missing |
+| Systems | Automatically adjust input sensitivity | 4 | Missing |
+| Systems | Noise suppression with levels | 4 | Missing |
+| Systems | Advanced audio switches | 4 | Missing |
+| Systems | Automatically open when PC starts | 2 | Missing |
+| Systems | Keybinds | 2 | Missing |
 | Systems | Server: Docker / Unraid hosting | 0 | Missing |
-| Backbone | Ability for chat servers | 2 | Missing |
+| Backbone | Ability for chat servers | 3 | Missing |
 | Backbone | Users / TinyAuth for SSO | 1 | Missing |
 | Backbone | Super admin over whole server | 1 | Missing |
-| Backbone | Joinable chat servers, can be private | 2 | Missing |
+| Backbone | Joinable chat servers, can be private | 3 | Missing |
 | Backbone | Private chat / direct message | 1 | Missing |
-| Backbone | Screen sharing | 3 | Missing |
-| Backbone | Game streaming | 3 | Missing |
-| Backbone | Voice chat | 1 (DM calls), 3 (channels) | Missing |
-| Backbone | Phone notifications | 4 | Missing |
-| Backbone | Speaker settings | 3 | Missing |
-| Backbone | Microphone settings | 3 | Missing |
+| Backbone | Screen sharing | 4 | Missing |
+| Backbone | Game streaming | 4 | Missing |
+| Backbone | Voice chat | 1 (DM calls), 4 (channels) | Missing |
+| Backbone | Phone notifications | 2 | Missing |
+| Backbone | Speaker settings | 4 | Missing |
+| Backbone | Microphone settings | 4 | Missing |
 | Backbone | Friend invites | 1 | Missing |
-| Backbone | Browse other chat servers | 2 | Missing |
-| Backbone | Lock channels / owner chooses members | 2 | Missing |
-| Backbone | Creator is owner of chat server | 2 | Missing |
-| Backbone | Approval needed to create servers | 2 | Missing |
+| Backbone | Browse other chat servers | 3 | Missing |
+| Backbone | Lock channels / owner chooses members | 3 | Missing |
+| Backbone | Creator is owner of chat server | 3 | Missing |
+| Backbone | Approval needed to create servers | 3 | Missing |
 | Features | Message read receipts | 1 | Missing |
 | Features | Emojis | 1 | Missing |
-| Features | GIFs | 2 | Missing |
+| Features | GIFs | 3 | Missing |
 | Features | Custom app icons | 7 | Missing |
 | Features | File uploading | 1 | Missing |
 | Features | Custom emoji upload, sections | 7 | Missing |
 | Features | Themes (dark, nuclear, gaming, laser) | 7 | Missing |
-| Features | Pop-out chats | 4 | Missing |
-| Features | Android chat bubbles for DMs | 4 | Missing |
+| Features | Pop-out chats | 2 | Missing |
+| Features | Android chat bubbles for DMs | 2 | Missing |
 | Features | Activity privacy | 1 | Missing |
-| Features | Invite links | 2 | Missing |
+| Features | Invite links | 3 | Missing |
 | Features | Server chat profile / rename | 7 | Missing |
 | Features | Server chat banner | 7 | Missing |
-| Integrations | Lootden integration | 8 | Missing (needs scoping) |
+| Integrations | LootDen integration | 8 | Missing |
 | Kid safe chat | Profanity filters | 5 | Missing |
 | Kid safe chat | Kid's deleted messages sent to parent | 5 | Missing |
 | Kid safe chat | Time-based controls | 5 | Missing |
@@ -186,13 +194,12 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Kid safe chat | Link kid accounts with parents | 5 | Missing |
 | Kid safe chat | Webhook alert notifications | 5 | Missing |
 | Kid safe chat | Parents as ghost admins when alerted | 5 | Missing |
-| Sounds | Sounds for deafen/mute events | 3 | Missing |
-| Sounds | Incoming call / message notifications | 4 | Missing |
+| Sounds | Sounds for deafen/mute events | 4 | Missing |
+| Sounds | Incoming call / message notifications | 2 | Missing |
 | Automod | Automod settings | 6 | Missing |
 | Look alike | Layout reference 1 (settings) | 1, 7 | Missing |
-| Look alike | Layout reference 1 (main chat) | 1, 1 | Missing |
+| Look alike | Layout reference 2 (main chat) | 1, 7 | Missing |
 
 ## Open questions
-1. What is Lootden, and what should the integration do?
-2. Should kid-safe chat move ahead of voice (Phase 1) if it matters most for your users?
-3. Do you message your wife mostly from a phone? If so, the Android app and phone notifications (Phase 4) should move up right after Phase 1.
+1. Should kid-safe chat move ahead of chat servers and voice channels (Phases 3 and 4)?
+2. Desktop shell: Electron to share code with LootDen's app, or Tauri for smaller installs? The plan assumes Electron unless you prefer otherwise.
