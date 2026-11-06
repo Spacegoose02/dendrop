@@ -35,8 +35,7 @@
     "files": [
       "dist/**",
       "setup/**",
-      "build/icon.png",
-      "build/tray.png",
+      "build/*.png",
       "package.json"
     ],
     "win": {
