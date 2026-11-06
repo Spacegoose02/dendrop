@@ -13,6 +13,7 @@ import { openDb, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { Gateway } from "./gateway.js";
 import { authRoutes } from "./routes/auth.js";
+import { dmRoutes } from "./routes/dms.js";
 import { toMe, UserRepo, type UserRecord } from "./users.js";
 
 declare module "fastify" {
@@ -74,6 +75,7 @@ export async function buildApp(config: ServerConfig, db: Db = openDb(path.join(c
   app.get("/api/health", async () => ({ status: "ok" }));
 
   await app.register(async (api) => authRoutes(api, ctx));
+  await app.register(async (api) => dmRoutes(api, ctx));
   await app.register(async (api) => gatewayRoute(api, ctx));
 
   serveWeb(app, config);

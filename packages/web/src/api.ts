@@ -28,9 +28,12 @@ export const logout = () => api<{ ok: true }>("/api/auth/logout", { method: "POS
 
 /**
  * Keeps a WebSocket to the gateway open, reconnecting with backoff.
- * Returns a function that closes it for good.
+ * Returns send (dropped while disconnected) and close (for good).
  */
-export function connectGateway(onEvent: (e: ServerEvent) => void, onStatus: (online: boolean) => void): () => void {
+export function connectGateway(
+  onEvent: (e: ServerEvent) => void,
+  onStatus: (online: boolean) => void,
+): { send: (data: object) => void; close: () => void } {
   let ws: WebSocket | null = null;
   let stopped = false;
   let delay = 1000;
@@ -58,8 +61,13 @@ export function connectGateway(onEvent: (e: ServerEvent) => void, onStatus: (onl
     };
   };
   open();
-  return () => {
-    stopped = true;
-    ws?.close();
+  return {
+    send: (data) => {
+      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data));
+    },
+    close: () => {
+      stopped = true;
+      ws?.close();
+    },
   };
 }
