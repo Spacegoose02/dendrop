@@ -55,5 +55,5 @@ npm test
 | `packages/theme` | Design tokens and theme ids; every client styles itself with these only |
 | `packages/server` | Fastify API, WebSocket gateway at `/api/gateway`, SQLite, OIDC |
 | `packages/web` | React client |
-| `packages/desktop` | Electron app for Windows and Linux (Phase 2) |
+| `packages/desktop` | Electron app for Windows 11 and Linux, wrapping the web client ([README](packages/desktop/README.md)) |
 | `packages/android` | Capacitor Android app (Phase 2) |
