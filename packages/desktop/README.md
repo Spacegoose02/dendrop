@@ -43,9 +43,8 @@ npm test -w @dendrop/desktop
 Settings live in `settings.json` in the app's data folder (`%APPDATA%\Dendrop` or `~/.config/Dendrop`).
 `allowUnverifiedUpdates: true` there installs updates that aren't on a GitHub release (your own builds).
 
-The icons in `build/` are rendered from the SVGs next to them with `node scripts/icons.mjs`.
-They use the placeholder raccoon mark from `packages/web/public/favicon.svg`; when the theme work
-replaces it, update the SVGs and re-render.
+The icons in `build/` are the theme's Classic raccoon (`packages/theme/src/icons.ts`). When the
+mark changes, redraw them with `NODE_PATH=$(npm root -g) node scripts/icons.mjs` (needs Playwright).
 
 ## Building installers
 
