@@ -4,6 +4,11 @@ export interface PublicUser {
   id: number;
   username: string;
   displayName: string;
+  /**
+   * The person's end-to-end encryption public key (P-256, raw, base64url), or null until they
+   * set up encryption. Messages are encrypted to it; the server never has the private key.
+   */
+  publicKey: string | null;
 }
 
 export interface Me extends PublicUser {
@@ -38,6 +43,37 @@ export interface Conversation {
   lastMessageAt: string | null;
   createdAt: string;
   reads: ReadState[];
+  /** End-to-end encryption, or null while the conversation has no key yet (messages are plain). */
+  e2ee: ConversationE2ee | null;
+}
+
+export interface ConversationE2ee {
+  /** The newest key version. New messages must use it. */
+  version: number;
+  /** Members who have no copy of the newest key (they reset their keys), so it needs a new version. */
+  missing: number[];
+}
+
+/** One version of a conversation key, encrypted to one person's public key. */
+export interface WrappedKey {
+  version: number;
+  /** ECIES envelope: an ephemeral public key, IV and ciphertext, all base64url, joined with ".". */
+  wrapped: string;
+}
+
+/** GET /api/e2ee: your own encryption setup. */
+export interface E2eeSetup {
+  publicKey: string | null;
+  /** Your private key, encrypted with a key made from your chat passphrase (the server can't open it). */
+  backup: KeyBackup | null;
+}
+
+export interface KeyBackup {
+  /** PBKDF2-SHA256 salt and rounds, and the AES-GCM IV and ciphertext of the PKCS#8 private key. base64url. */
+  salt: string;
+  iterations: number;
+  iv: string;
+  ciphertext: string;
 }
 
 export interface Attachment {
@@ -59,6 +95,12 @@ export interface Message {
   /** Deleted messages keep their place in the history but lose their text and files. */
   deleted: boolean;
   attachments: Attachment[];
+  /**
+   * The conversation key version this message is encrypted with, or null for a plain message.
+   * When set, `body` is ciphertext (see the web client's e2ee.ts) holding the text and the real
+   * file names, and each attachment is stored encrypted under a placeholder name.
+   */
+  keyVersion: number | null;
 }
 
 export interface AuthInfo {
@@ -107,6 +149,8 @@ export const LIMITS = {
   usernameLength: 32,
   displayNameLength: 64,
   pageSize: 50,
+  /** Ciphertext of a full-length message, with room for file names. */
+  encryptedBodyLength: 32_000,
 } as const;
 
 /** Events the server pushes over the WebSocket gateway at /api/gateway. */
@@ -115,6 +159,7 @@ export type ServerEvent =
   | { type: "message.created"; message: Message }
   | { type: "message.updated"; message: Message }
   | { type: "conversation.created"; conversation: Conversation }
+  | { type: "conversation.updated"; conversation: Conversation }
   | { type: "friend.updated"; friend: Friend }
   | { type: "friend.removed"; userId: number }
   | { type: "typing"; conversationId: number; userId: number }

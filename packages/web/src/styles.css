@@ -804,3 +804,66 @@ textarea:focus {
   flex-wrap: wrap;
   margin-top: 12px;
 }
+
+/* End-to-end encryption */
+.danger-button {
+  background: var(--dd-danger);
+  color: #fff;
+  font-weight: 700;
+}
+.danger-button:hover {
+  background: var(--dd-danger);
+  filter: brightness(1.1);
+}
+.warning {
+  color: var(--dd-warning);
+}
+.encryption-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.encryption-form p {
+  margin: 0;
+}
+.encryption-links {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.e2ee-banner {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-bg-raised);
+  color: var(--dd-text-muted);
+  font-size: 13px;
+}
+.lock-badge {
+  padding: 2px 6px;
+  font-size: 14px;
+}
+.security-codes {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.security-codes li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.security-codes code,
+.security-code {
+  font-family: var(--dd-font-mono);
+  letter-spacing: 0.04em;
+  color: var(--dd-text);
+}
+button.attachment-file {
+  font: inherit;
+  text-align: left;
+}

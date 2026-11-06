@@ -1,16 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { INLINE_IMAGE_TYPES, LIMITS, type Attachment, type Call, type Conversation, type Me, type Message } from "@dendrop/shared";
-import { api, apiForm } from "./api.ts";
+import { api, apiForm, ApiError } from "./api.ts";
 import { EMOJI } from "./emoji.ts";
 import { Avatar } from "./Avatar.tsx";
-import { conversationTitle, type History } from "./util.ts";
+import { decryptFile, encryptFile, encryptMessage, keyring, reveal, type ChatMessage, type FileMeta } from "./e2ee.ts";
+import { EncryptionInfo } from "./EncryptionInfo.tsx";
+import { conversationTitle, upsert, type History } from "./util.ts";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const bytes = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 const day = (iso: string) => new Date(iso).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
 
 /** Messages from the same person within 5 minutes share one header. */
-const continues = (prev: Message | undefined, m: Message) =>
+const continues = (prev: ChatMessage | undefined, m: ChatMessage) =>
   !!prev && prev.authorId === m.authorId && new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60_000 && day(prev.createdAt) === day(m.createdAt);
 
 export function Chat({
@@ -26,6 +28,8 @@ export function Chat({
   call,
   inThisCall,
   onCall,
+  keyState,
+  onEncryption,
 }: {
   me: Me;
   conversation: Conversation;
@@ -39,6 +43,8 @@ export function Chat({
   call: Call | undefined;
   inThisCall: boolean;
   onCall: (video: boolean) => void;
+  keyState: "loading" | "off" | "locked" | "on";
+  onEncryption: () => void;
 }) {
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
@@ -54,6 +60,7 @@ export function Chat({
   const [showEmoji, setShowEmoji] = useState(false);
   const [dragging, setDragging] = useState(false);
   const lastMarked = useRef(0);
+  const [showInfo, setShowInfo] = useState(false);
 
   const members = new Map(conversation.members.map((m) => [m.id, m]));
   const others = conversation.members.filter((m) => m.id !== me.id);
@@ -63,7 +70,10 @@ export function Chat({
   useEffect(() => {
     if (history) return;
     api<Message[]>(`/api/conversations/${conversation.id}/messages`)
-      .then((messages) => setHistory(() => ({ messages, hasMore: messages.length >= LIMITS.pageSize })))
+      .then(async (raw) => {
+        const messages = await Promise.all(raw.map(reveal));
+        setHistory(() => ({ messages, hasMore: raw.length >= LIMITS.pageSize }));
+      })
       .catch((err: Error) => setError(err.message));
   }, [conversation.id, history, setHistory]);
 
@@ -141,8 +151,9 @@ export function Chat({
     setLoadingOlder(true);
     const before = el.scrollHeight;
     try {
-      const older = await api<Message[]>(`/api/conversations/${conversation.id}/messages?before=${first.id}`);
-      setHistory((h) => ({ messages: [...older, ...(h?.messages ?? [])], hasMore: older.length >= LIMITS.pageSize }));
+      const raw = await api<Message[]>(`/api/conversations/${conversation.id}/messages?before=${first.id}`);
+      const older = await Promise.all(raw.map(reveal));
+      setHistory((h) => ({ messages: [...older, ...(h?.messages ?? [])], hasMore: raw.length >= LIMITS.pageSize }));
       requestAnimationFrame(() => {
         el.scrollTop += el.scrollHeight - before;
       });
@@ -161,17 +172,16 @@ export function Chat({
     stickToBottom.current = true;
     setSending(true);
     try {
-      const url = `/api/conversations/${conversation.id}/messages`;
+      // A key can change under us (someone reset theirs), so try once more with a fresh view.
       let m: Message;
-      if (sendingFiles.length > 0) {
-        const form = new FormData();
-        form.append("body", body);
-        for (const f of sendingFiles) form.append("file", f, f.name);
-        m = await apiForm<Message>(url, form);
-      } else {
-        m = await api<Message>(url, { body: { body } });
+      try {
+        m = await post(conversation, body, sendingFiles);
+      } catch (err) {
+        if (!(err instanceof ApiError && err.status === 409)) throw err;
+        m = await post(await api<Conversation>(`/api/conversations/${conversation.id}`), body, sendingFiles);
       }
-      setHistory((h) => (h && !h.messages.some((x) => x.id === m.id) ? { ...h, messages: [...h.messages, m] } : (h ?? { messages: [m], hasMore: false })));
+      const shown = await reveal(m);
+      setHistory((h) => (h ? { ...h, messages: upsert(h.messages, shown) } : { messages: [shown], hasMore: false }));
     } catch (err) {
       setDraft(body);
       setFiles(sendingFiles);
@@ -181,15 +191,36 @@ export function Chat({
     }
   };
 
+  /** Sends a message: encrypted once the conversation has a key, plain until everyone has set up. */
+  const post = async (c: Conversation, body: string, sendingFiles: File[]): Promise<Message> => {
+    const url = `/api/conversations/${c.id}/messages`;
+    const version = await keyring.forSending(c);
+    if (version) {
+      const encrypted = await Promise.all(sendingFiles.map((f) => encryptFile(c.id, version, f)));
+      const cipher = await encryptMessage(c.id, me.id, version, body, encrypted.map((x) => x.meta));
+      if (encrypted.length === 0) return api<Message>(url, { body: { body: cipher, keyVersion: version } });
+      const form = new FormData();
+      form.append("body", cipher);
+      form.append("keyVersion", String(version));
+      for (const x of encrypted) form.append("file", x.blob, "file");
+      return apiForm<Message>(url, form);
+    }
+    if (sendingFiles.length === 0) return api<Message>(url, { body: { body } });
+    const form = new FormData();
+    form.append("body", body);
+    for (const f of sendingFiles) form.append("file", f, f.name);
+    return apiForm<Message>(url, form);
+  };
+
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void send();
     } else if (e.key === "ArrowUp" && !draft) {
-      const mine = [...(history?.messages ?? [])].reverse().find((m) => m.authorId === me.id && !m.deleted);
+      const mine = [...(history?.messages ?? [])].reverse().find((m) => m.authorId === me.id && !m.deleted && !m.locked);
       if (mine) {
         e.preventDefault();
-        setEditing({ id: mine.id, text: mine.body });
+        setEditing({ id: mine.id, text: mine.text });
       }
     }
   };
@@ -207,15 +238,25 @@ export function Chat({
     const text = editing.text.trim();
     const original = history?.messages.find((m) => m.id === editing.id);
     setEditing(null);
-    if (!text || text === original?.body) return;
+    if (!text || !original || text === original.text) return;
     try {
-      await api<Message>(`/api/messages/${editing.id}`, { method: "PATCH", body: { body: text } });
+      const edit = async (c: Conversation) => {
+        const version = await keyring.forSending(c);
+        const body = version ? await encryptMessage(c.id, me.id, version, text, original.files ?? []) : text;
+        return api<Message>(`/api/messages/${original.id}`, { method: "PATCH", body: { body, keyVersion: version } });
+      };
+      try {
+        await edit(conversation);
+      } catch (err) {
+        if (!(err instanceof ApiError && err.status === 409)) throw err;
+        await edit(await api<Conversation>(`/api/conversations/${conversation.id}`));
+      }
     } catch (err) {
       setError((err as Error).message);
     }
   };
 
-  const remove = async (m: Message) => {
+  const remove = async (m: ChatMessage) => {
     if (!confirm("Delete this message? It can't be brought back.")) return;
     try {
       await api<Message>(`/api/messages/${m.id}`, { method: "DELETE" });
@@ -244,6 +285,11 @@ export function Chat({
           <Avatar name={title} size={28} />
         )}
         <h2 className="ellipsis">{title}</h2>
+        {conversation.e2ee && (
+          <button className="ghost lock-badge" onClick={() => setShowInfo(true)} title="End-to-end encrypted. Click to check security codes.">
+            🔒
+          </button>
+        )}
         {conversation.isGroup && <span className="muted small">{conversation.members.length} members</span>}
         {callsEnabled && !inThisCall && (
           <span className="header-actions">
@@ -282,7 +328,10 @@ export function Chat({
         {history && !history.hasMore && (
           <div className="chat-start">
             <h3>{title}</h3>
-            <p className="muted">This is the start of your conversation. Only the people in it can read it.</p>
+            <p className="muted">
+              This is the start of your conversation.{" "}
+              {conversation.e2ee ? "New messages are end-to-end encrypted: only the people in it can read them." : "Only the people in it can see it."}
+            </p>
           </div>
         )}
         {loadingOlder && <p className="muted center-text small">Loading older messages…</p>}
@@ -326,19 +375,25 @@ export function Chat({
                     </div>
                   ) : m.deleted ? (
                     <p className="msg-body deleted">Message deleted</p>
+                  ) : m.locked ? (
+                    <p className="msg-body deleted">🔒 {m.locked}</p>
                   ) : (
                     <>
-                      {m.body && (
+                      {m.text && (
                         <p className="msg-body">
-                          {m.body}
+                          {m.text}
                           {m.editedAt && <span className="muted small"> (edited)</span>}
                         </p>
                       )}
                       {m.attachments.length > 0 && (
                         <div className="attachments">
-                          {m.attachments.map((a) => (
-                            <AttachmentView key={a.id} a={a} />
-                          ))}
+                          {m.attachments.map((a, j) =>
+                            m.keyVersion ? (
+                              <EncryptedAttachment key={a.id} m={m} a={a} meta={m.files?.[j]} />
+                            ) : (
+                              <AttachmentView key={a.id} a={a} />
+                            ),
+                          )}
                         </div>
                       )}
                     </>
@@ -349,9 +404,11 @@ export function Chat({
                 </div>
                 {mine && !m.deleted && editing?.id !== m.id && (
                   <div className="msg-actions">
-                    <button className="ghost" onClick={() => setEditing({ id: m.id, text: m.body })} title="Edit">
-                      Edit
-                    </button>
+                    {!m.locked && (
+                      <button className="ghost" onClick={() => setEditing({ id: m.id, text: m.text })} title="Edit">
+                        Edit
+                      </button>
+                    )}
                     <button className="ghost danger" onClick={() => void remove(m)} title="Delete">
                       Delete
                     </button>
@@ -364,6 +421,7 @@ export function Chat({
       </div>
 
       <footer className="composer">
+        <EncryptionBanner me={me} conversation={conversation} keyState={keyState} onEncryption={onEncryption} />
         {error && <p className="error small">{error}</p>}
         {files.length > 0 && (
           <div className="pending-files">
@@ -425,7 +483,99 @@ export function Chat({
           {typingNames.length > 1 && `${typingNames.join(", ")} are typing…`}
         </div>
       </footer>
+      {showInfo && <EncryptionInfo me={me} conversation={conversation} onClose={() => setShowInfo(false)} />}
     </section>
+  );
+}
+
+/** Says when a conversation isn't encrypted yet, and why. */
+function EncryptionBanner({
+  me,
+  conversation,
+  keyState,
+  onEncryption,
+}: {
+  me: Me;
+  conversation: Conversation;
+  keyState: "loading" | "off" | "locked" | "on";
+  onEncryption: () => void;
+}) {
+  if (keyState === "loading") return null;
+  if (keyState === "off" || keyState === "locked") {
+    return (
+      <p className="e2ee-banner">
+        {keyState === "off" ? "Turn on encryption so this conversation is private, even from the server." : "Unlock encryption on this device to read and send encrypted messages."}{" "}
+        <button className="link" onClick={onEncryption}>
+          {keyState === "off" ? "Set it up" : "Unlock"}
+        </button>
+      </p>
+    );
+  }
+  if (conversation.e2ee) return null;
+  const waiting = conversation.members.filter((m) => m.id !== me.id && !m.publicKey).map((m) => m.displayName);
+  if (waiting.length === 0) return null;
+  return (
+    <p className="e2ee-banner">
+      Not end-to-end encrypted yet: waiting for {waiting.join(", ")} to turn on encryption. Messages switch over by themselves once they do.
+    </p>
+  );
+}
+
+/** An encrypted file: pictures are decrypted and shown, other files decrypt when downloaded. */
+function EncryptedAttachment({ m, a, meta }: { m: ChatMessage; a: Attachment; meta: FileMeta | undefined }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const isImage = !!meta && INLINE_IMAGE_TYPES.includes(meta.ty);
+
+  useEffect(() => {
+    if (!meta || !isImage) return;
+    let made: string | null = null;
+    let cancelled = false;
+    decryptFile(m, a, meta)
+      .then((blob) => {
+        if (cancelled) return;
+        made = URL.createObjectURL(blob);
+        setUrl(made);
+      })
+      .catch(() => !cancelled && setFailed(true));
+    return () => {
+      cancelled = true;
+      if (made) URL.revokeObjectURL(made);
+    };
+  }, [m, a, meta, isImage]);
+
+  const download = async () => {
+    if (!meta) return;
+    try {
+      const href = URL.createObjectURL(await decryptFile(m, a, meta));
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = meta.n;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
+    } catch {
+      setFailed(true);
+    }
+  };
+
+  if (!meta || failed) return <span className="attachment-file muted">🔒 A file that couldn't be decrypted</span>;
+  if (isImage) {
+    return url ? (
+      <a href={url} target="_blank" rel="noreferrer" className="attachment-image">
+        <img src={url} alt={meta.n} />
+      </a>
+    ) : (
+      <span className="attachment-file muted">Decrypting {meta.n}…</span>
+    );
+  }
+  return (
+    <button className="attachment-file" onClick={() => void download()}>
+      <span className="file-icon" aria-hidden>
+        📄
+      </span>
+      <span className="ellipsis">{meta.n}</span>
+      <span className="muted small">{bytes(meta.s)}</span>
+    </button>
   );
 }
 

@@ -47,7 +47,7 @@ packages/android  # Capacitor app (APK)
 
 Dendrop exists to replace Discord and take privacy back, so these apply to every phase:
 - **Self-hosted, no third-party dependencies by default.** Everything runs in your own Docker stack. Anything that talks to an outside service (GIF search, FCM push, link previews) is opt-in and off by default.
-- **End-to-end encryption for DMs.** Message content is encrypted on the device so the server only stores ciphertext. Plan: per-device keys with a Signal-style or MLS protocol for DMs and group DMs, and LiveKit's E2EE for calls. Server channels can start unencrypted and adopt it later.
+- **End-to-end encryption for DMs.** Message content is encrypted on the device so the server only stores ciphertext. Shipped for DMs and group DMs (text and files), see [ENCRYPTION.md](ENCRYPTION.md). Still to come: LiveKit's E2EE for call media, and forward secrecy (a Signal-style or MLS ratchet). Server channels can start unencrypted and adopt it later.
 - **Minimal data.** No analytics or tracking, no message scanning on the server for DM content; filtering for kid accounts runs on the client.
 - **Encrypted at rest and backups you control.** Postgres and file storage on encrypted volumes, with documented backup/restore.
 - **Push notifications without content.** Notifications say "new message" and the app fetches the content, so ntfy/FCM never sees it.
@@ -73,7 +73,7 @@ Goal: you and your wife can log in and chat privately, replacing Discord DMs fir
 - **Features → Message read receipts**, **Activity privacy** (hide online status / current activity).
 - **Features → Emojis**, **File uploading**.
 - **1:1 voice and video calls in DMs** (pulled forward from Phase 4, LiveKit with end-to-end encrypted media).
-- End-to-end encryption for DMs: design it in from the start (see Privacy principles), even if the first cut ships with server-side encryption at rest.
+- End-to-end encryption for DMs and group DMs: done (see [ENCRYPTION.md](ENCRYPTION.md)). Call media E2EE is next.
 
 ### Phase 2: Phone and PC apps
 Pulled up right after DMs, because chatting happens mostly from a phone and a PC.
@@ -161,7 +161,7 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Backbone | Users / TinyAuth for SSO | 1 | Done |
 | Backbone | Super admin over whole server | 1 | Partial: role exists; admin tools come with servers |
 | Backbone | Joinable chat servers, can be private | 3 | Missing |
-| Backbone | Private chat / direct message | 1 | Partial: text DMs and group DMs live; E2EE to come |
+| Backbone | Private chat / direct message | 1 | Partial: DMs and group DMs live, end-to-end encrypted |
 | Backbone | Screen sharing | 4 | Missing |
 | Backbone | Game streaming | 4 | Missing |
 | Backbone | Voice chat | 1 (DM calls), 4 (channels) | Partial: voice and video calls in DMs and group chats |

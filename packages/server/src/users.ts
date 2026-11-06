@@ -10,6 +10,8 @@ export interface UserRecord {
   oidcSubject: string | null;
   isSuperAdmin: boolean;
   readReceipts: boolean;
+  publicKey: string | null;
+  keyBackup: string | null;
   createdAt: string;
 }
 
@@ -22,6 +24,8 @@ interface Row {
   oidc_subject: string | null;
   is_super_admin: number;
   read_receipts: number;
+  public_key: string | null;
+  key_backup: string | null;
   created_at: string;
 }
 
@@ -34,10 +38,17 @@ const fromRow = (r: Row): UserRecord => ({
   oidcSubject: r.oidc_subject,
   isSuperAdmin: !!r.is_super_admin,
   readReceipts: !!r.read_receipts,
+  publicKey: r.public_key,
+  keyBackup: r.key_backup,
   createdAt: r.created_at,
 });
 
-export const toPublic = (u: UserRecord): PublicUser => ({ id: u.id, username: u.username, displayName: u.displayName });
+export const toPublic = (u: UserRecord): PublicUser => ({
+  id: u.id,
+  username: u.username,
+  displayName: u.displayName,
+  publicKey: u.publicKey,
+});
 export const toMe = (u: UserRecord): Me => ({ ...toPublic(u), email: u.email, isSuperAdmin: u.isSuperAdmin, readReceipts: u.readReceipts });
 
 export interface NewUser {
@@ -83,6 +94,11 @@ export class UserRepo {
       )
       .run(u.username, u.displayName, u.email ?? null, u.passwordHash ?? null, u.oidcSubject ?? null, u.isSuperAdmin ? 1 : 0, now());
     return this.byId(Number(res.lastInsertRowid))!;
+  }
+
+  setKeys(id: number, publicKey: string, keyBackup: string): UserRecord {
+    this.db.prepare("UPDATE users SET public_key = ?, key_backup = ? WHERE id = ?").run(publicKey, keyBackup, id);
+    return this.byId(id)!;
   }
 
   update(
