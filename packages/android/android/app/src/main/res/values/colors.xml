@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Den theme colors from packages/theme/src/tokens.css (the native bits can't read CSS). -->
+<resources>
+    <color name="dd_bg_rail">#121418</color>
+    <color name="dd_bg_main">#20242a</color>
+    <color name="dd_ring">#8c929c</color>
+    <color name="dd_accent">#f2a541</color>
+    <color name="ic_launcher_background">#20242a</color>
+    <!-- Kept for Capacitor's base theme. -->
+    <color name="colorPrimary">#20242a</color>
+    <color name="colorPrimaryDark">#121418</color>
+    <color name="colorAccent">#f2a541</color>
+</resources>

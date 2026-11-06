@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon silhouette: head and ears, with the mask and nose cut out. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group android:translateX="22" android:translateY="20">
+        <path
+            android:pathData="M10,14 L20,22 M54,14 L44,22"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="6"
+            android:strokeLineCap="round" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M8,36 a24,20 0 1,0 48,0 a24,20 0 1,0 -48,0 Z M10,34 c6,-8 16,-8 22,-2 c6,-6 16,-6 22,2 c-4,8 -14,10 -22,4 c-8,6 -18,4 -22,-4 Z M28,46 a4,3 0 1,0 8,0 a4,3 0 1,0 -8,0 Z" />
+    </group>
+</vector>
