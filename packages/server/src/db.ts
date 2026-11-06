@@ -87,6 +87,26 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX attachments_message ON attachments(message_id);
   `,
+  `
+  -- Where to send phone notifications (UnifiedPush / Web Push endpoints).
+  CREATE TABLE push_subscriptions (
+    endpoint TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    p256dh TEXT,
+    auth TEXT,
+    provider TEXT NOT NULL,
+    device_name TEXT,
+    created_at TEXT NOT NULL,
+    last_sent_at TEXT
+  );
+  CREATE INDEX push_subscriptions_user ON push_subscriptions(user_id);
+
+  -- Small server-wide settings, such as the VAPID keys made on first start.
+  CREATE TABLE server_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  `,
 ];
 
 export function now(): string {

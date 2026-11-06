@@ -174,7 +174,13 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
       removeFiles(files.map((f) => f.id));
       throw err;
     }
-    gateway.send(convos.memberIds(cid), { type: "message.created", message: m });
+    const memberIds = convos.memberIds(cid);
+    gateway.send(memberIds, { type: "message.created", message: m });
+    // Phones of people with nothing open get a wake-up that says only "message".
+    void ctx.push.notify(
+      memberIds.filter((u) => u !== me.id && !gateway.isOnline(u)),
+      "message",
+    );
     return m;
   });
 
@@ -206,7 +212,11 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     const me = requireUser(req);
     const cid = id(req.params.id);
     member(cid, me.id);
-    return calls.join(cid, convos.memberIds(cid), me, req.body?.video === true);
+    const isNew = !calls.get(cid);
+    const join = await calls.join(cid, convos.memberIds(cid), me, req.body?.video === true);
+    // A new call rings everyone's phones too, even if a PC is already ringing.
+    if (isNew) void ctx.push.notify(join.call.ringing, "call");
+    return join;
   });
 
   app.post<{ Params: { id: string } }>("/api/conversations/:id/call/decline", async (req) => {
