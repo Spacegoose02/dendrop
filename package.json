@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc -b packages/shared packages/server && npm run build -w @dendrop/web",
     "clean": "tsc -b --clean packages/shared packages/server",
-    "test": "tsc -b packages/shared packages/server && node --disable-warning=ExperimentalWarning --test \"packages/server/dist/test/**/*.test.js\"",
+    "test": "tsc -b packages/shared packages/server && node --disable-warning=ExperimentalWarning --test \"packages/server/dist/test/**/*.test.js\" \"packages/theme/test/*.test.ts\"",
     "dev:server": "tsc -b packages/shared packages/server && DENDROP_DATA_DIR=${DENDROP_DATA_DIR:-./data} node --disable-warning=ExperimentalWarning packages/server/dist/src/index.js",
     "dev:web": "npm run dev -w @dendrop/web"
   },

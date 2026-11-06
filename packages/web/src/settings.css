@@ -1,0 +1,227 @@
+/* Settings dialog and theme picker. Like styles.css, colors come from theme tokens only. */
+.settings-gear {
+  display: grid;
+  place-items: center;
+  padding: 6px;
+}
+.settings {
+  width: min(880px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  padding: 0;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius-lg);
+  background: var(--dd-bg-sidebar);
+  color: var(--dd-text);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+.settings::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+.settings-body {
+  padding: 0 24px 24px;
+}
+.settings-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0 12px;
+  background: var(--dd-bg-sidebar);
+}
+.settings h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.settings h3 {
+  margin: 18px 0 2px;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dd-text-muted);
+}
+.settings .small {
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.chip {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--dd-border);
+  background: transparent;
+  color: var(--dd-text-muted);
+  font-size: 14px;
+}
+.chip.on {
+  background: var(--dd-accent);
+  border-color: var(--dd-accent);
+  color: var(--dd-accent-text);
+  font-weight: 700;
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+/* Each card carries its own theme's --dd-* values in a style attribute. */
+.theme-card {
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  border: 2px solid var(--dd-border);
+  border-radius: var(--dd-radius);
+  background: var(--dd-bg-main);
+  color: var(--dd-text);
+  font-family: var(--dd-font);
+}
+.theme-card:hover {
+  background: var(--dd-bg-main);
+  border-color: var(--dd-text-faint);
+}
+.theme-card.on {
+  border-color: var(--dd-accent);
+  box-shadow: var(--dd-glow);
+}
+.mini {
+  display: grid;
+  grid-template-columns: 18px 38px 1fr;
+  height: 78px;
+}
+.mini i {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--dd-bg-hover);
+}
+.mini-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 5px;
+  background: var(--dd-bg-rail);
+}
+.mini-rail img {
+  width: 13px;
+  height: 13px;
+}
+.mini-rail i {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-bg-raised);
+}
+.mini-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 5px;
+  background: var(--dd-bg-sidebar);
+}
+.mini-side .hi {
+  background: var(--dd-accent-2);
+}
+.mini-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+}
+.mini-main .bubble {
+  height: 12px;
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-bg-raised);
+}
+.mini-main .mine {
+  align-self: flex-end;
+  background: var(--dd-accent);
+  box-shadow: var(--dd-glow);
+}
+.mini-main .input {
+  margin-top: auto;
+  height: 10px;
+  border: 1px solid var(--dd-border);
+  background: var(--dd-bg-input);
+}
+.w40 { width: 40%; }
+.w50 { width: 50%; }
+.w60 { width: 60%; }
+.w70 { width: 70%; }
+.theme-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  font-size: 13px;
+  background: var(--dd-bg-sidebar);
+  border-top: 1px solid var(--dd-border);
+}
+.tick {
+  color: var(--dd-accent);
+  font-weight: 800;
+}
+
+.icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 10px;
+}
+.icon-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px;
+  font-size: 12px;
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: var(--dd-radius);
+  color: var(--dd-text-muted);
+}
+.icon-choice img {
+  border-radius: 14px;
+}
+.icon-choice.on {
+  border-color: var(--dd-accent);
+  color: var(--dd-text);
+}
+
+@media (max-width: 720px) {
+  .settings {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    border: 0;
+  }
+  .settings-body {
+    padding: 0 16px 24px;
+  }
+  .theme-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.account-settings label {
+  display: block;
+  max-width: 420px;
+}
+.account-save {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.account-save .small {
+  margin: 0;
+}

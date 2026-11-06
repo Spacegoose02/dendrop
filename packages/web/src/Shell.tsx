@@ -6,7 +6,7 @@ import { Friends } from "./Friends.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { IncomingCall } from "./IncomingCall.tsx";
 import { NewGroup } from "./NewGroup.tsx";
-import { Settings } from "./Settings.tsx";
+import { SettingsButton } from "./Settings.tsx";
 import { conversationTitle, type History } from "./util.ts";
 
 // The call code (LiveKit) is big, so it only loads when a call starts.
@@ -20,7 +20,7 @@ export type View = { kind: "friends" } | { kind: "conversation"; id: number };
  */
 export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () => void }) {
   const [me, setMe] = useState(initialMe);
-  const [dialog, setDialog] = useState<"group" | "settings" | null>(null);
+  const [dialog, setDialog] = useState<"group" | null>(null);
   const [server, setServer] = useState<ServerInfo | null>(null);
   const [calls, setCalls] = useState<Record<number, Call>>({});
   /** The call this device is in. */
@@ -268,9 +268,14 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             <strong>{me.displayName}</strong>
             <span className="muted">@{me.username}</span>
           </div>
-          <button className="ghost" onClick={() => setDialog("settings")} title="Settings" aria-label="Settings">
-            ⚙
-          </button>
+          <SettingsButton
+            me={me}
+            onSaved={(m) => {
+              setMe(m);
+              // Turning receipts on or off changes whose reads this person can see.
+              void api<Conversation[]>("/api/conversations").then(setConversations);
+            }}
+          />
           <button className="ghost" onClick={() => void logout().then(onSignedOut)} title="Sign out">
             Sign out
           </button>
@@ -340,17 +345,6 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             setDialog(null);
             setConversations((cs) => [c, ...cs.filter((x) => x.id !== c.id)]);
             open({ kind: "conversation", id: c.id });
-          }}
-        />
-      )}
-      {dialog === "settings" && (
-        <Settings
-          me={me}
-          onClose={() => setDialog(null)}
-          onSaved={(m) => {
-            setMe(m);
-            // Turning receipts on or off changes whose reads this person can see.
-            void api<Conversation[]>("/api/conversations").then(setConversations);
           }}
         />
       )}
