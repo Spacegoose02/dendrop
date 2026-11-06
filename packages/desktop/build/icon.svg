@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="512" height="512">
+  <!-- Dendrop app icon: the placeholder raccoon mark from packages/web/public/favicon.svg on the Den background. Regenerate the PNGs with scripts/icons.mjs. -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#1a1d22"/>
+  <g transform="translate(6 4) scale(0.8125)"><path d="M10 14l10 8M54 14l-10 8" stroke="#8c929c" stroke-width="6" stroke-linecap="round"/><ellipse cx="32" cy="36" rx="24" ry="20" fill="#8c929c"/><path d="M10 34c6-8 16-8 22-2 6-6 16-6 22 2-4 8-14 10-22 4-8 6-18 4-22-4z" fill="#121418"/><circle cx="22" cy="34" r="3.5" fill="#f2a541"/><circle cx="42" cy="34" r="3.5" fill="#f2a541"/><ellipse cx="32" cy="46" rx="4" ry="3" fill="#121418"/></g>
+</svg>

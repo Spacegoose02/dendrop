@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:" />
+    <title>Dendrop can't reach the server</title>
+    <style>
+      :root { --dd-bg-sidebar: #1a1d22; --dd-bg-main: #20242a; --dd-bg-raised: #2a2f37; --dd-border: #343a44; --dd-text: #e9e6e1; --dd-text-muted: #a3a8b1; --dd-accent: #f2a541; --dd-accent-strong: #ffb85c; --dd-accent-text: #1a1206; color-scheme: dark; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--dd-bg-main); color: var(--dd-text); font: 16px/1.5 "Nunito", "Segoe UI", system-ui, sans-serif; }
+      main { width: min(420px, calc(100vw - 32px)); box-sizing: border-box; background: var(--dd-bg-sidebar); border: 1px solid var(--dd-border); border-radius: 16px; padding: 2rem; display: flex; flex-direction: column; gap: 0.75rem; text-align: center; }
+      h1 { margin: 0; font-size: 1.4rem; }
+      p { margin: 0; color: var(--dd-text-muted); }
+      code { color: var(--dd-text); word-break: break-all; }
+      .row { display: flex; gap: 0.5rem; justify-content: center; margin-top: 0.5rem; flex-wrap: wrap; }
+      button { font: inherit; font-weight: 700; padding: 0.6em 1.2em; border-radius: 10px; cursor: pointer; border: 1px solid var(--dd-border); background: var(--dd-bg-raised); color: var(--dd-text); }
+      button.primary { border: 0; background: var(--dd-accent); color: var(--dd-accent-text); }
+      button.primary:hover { background: var(--dd-accent-strong); }
+      img { align-self: center; opacity: 0.85; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="../build/icon.png" width="80" height="80" alt="" />
+      <h1>The den is quiet</h1>
+      <p>Dendrop can't reach <code id="server">your server</code> right now. It tries again on its own every 30 seconds.</p>
+      <p id="status" role="status"></p>
+      <div class="row">
+        <button class="primary" id="retry">Try again</button>
+        <button id="change">Change server</button>
+      </div>
+    </main>
+    <script>
+      const server = new URLSearchParams(location.search).get("server");
+      if (server) document.getElementById("server").textContent = server;
+      const status = document.getElementById("status");
+      const retry = async () => {
+        status.textContent = "Checking…";
+        const ok = await window.dendropSetup.retry().catch(() => false);
+        if (!ok) status.textContent = "Still can't reach it. Is the server running, and is this PC on the right network?";
+      };
+      document.getElementById("retry").addEventListener("click", retry);
+      document.getElementById("change").addEventListener("click", () => window.dendropSetup.changeServer());
+      setInterval(retry, 30_000);
+    </script>
+  </body>
+</html>

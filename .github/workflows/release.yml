@@ -1,0 +1,59 @@
+# Push a tag like v0.2.0 to build the desktop app for Windows and Linux and attach it to a
+# GitHub release, with a SHA256SUMS file the app checks updates against (packages/desktop/src/updater.ts).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+          - os: ubuntu-latest
+            target: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # The app's version comes from the tag, so a release never ships as 0.1.0 by mistake.
+      - run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version -w @dendrop/desktop
+        shell: bash
+      - run: npm run build
+      - run: npm run dist:${{ matrix.target }} -w @dendrop/desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.target }}
+          path: |
+            packages/desktop/release/*.exe
+            packages/desktop/release/*.AppImage
+            packages/desktop/release/*.deb
+
+  release:
+    needs: [desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: desktop-*
+      # A block scalar, because in a plain one the "  #" in the sed below starts a YAML comment.
+      - run: |
+          find dist -type f -exec sha256sum {} + | sed 's#  .*/#  #' | sort -k2 > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/**/*
+            SHA256SUMS
+          generate_release_notes: true
