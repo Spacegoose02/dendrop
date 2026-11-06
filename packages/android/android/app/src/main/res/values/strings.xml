@@ -1,0 +1,19 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Dendrop</string>
+    <string name="title_activity_main">Dendrop</string>
+    <string name="package_name">io.github.spacegoose02.dendrop</string>
+    <string name="custom_url_scheme">io.github.spacegoose02.dendrop</string>
+
+    <string name="channel_messages">Messages</string>
+    <string name="channel_messages_description">New direct messages and mentions. The notification never shows what was said.</string>
+    <string name="channel_calls">Calls</string>
+    <string name="channel_calls_description">Someone is calling you.</string>
+    <string name="notify_message_title">Dendrop</string>
+    <string name="notify_message_text">You have a new message</string>
+    <string name="notify_call_title">Incoming call</string>
+    <string name="notify_call_text">Someone is calling you on Dendrop</string>
+
+    <string name="shortcut_settings_short">Server settings</string>
+    <string name="shortcut_settings_long">Dendrop server and notifications</string>
+</resources>

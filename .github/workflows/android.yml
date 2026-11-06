@@ -1,0 +1,63 @@
+name: Android
+
+on:
+  push:
+    branches: [main]
+    paths: ["packages/android/**", "packages/theme/**", "packages/web/public/**", ".github/workflows/android.yml"]
+  pull_request:
+    paths: ["packages/android/**", "packages/theme/**", "packages/web/public/**", ".github/workflows/android.yml"]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+    defaults:
+      run:
+        working-directory: packages/android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: packages/android/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      # The runner already has the SDK; this accepts licenses and adds what compileSdk 36 needs.
+      # (The action's default package list includes "tools", which no longer exists.)
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+      - run: npm ci
+      - run: npm run sync
+      - name: Build the debug APK
+        run: ./gradlew --no-daemon assembleDebug
+        working-directory: packages/android/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dendrop-debug-apk
+          path: packages/android/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      # A release APK signed with your own key, once the ANDROID_KEYSTORE_* secrets exist
+      # (see packages/android/README.md). Skipped until then.
+      - name: Build the release APK
+        if: ${{ env.KEYSTORE_B64 != '' }}
+        env:
+          DENDROP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          DENDROP_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          DENDROP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        working-directory: packages/android/android
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          DENDROP_KEYSTORE_FILE="$RUNNER_TEMP/release.keystore" ./gradlew --no-daemon assembleRelease
+      - uses: actions/upload-artifact@v4
+        if: ${{ hashFiles('packages/android/android/app/build/outputs/apk/release/*.apk') != '' }}
+        with:
+          name: dendrop-release-apk
+          path: packages/android/android/app/build/outputs/apk/release/*.apk

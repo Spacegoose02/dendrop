@@ -1,0 +1,12 @@
+{
+  "appId": "io.github.spacegoose02.dendrop",
+  "appName": "Dendrop",
+  "webDir": "www",
+  "android": {
+    "path": "android"
+  },
+  "server": {
+    "androidScheme": "https",
+    "errorPath": "dendrop-offline.html"
+  }
+}

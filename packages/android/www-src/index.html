@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>Dendrop</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="setup.css" />
+  </head>
+  <body>
+    <main class="setup">
+      <header class="brand">
+        <img src="raccoon.svg" alt="" width="56" height="56" />
+        <div>
+          <h1>Dendrop</h1>
+          <p class="muted" id="tagline">Your family's own chat.</p>
+        </div>
+      </header>
+
+      <section class="card offline" id="offline" hidden>
+        <h2>Can't reach your den</h2>
+        <p class="muted">Dendrop couldn't open <strong id="offline-url"></strong>. Check that you're online, or on the right network if the server is at home.</p>
+        <button class="primary wide" id="retry">Try again</button>
+      </section>
+
+      <section class="card" id="server-card">
+        <h2>Server</h2>
+        <form id="server-form" novalidate>
+          <label for="server-url">Where is your Dendrop server?</label>
+          <input id="server-url" type="url" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="chat.example.com" required />
+          <p class="hint muted" id="server-hint">The address you open Dendrop at in a browser.</p>
+          <p class="error" id="server-error" role="alert" hidden></p>
+          <button class="primary wide" type="submit" id="server-save">Connect</button>
+        </form>
+      </section>
+
+      <section class="card" id="push-card" hidden>
+        <h2>Notifications</h2>
+        <p class="muted">
+          Dendrop gets notifications through <strong>ntfy</strong>, a free app that delivers them for any app without Google.
+          A notification only says that something arrived, never what was said or who said it.
+        </p>
+        <p class="status" id="push-status"></p>
+        <div class="row" id="push-actions"></div>
+      </section>
+
+      <button class="primary wide" id="open" hidden>Open Dendrop</button>
+      <p class="version faint" id="version"></p>
+    </main>
+    <script src="setup.js"></script>
+  </body>
+</html>

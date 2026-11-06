@@ -1,0 +1,133 @@
+/* The app's own setup page. Colors and shapes come from @dendrop/theme tokens only. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--dd-bg-main);
+  color: var(--dd-text);
+  font: 16px/1.45 var(--dd-font);
+}
+[hidden] {
+  display: none !important;
+}
+.setup {
+  max-width: 440px;
+  margin: 0 auto;
+  padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+  display: grid;
+  gap: 16px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 4px 4px;
+}
+.brand h1 {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.1;
+}
+.brand p {
+  margin: 2px 0 0;
+}
+.card {
+  background: var(--dd-bg-sidebar);
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius-lg);
+  padding: 18px 16px;
+}
+.card.offline {
+  border-color: var(--dd-warning);
+}
+h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+p {
+  margin: 0 0 12px;
+}
+.muted {
+  color: var(--dd-text-muted);
+}
+.faint {
+  color: var(--dd-text-faint);
+}
+.error {
+  color: var(--dd-danger);
+}
+label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+input {
+  width: 100%;
+  font: inherit;
+  color: var(--dd-text);
+  background: var(--dd-bg-input);
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius-sm);
+  padding: 12px;
+  margin-bottom: 6px;
+}
+input:focus {
+  outline: 2px solid var(--dd-accent);
+  outline-offset: 1px;
+}
+.hint {
+  font-size: 14px;
+}
+button,
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  font: inherit;
+  font-weight: 600;
+  border: 0;
+  border-radius: var(--dd-radius-sm);
+  padding: 10px 16px;
+  background: var(--dd-bg-raised);
+  color: var(--dd-text);
+  text-decoration: none;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.6;
+}
+.primary {
+  background: var(--dd-accent);
+  color: var(--dd-accent-text);
+}
+.wide {
+  width: 100%;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.row > * {
+  flex: 1 1 auto;
+}
+.status {
+  font-weight: 600;
+}
+.status.ok {
+  color: var(--dd-online);
+}
+.status.warn {
+  color: var(--dd-warning);
+}
+.version {
+  text-align: center;
+  font-size: 13px;
+  margin: 0;
+}

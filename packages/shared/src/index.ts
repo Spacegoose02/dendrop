@@ -17,6 +17,8 @@ export interface Friend {
   user: PublicUser;
   state: FriendState;
   since: string;
+  /** Whether an accepted friend is connected right now. */
+  online?: boolean;
 }
 
 export interface Conversation {
