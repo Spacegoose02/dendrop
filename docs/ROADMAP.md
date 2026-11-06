@@ -6,8 +6,8 @@ feature board into a build order.
 
 **Top priority:** private direct messaging (text and calls) between people you trust, so Dendrop can replace Discord DMs first.
 
-**Current state (2026-11-06):** the repository is empty, so every card below starts as
-*missing*. The status column is here so we can tick cards off as phases land.
+**Current state:** Phase 0 is in place, and Phase 1 has sign-in, friends and live text DMs. The
+status column is updated as each piece lands.
 
 ---
 
@@ -145,30 +145,30 @@ color palettes, and naming. No other app's logos, names, or artwork.
 
 | Column | Card | Phase | Status |
 | --- | --- | --- | --- |
-| Systems | New Chat | 1 | Missing |
+| Systems | New Chat | 1 | Partial: DMs from the friends list; group DM picker still to do |
 | Systems | Windows 11 | 2 | Missing |
 | Systems | Android APK | 2 | Missing |
 | Systems | Linux | 2 | Missing |
-| Systems | SSO with TinyAuth | 1 | Missing |
-| Systems | MFA usable | 1 | Missing |
+| Systems | SSO with TinyAuth | 1 | Done |
+| Systems | MFA usable | 1 | Done (enforced in TinyAuth) |
 | Systems | Automatically adjust input sensitivity | 4 | Missing |
 | Systems | Noise suppression with levels | 4 | Missing |
 | Systems | Advanced audio switches | 4 | Missing |
 | Systems | Automatically open when PC starts | 2 | Missing |
 | Systems | Keybinds | 2 | Missing |
-| Systems | Server: Docker / Unraid hosting | 0 | Missing |
+| Systems | Server: Docker / Unraid hosting | 0 | Done (Unraid template still to do) |
 | Backbone | Ability for chat servers | 3 | Missing |
-| Backbone | Users / TinyAuth for SSO | 1 | Missing |
-| Backbone | Super admin over whole server | 1 | Missing |
+| Backbone | Users / TinyAuth for SSO | 1 | Done |
+| Backbone | Super admin over whole server | 1 | Partial: role exists; admin tools come with servers |
 | Backbone | Joinable chat servers, can be private | 3 | Missing |
-| Backbone | Private chat / direct message | 1 | Missing |
+| Backbone | Private chat / direct message | 1 | Partial: text DMs and group DMs live; E2EE to come |
 | Backbone | Screen sharing | 4 | Missing |
 | Backbone | Game streaming | 4 | Missing |
 | Backbone | Voice chat | 1 (DM calls), 4 (channels) | Missing |
 | Backbone | Phone notifications | 2 | Missing |
 | Backbone | Speaker settings | 4 | Missing |
 | Backbone | Microphone settings | 4 | Missing |
-| Backbone | Friend invites | 1 | Missing |
+| Backbone | Friend invites | 1 | Done |
 | Backbone | Browse other chat servers | 3 | Missing |
 | Backbone | Lock channels / owner chooses members | 3 | Missing |
 | Backbone | Creator is owner of chat server | 3 | Missing |
