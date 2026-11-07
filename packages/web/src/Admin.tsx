@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type { AdminServer, LootdenStatus, ServerCreatorRequest } from "@dendrop/shared";
+import type { AdminServer, ChannelRef, ChatServer, LootdenStatus, ServerCreatorRequest } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { Modal } from "./Modal.tsx";
 import { ServerIcon } from "./Servers.tsx";
@@ -186,20 +186,103 @@ function LootdenSection() {
               {status.lastOkAt ? `Connected, checked ${ago(status.lastOkAt)}.` : "Not checked yet."} {status.playing} playing right now.
             </p>
           )}
+          <LootdenChannels status={status} onSaved={setStatus} />
+          <div className="section-label">Accounts</div>
           {status.accounts.map((a) => (
             <div key={a.lootden.id} className="member-row">
               <span className="nav-text">
                 <span className="ellipsis">
-                  {a.lootden.displayName} <span className="muted small">@{a.lootden.username} in LootDen{a.lootden.kid ? " · kid" : ""}</span>
+                  {a.lootden.displayName}{" "}
+                  <span className="muted small">
+                    @{a.lootden.username} in LootDen{a.lootden.kid ? " · kid" : ""}
+                    {a.lootden.admin ? " · admin" : ""}
+                  </span>
                 </span>
                 <span className="muted small">
                   {a.user ? `↔ ${a.user.displayName} (@${a.user.username}), same ${a.matchedBy === "sign-in" ? "TinyAuth sign-in" : a.matchedBy}` : "No Dendrop account with the same email or username"}
+                  {a.user && a.userIsKid ? " · kid account" : ""}
                 </span>
               </span>
+              {a.lootden.kid && a.user && !a.userIsKid && <MakeKid status={status} kid={a.user} onDone={() => void send(() => api<LootdenStatus>("/api/admin/lootden"))} />}
             </div>
           ))}
         </>
       )}
     </>
+  );
+}
+
+/** Where game nights and new screenshots go: a text channel in a server you run, or off. */
+function LootdenChannels({ status, onSaved }: { status: LootdenStatus; onSaved: (s: LootdenStatus) => void }) {
+  const [servers, setServers] = useState<ChatServer[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => void api<ChatServer[]>("/api/servers").then((list) => setServers(list.filter((s) => s.myRole !== "member")), () => {}), []);
+  const options = servers.flatMap((sv) => sv.channels.filter((c) => c.kind === "text").map((c) => ({ value: `${sv.id}:${c.id}`, label: `${sv.name} › #${c.name}` })));
+  const value = (ref: ChannelRef | null) => (ref ? `${ref.serverId}:${ref.channelId}` : "");
+  const save = async (key: "gameNights" | "screenshots", v: string) => {
+    setError(null);
+    const [serverId, channelId] = v.split(":").map(Number);
+    try {
+      onSaved(await api<LootdenStatus>("/api/admin/lootden/channels", { method: "PUT", body: { [key]: v ? { serverId, channelId } : null } }));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+  const picker = (key: "gameNights" | "screenshots", label: string, hint: string) => (
+    <div className="lootden-pick">
+      <span>
+        <strong>{label}</strong>
+        <span className="muted small">{hint}</span>
+      </span>
+      <select value={value(status.settings[key])} onChange={(e) => void save(key, e.target.value)} aria-label={label}>
+        <option value="">Off</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+  return (
+    <div className="lootden-picks">
+      {picker("gameNights", "Game nights", "Announced here, each with its own voice channel in that server until the night is over.")}
+      {picker("screenshots", "Family wall", "New screenshots from LootDen are shared here. If a kid can read the channel, only screenshots of kid-safe games are.")}
+      {options.length === 0 && <p className="muted small">Make a server (or be an admin of one) to pick a channel.</p>}
+      {error && <p className="error">{error}</p>}
+    </div>
+  );
+}
+
+/** Links a LootDen kid profile's Dendrop account to a parent, as a kid account. */
+function MakeKid({ status, kid, onDone }: { status: LootdenStatus; kid: { username: string; displayName: string }; onDone: () => void }) {
+  // LootDen's admins are the grown-ups; offer their Dendrop accounts as parents.
+  const parents = status.accounts.filter((a) => a.lootden.admin && a.user && !a.userIsKid).map((a) => a.user!);
+  const [parent, setParent] = useState(parents[0]?.username ?? "");
+  const [error, setError] = useState<string | null>(null);
+  if (!parents.length) return <span className="muted small">No LootDen admin has a Dendrop account to be the parent</span>;
+  const link = async () => {
+    setError(null);
+    try {
+      await api("/api/admin/family", { body: { parent, kid: kid.username, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } });
+      onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+  return (
+    <span className="make-kid">
+      <select value={parent} onChange={(e) => setParent(e.target.value)} aria-label={`Parent for ${kid.displayName}`}>
+        {parents.map((p) => (
+          <option key={p.username} value={p.username}>
+            Parent: {p.displayName}
+          </option>
+        ))}
+      </select>
+      <button className="primary small-button" onClick={() => void link()}>
+        Make kid account
+      </button>
+      {error && <span className="small error-text">{error}</span>}
+    </span>
   );
 }

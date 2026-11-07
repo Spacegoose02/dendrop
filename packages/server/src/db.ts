@@ -351,6 +351,18 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE users ADD COLUMN share_activity INTEGER NOT NULL DEFAULT 1;
   `,
   `
+  -- LootDen game nights announced in Dendrop: the announcement and the night's voice channel.
+  -- signature is what the announcement says, so a change in LootDen updates it.
+  CREATE TABLE lootden_game_nights (
+    lootden_id INTEGER PRIMARY KEY,
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    voice_channel_id INTEGER,
+    message_id INTEGER,
+    signature TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  `,
+  `
   -- Custom colors for your name and your messages (#rrggbb). Null uses the theme's colors;
   -- clients nudge a color that's hard to read on the current theme until it reads well.
   ALTER TABLE users ADD COLUMN name_color TEXT;

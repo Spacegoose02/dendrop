@@ -186,7 +186,7 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Features | Invite links | 3 | Done (links with expiry and use limits, and invites to friends) |
 | Features | Server chat profile / rename | 7 | Done (name, description, per-server nickname) |
 | Features | Server chat banner | 7 | Done (icon and banner) |
-| Integrations | LootDen integration | 8 | Partial: "Playing now" activity and LootDen alerts into a channel through incoming webhooks ([LOOTDEN.md](LOOTDEN.md)); game nights, screenshots, kid profiles and game links still to come |
+| Integrations | LootDen integration | 8 | Done: playing now, alerts through webhooks, game-link cards with Send to PC, game nights with a voice channel, family wall screenshots (kid-safe) and kid accounts from LootDen's kid profiles ([LOOTDEN.md](LOOTDEN.md)); "Surprise us" sharing needs a LootDen-side button |
 | Kid safe chat | Profanity filters | 5 | Done for kid accounts: hidden in what they read and blocked when they send (on their device, and on the server for plain messages), extra words per kid |
 | Kid safe chat | Kid's deleted messages sent to parent | 5 | Done: kept (still encrypted, files too) until a parent has looked and marks it done |
 | Kid safe chat | Time-based controls | 5 | Done: chat hours and daily minutes, enforced by the server |

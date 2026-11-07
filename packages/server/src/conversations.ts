@@ -311,7 +311,7 @@ export class ConversationRepo {
     body: unknown,
     files: NewAttachment[] = [],
     keyVersion: number | null = null,
-    webhook: { id: number; name: string } | null = null,
+    webhook: { id: number | null; name: string } | null = null,
   ): Message {
     if (files.length > LIMITS.attachmentsPerMessage) throw new HttpError(400, `Up to ${LIMITS.attachmentsPerMessage} files per message`);
     const version = this.checkCrypto(conversationId, keyVersion, body);

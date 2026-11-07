@@ -48,6 +48,10 @@ export interface Context {
   automod: AutomodService;
   /** The link to LootDen: who's playing what. */
   lootden: LootdenLink;
+  /** Set by the server routes: sends a server's members its new state (and prunes voice). */
+  serverChanged?: (serverId: number) => void;
+  /** Set by the server routes: how many people are in a voice channel. */
+  voiceCount?: (channelId: number) => number;
   /** Hooks for the gateway, so features can react to events from clients. */
   onClientEvent: ((user: UserRecord, event: ClientEvent) => void)[];
   onPresence: ((userId: number, online: boolean) => void)[];

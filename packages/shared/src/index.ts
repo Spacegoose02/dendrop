@@ -138,6 +138,8 @@ export interface ServerInfo {
   maxUploadBytes: number;
   /** Voice and video calls work only when the server has LiveKit set up. */
   calls: boolean;
+  /** LootDen's address when it's linked, so links to its games can show a card. */
+  lootdenUrl: string | null;
 }
 
 /** A call in a conversation. Calls live in memory on the server while they last. */
@@ -479,11 +481,44 @@ export interface Activity {
   url: string | null;
 }
 
+/** A channel of a server, for where LootDen posts. */
+export interface ChannelRef {
+  serverId: number;
+  channelId: number;
+}
+
 /** The super admin's LootDen link settings. The token itself is never sent back. */
 export interface LootdenSettings {
   /** LootDen's address, e.g. https://games.example.com, or "" when not linked. */
   url: string;
   hasToken: boolean;
+  /** Where planned game nights are announced; each also gets a voice channel in that server. */
+  gameNights: ChannelRef | null;
+  /** Where new screenshots from LootDen's family wall are shared. */
+  screenshots: ChannelRef | null;
+}
+
+/** A LootDen game, for the card a link to it shows. */
+export interface LootdenGame {
+  id: string;
+  title: string;
+  /** Through Dendrop, so it works without signing in to LootDen. */
+  coverUrl: string | null;
+  releaseYear: number | null;
+  genres: string[];
+  platform: string;
+  sizeBytes: number;
+  /** Its page in LootDen. */
+  url: string;
+  /** You can send it to a PC: your LootDen profile is matched, and it's a full game. */
+  canSend: boolean;
+}
+
+/** A PC a game can be sent to. */
+export interface LootdenPc {
+  name: string;
+  online: boolean;
+  lastUser: string | null;
 }
 
 /** How the LootDen link is doing, for the admin page. */
@@ -493,7 +528,13 @@ export interface LootdenStatus {
   lastOkAt: string | null;
   error: string | null;
   /** LootDen profiles, and the Dendrop account each lines up with (by TinyAuth sign-in, email or username). */
-  accounts: { lootden: { id: number; username: string; displayName: string; kid: boolean }; user: PublicUser | null; matchedBy: "sign-in" | "email" | "username" | null }[];
+  accounts: {
+    lootden: { id: number; username: string; displayName: string; kid: boolean; admin: boolean };
+    user: PublicUser | null;
+    matchedBy: "sign-in" | "email" | "username" | null;
+    /** The Dendrop account is already a kid account. */
+    userIsKid: boolean;
+  }[];
   /** How many people are playing right now. */
   playing: number;
 }

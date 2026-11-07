@@ -15,6 +15,7 @@ import {
 import { api, apiForm, ApiError } from "./api.ts";
 import { EMOJI } from "./emoji.ts";
 import { ActivityLine } from "./activity.tsx";
+import { GameLinks } from "./GameLink.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { decryptFile, encryptFile, encryptMessage, keyring, reveal, type ChatMessage, type FileMeta } from "./e2ee.ts";
 import { EncryptionInfo } from "./EncryptionInfo.tsx";
@@ -483,6 +484,7 @@ export function Chat({
                           {m.editedAt && <span className="muted small"> (edited)</span>}
                         </p>
                       )}
+                      {m.text && <GameLinks text={m.text} />}
                       {m.attachments.length > 0 && (
                         <div className="attachments">
                           {m.attachments.map((a, j) =>

@@ -623,3 +623,33 @@ select {
 .webhook-fresh > button {
   align-self: flex-start;
 }
+.lootden-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.lootden-pick > span {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 240px;
+}
+.make-kid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.lootden-picks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 12px 0;
+}
+.member-row:has(.make-kid) {
+  flex-wrap: wrap;
+}
+.member-row .make-kid {
+  flex-basis: 100%;
+}

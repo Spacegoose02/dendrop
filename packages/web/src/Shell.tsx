@@ -31,6 +31,7 @@ import { keyring, loadIdentity, reveal, type Identity } from "./e2ee.ts";
 import { conversationTitle, upsert, type History } from "./util.ts";
 import { AdminDialog } from "./Admin.tsx";
 import { ActivityContext, ActivityLine } from "./activity.tsx";
+import { LootdenUrlContext } from "./GameLink.tsx";
 import { FamilyDialog } from "./Family.tsx";
 import { ChannelDialog, CreateServer, Directory, InviteDialog, InviteLinkDialog, isMod, ServerIcon, ServerSettings, ServerSidebar, type SettingsTab } from "./Servers.tsx";
 
@@ -781,5 +782,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       )}
     </div>
   );
-  return <ActivityContext.Provider value={activities}>{shell}</ActivityContext.Provider>;
+  return (
+    <LootdenUrlContext.Provider value={server?.lootdenUrl ?? null}>
+      <ActivityContext.Provider value={activities}>{shell}</ActivityContext.Provider>
+    </LootdenUrlContext.Provider>
+  );
 }

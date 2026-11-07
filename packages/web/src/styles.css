@@ -1016,3 +1016,60 @@ button.attachment-file {
 .activity a:hover {
   text-decoration: underline;
 }
+
+/* Cards for links to LootDen games. */
+.game-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.game-card {
+  display: flex;
+  gap: 12px;
+  max-width: 460px;
+  padding: 10px;
+  border: 1px solid var(--dd-border);
+  border-left: 3px solid var(--dd-accent);
+  border-radius: var(--dd-radius);
+  background: var(--dd-bg-raised);
+}
+.game-cover {
+  width: 64px;
+  height: 86px;
+  flex: none;
+  object-fit: cover;
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-bg-sidebar);
+}
+.game-cover.none {
+  display: grid;
+  place-items: center;
+  font-size: 1.6rem;
+}
+.game-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.game-title {
+  font-weight: 700;
+  color: var(--dd-text);
+  text-decoration: none;
+}
+.game-title:hover {
+  text-decoration: underline;
+}
+.game-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.ok-text {
+  color: var(--dd-online);
+}
+.error-text {
+  color: var(--dd-danger);
+}

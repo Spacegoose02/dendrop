@@ -154,7 +154,7 @@ describe("LootDen link", () => {
   const fetchImpl: LootdenFetch = async (url, init) => {
     asked.push({ url, auth: init.headers.authorization! });
     const body = url.endsWith("/api/users") ? lootdenUsers : nowPlaying;
-    return { ok: answer < 300, status: answer, json: async () => body };
+    return { ok: answer < 300, status: answer, json: async () => body, arrayBuffer: async () => new ArrayBuffer(0), headers: new Headers() };
   };
 
   before(async () => {
@@ -195,7 +195,7 @@ describe("LootDen link", () => {
     const res = await call(admin, "PUT", "/api/admin/lootden", { url: "https://games.example.net/", token: "secret-token" });
     assert.equal(res.status, 200);
     const st = res.body as LootdenStatus;
-    assert.deepEqual(st.settings, { url: "https://games.example.net", hasToken: true });
+    assert.deepEqual(st.settings, { url: "https://games.example.net", hasToken: true, gameNights: null, screenshots: null });
     assert.equal(JSON.stringify(st).includes("secret-token"), false);
     assert.equal(st.error, null);
     assert.ok(st.lastOkAt);
@@ -260,7 +260,200 @@ describe("LootDen link", () => {
 
   it("unlinks", async () => {
     const st = (await call(admin, "PUT", "/api/admin/lootden", { url: "" })).body as LootdenStatus;
-    assert.deepEqual(st.settings, { url: "", hasToken: false });
+    assert.deepEqual(st.settings, { url: "", hasToken: false, gameNights: null, screenshots: null });
     assert.deepEqual(st.accounts, []);
+  });
+});
+
+describe("LootDen game links, game nights, screenshots and kids", () => {
+  let s: TestServer;
+  let call: Call;
+  let admin: string, bob: string, kid: string;
+  let serverId: number;
+  let general: { id: number; conversationId: number };
+  let nights: object[] = [];
+  let shots: object[] = [];
+  const installs: { device: string; body: string }[] = [];
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
+  const games: Record<string, object> = {
+    stardew: { id: "stardew", title: "Stardew Valley", coverUrl: "/api/games/stardew/cover?v=1", releaseYear: 2016, genres: ["Farming"], platform: "pc", sizeBytes: 500, kidSafe: true, kind: "game" },
+    doom: { id: "doom", title: "DOOM", coverUrl: null, releaseYear: 2016, genres: ["Shooter"], platform: "pc", sizeBytes: 900, kidSafe: false, kind: "game" },
+  };
+
+  const reply = (status: number, body: unknown, type = "application/json") => ({
+    ok: status < 300,
+    status,
+    json: async () => body,
+    arrayBuffer: async () => {
+      const b = Buffer.isBuffer(body) ? body : Buffer.from(JSON.stringify(body));
+      return b.buffer.slice(b.byteOffset, b.byteOffset + b.length) as ArrayBuffer;
+    },
+    headers: new Headers({ "content-type": type }),
+  });
+  const fetchImpl: LootdenFetch = async (url, init) => {
+    const p = new URL(url).pathname;
+    if (p === "/api/users")
+      return reply(200, [
+        { id: 1, username: "admin", displayName: "Admin", email: null, kidMode: false, role: "admin" },
+        { id: 2, username: "bob", displayName: "Bob", email: null, kidMode: false, role: "user" },
+        { id: 3, username: "kiddo", displayName: "Kiddo", email: null, kidMode: true, role: "user" },
+      ]);
+    if (p === "/api/family/now-playing") return reply(200, []);
+    if (p === "/api/pcs/targets")
+      return reply(200, [
+        { name: "Den-PC", online: true, lastUser: "Bob", freeBytes: 1 },
+        { name: "Office", online: false, lastUser: "Admin", freeBytes: 1 },
+      ]);
+    let m = /^\/api\/pcs\/([^/]+)\/install$/.exec(p);
+    if (m && init.method === "POST") {
+      installs.push({ device: decodeURIComponent(m[1]!), body: init.body ?? "" });
+      return reply(200, { ok: true });
+    }
+    m = /^\/api\/games\/([^/]+)(\/cover)?$/.exec(p);
+    if (m) {
+      const g = games[decodeURIComponent(m[1]!)];
+      if (!g) return reply(404, { error: "No such game" });
+      return m[2] ? reply(200, PNG, "image/png") : reply(200, g);
+    }
+    if (p === "/api/game-nights") return reply(200, { upcoming: nights, past: [] });
+    if (p === "/api/screenshots") return reply(200, shots);
+    if (/^\/api\/screenshots\/\d+\/image$/.test(p)) return reply(200, PNG, "image/png");
+    return reply(404, { error: "Not found" });
+  };
+
+  const check = () => call(admin, "POST", "/api/admin/lootden/check");
+  const lastMessages = async (n: number) => ((await call(admin, "GET", `/api/conversations/${general.conversationId}/messages`)).body as Message[]).slice(-n);
+
+  before(async () => {
+    s = await startServer({ DENDROP_SIGNUP: "true" }, { lootdenFetch: fetchImpl });
+    call = caller(s);
+    admin = await account(s, "admin");
+    bob = await account(s, "bob");
+    kid = await account(s, "kiddo");
+    const sv = (await call(admin, "POST", "/api/servers", { name: "Den" })).body as ChatServer;
+    serverId = sv.id;
+    general = sv.channels[0]!;
+    const inv = (await call(admin, "POST", `/api/servers/${serverId}/invites`, {})).body as ServerInvite;
+    assert.equal((await call(bob, "POST", `/api/invites/${inv.code}/accept`)).status, 200);
+    assert.equal((await call(admin, "PUT", "/api/admin/lootden", { url: "https://games.example.net", token: "t" })).status, 200);
+  });
+  after(() => s.close());
+
+  it("tells clients where LootDen is, for game links", async () => {
+    assert.equal((await call(bob, "GET", "/api/server")).body.lootdenUrl, "https://games.example.net");
+  });
+
+  it("shows a game's card and cover, and hides grown-up games from kids", async () => {
+    const g = (await call(bob, "GET", "/api/lootden/games/stardew")).body;
+    assert.deepEqual(g, {
+      id: "stardew",
+      title: "Stardew Valley",
+      coverUrl: "/api/lootden/games/stardew/cover",
+      releaseYear: 2016,
+      genres: ["Farming"],
+      platform: "pc",
+      sizeBytes: 500,
+      url: "https://games.example.net/games/stardew",
+      canSend: true,
+    });
+    const cover = await s.app.inject({ method: "GET", url: "/api/lootden/games/stardew/cover", headers: { cookie: bob } });
+    assert.equal(cover.headers["content-type"], "image/png");
+    assert.deepEqual(cover.rawPayload, PNG);
+    assert.equal((await call(bob, "GET", "/api/lootden/games/nope")).status, 404);
+    // kiddo's LootDen profile is a kid profile.
+    assert.equal((await call(kid, "GET", "/api/lootden/games/doom")).status, 404);
+    assert.equal((await call(kid, "GET", "/api/lootden/games/stardew")).status, 200);
+  });
+
+  it("sends games to PCs you use (any PC for LootDen admins)", async () => {
+    assert.deepEqual(((await call(bob, "GET", "/api/lootden/pcs")).body as { name: string }[]).map((p) => p.name), ["Den-PC"]);
+    assert.deepEqual(((await call(admin, "GET", "/api/lootden/pcs")).body as { name: string }[]).map((p) => p.name), ["Den-PC", "Office"]);
+    assert.equal((await call(bob, "POST", "/api/lootden/games/stardew/send", { device: "Office" })).status, 403);
+    assert.equal((await call(bob, "POST", "/api/lootden/games/stardew/send", { device: "Den-PC" })).status, 200);
+    assert.deepEqual(installs.at(-1), { device: "Den-PC", body: JSON.stringify({ gameId: "stardew" }) });
+  });
+
+  it("only lets a super admin pick channels in servers they moderate", async () => {
+    assert.equal((await call(bob, "PUT", "/api/admin/lootden/channels", { gameNights: { serverId, channelId: general.id } })).status, 403);
+    // A server the super admin isn't in.
+    s.ctx.users.setCanCreateServers(s.ctx.users.byUsername("bob")!.id, true);
+    const bobs = (await call(bob, "POST", "/api/servers", { name: "Bob's" })).body as ChatServer;
+    assert.equal((await call(admin, "PUT", "/api/admin/lootden/channels", { gameNights: { serverId: bobs.id, channelId: bobs.channels[0]!.id } })).status, 403);
+    assert.equal((await call(admin, "PUT", "/api/admin/lootden/channels", { gameNights: { serverId, channelId: 9999 } })).status, 404);
+  });
+
+  it("announces game nights with a voice channel, updates them, and tidies up after", async () => {
+    nights = [{ id: 5, title: "Mario Party", date: "2026-11-13", time: "19:00", players: [{ id: 2, name: "Bob" }], game: { id: "mp", title: "Mario Party" }, note: null }];
+    const res = await call(admin, "PUT", "/api/admin/lootden/channels", { gameNights: { serverId, channelId: general.id } });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.settings.gameNights, { serverId, channelId: general.id });
+    let view = (await call(bob, "GET", `/api/servers/${serverId}`)).body as ChatServer;
+    const voice = view.channels.find((c) => c.kind === "voice");
+    assert.equal(voice?.name, "game-night-mario-party");
+    let [m] = await lastMessages(1);
+    assert.equal(m!.webhook?.name, "LootDen");
+    assert.equal(m!.body, "🎲 Game night: Mario Party\nFri, Nov 13 at 7:00 PM\nPlaying Mario Party\nWith Bob\nVoice: 🔊 game-night-mario-party");
+    // A change in LootDen edits the announcement.
+    nights = [{ ...nights[0]!, time: "20:30" }];
+    await call(admin, "PUT", "/api/admin/lootden/channels", {});
+    [m] = await lastMessages(1);
+    assert.match(m!.body, /at 8:30 PM/);
+    assert.ok(m!.editedAt);
+    // Over: the voice channel goes.
+    nights = [];
+    await call(admin, "PUT", "/api/admin/lootden/channels", {});
+    view = (await call(bob, "GET", `/api/servers/${serverId}`)).body as ChatServer;
+    assert.equal(view.channels.some((c) => c.kind === "voice"), false);
+    await call(admin, "PUT", "/api/admin/lootden/channels", { gameNights: null });
+  });
+
+  it("shares new screenshots, not the ones already on the wall", async () => {
+    shots = [{ id: 10, imageUrl: "/api/screenshots/10/image", by: { id: 2, name: "Bob" }, game: { id: "stardew", title: "Stardew Valley" }, caption: "old" }];
+    await call(admin, "PUT", "/api/admin/lootden/channels", { screenshots: { serverId, channelId: general.id } });
+    const before = (await lastMessages(1))[0]!.id;
+    shots = [
+      { id: 12, imageUrl: "/api/screenshots/12/image", by: { id: 2, name: "Bob" }, game: { id: "doom", title: "DOOM" }, caption: null },
+      { id: 11, imageUrl: "/api/screenshots/11/image", by: { id: 2, name: "Bob" }, game: { id: "stardew", title: "Stardew Valley" }, caption: "Big harvest" },
+      ...shots,
+    ];
+    await check();
+    const posted = (await lastMessages(3)).filter((x) => x.id > before);
+    assert.deepEqual(
+      posted.map((x) => x.body),
+      ["📸 Bob shared a screenshot from Stardew Valley\nBig harvest", "📸 Bob shared a screenshot from DOOM"],
+    );
+    assert.equal(posted[0]!.attachments[0]!.contentType, "image/png");
+    // Nothing twice.
+    await check();
+    assert.equal((await lastMessages(1))[0]!.id, posted.at(-1)!.id);
+  });
+
+  it("shares only kid-safe screenshots where a kid can read them", async () => {
+    // kiddo becomes a kid account and joins the server.
+    s.ctx.db.prepare("INSERT INTO family_links (kid_id, parent_id, created_at) VALUES (?, ?, ?)").run(s.ctx.users.byUsername("kiddo")!.id, s.ctx.users.byUsername("admin")!.id, new Date().toISOString());
+    s.ctx.db.prepare("INSERT INTO kid_rules (kid_id, can_join_servers) VALUES (?, 1)").run(s.ctx.users.byUsername("kiddo")!.id);
+    const inv = (await call(admin, "POST", `/api/servers/${serverId}/invites`, {})).body as ServerInvite;
+    assert.equal((await call(kid, "POST", `/api/invites/${inv.code}/accept`)).status, 200);
+    const before = (await lastMessages(1))[0]!.id;
+    shots = [
+      { id: 14, imageUrl: "", by: { id: 1, name: "Admin" }, game: { id: "doom", title: "DOOM" }, caption: null },
+      { id: 13, imageUrl: "", by: { id: 1, name: "Admin" }, game: { id: "stardew", title: "Stardew Valley" }, caption: null },
+      ...shots,
+    ];
+    await check();
+    const posted = (await lastMessages(3)).filter((x) => x.id > before);
+    assert.deepEqual(
+      posted.map((x) => x.body),
+      ["📸 Admin shared a screenshot from Stardew Valley"],
+    );
+  });
+
+  it("lists LootDen's kid and admin profiles for setting up kid accounts", async () => {
+    const st = (await call(admin, "GET", "/api/admin/lootden")).body as LootdenStatus;
+    const byName = Object.fromEntries(st.accounts.map((a) => [a.lootden.username, a]));
+    assert.equal(byName.admin!.lootden.admin, true);
+    assert.equal(byName.kiddo!.lootden.kid, true);
+    assert.equal(byName.kiddo!.userIsKid, true);
+    assert.equal(byName.bob!.userIsKid, false);
   });
 });
