@@ -5,6 +5,8 @@
  * It matches whole words, after undoing common disguises (f*ck → f.ck, sh1t, fuuuck), so
  * words that only contain a swear ("Scunthorpe", "class") are left alone. A trailing * in a
  * list entry matches anything that starts with it ("fuck*" also catches "fucking").
+ *
+ * Automod (servers.ts / automod.ts) uses the same engine for a server's blocked words.
  */
 
 /** The built-in list. Parents can add their own words per kid. */
@@ -100,13 +102,19 @@ interface Compiled {
 
 const cache = new Map<string, Compiled>();
 
-function compile(extra: readonly string[]): Compiled {
-  const key = extra.join("\n");
+/** Options for the filter. Automod lets a server use only its own words. */
+export interface FilterOptions {
+  /** Include BUILTIN_BLOCKED_WORDS (default true). */
+  builtin?: boolean;
+}
+
+function compile(extra: readonly string[], builtin = true): Compiled {
+  const key = `${builtin ? 1 : 0}\n${extra.join("\n")}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const exact = new Set<string>();
   const stems: string[] = [];
-  for (const raw of [...BUILTIN_BLOCKED_WORDS, ...extra]) {
+  for (const raw of builtin ? [...BUILTIN_BLOCKED_WORDS, ...extra] : extra) {
     const stem = raw.trim().endsWith("*");
     const w = normalizeWord(raw.trim().replace(/\*+$/, "")).replace(/[*.]/g, "");
     if (w.length < 2) continue;
@@ -134,8 +142,8 @@ function matches(word: string, list: Compiled): boolean {
 }
 
 /** Words in `text` (as written) that the filter blocks. Empty when it's clean. */
-export function findBlockedWords(text: string, extra: readonly string[] = []): string[] {
-  const list = compile(extra);
+export function findBlockedWords(text: string, extra: readonly string[] = [], options: FilterOptions = {}): string[] {
+  const list = compile(extra, options.builtin ?? true);
   const found: string[] = [];
   for (const m of text.matchAll(/[\p{L}\p{N}@$!|+*.]+/gu)) {
     const word = m[0].replace(/^[.*!]+|[.!]+$/g, "");
@@ -145,8 +153,8 @@ export function findBlockedWords(text: string, extra: readonly string[] = []): s
 }
 
 /** The text with each blocked word replaced by bullets of the same length. */
-export function maskBlockedWords(text: string, extra: readonly string[] = []): string {
-  const list = compile(extra);
+export function maskBlockedWords(text: string, extra: readonly string[] = [], options: FilterOptions = {}): string {
+  const list = compile(extra, options.builtin ?? true);
   return text.replace(/[\p{L}\p{N}@$!|+*.]+/gu, (token) => {
     const word = token.replace(/^[.*!]+|[.!]+$/g, "");
     if (!word || !variants(normalizeWord(word)).some((v) => matches(v, list))) return token;

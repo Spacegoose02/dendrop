@@ -194,6 +194,8 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     const { body, files } = msg;
     let m;
     try {
+      // Server channels: automod checks it first (and may block it or time the sender out).
+      ctx.automod.checkMessage(cid, me, body);
       m = convos.send(cid, me.id, body, files, msg.keyVersion);
     } catch (err) {
       removeFiles(files.map((f) => f.id));
@@ -275,6 +277,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
 
   app.patch<{ Params: { id: string }; Body: { body?: unknown; keyVersion?: unknown } }>("/api/messages/:id", async (req) => {
     const me = requireUser(req);
+    ctx.automod.checkEdit(id(req.params.id), me, req.body?.body);
     const m = convos.edit(id(req.params.id), me.id, req.body?.body, keyVersion(req.body?.keyVersion));
     gateway.send(convos.memberIds(m.conversationId), { type: "message.updated", message: m });
     return m;

@@ -30,7 +30,7 @@ import { keyring, loadIdentity, reveal, type Identity } from "./e2ee.ts";
 import { conversationTitle, upsert, type History } from "./util.ts";
 import { AdminDialog } from "./Admin.tsx";
 import { FamilyDialog } from "./Family.tsx";
-import { ChannelDialog, CreateServer, Directory, InviteDialog, InviteLinkDialog, isMod, ServerIcon, ServerSettings, ServerSidebar } from "./Servers.tsx";
+import { ChannelDialog, CreateServer, Directory, InviteDialog, InviteLinkDialog, isMod, ServerIcon, ServerSettings, ServerSidebar, type SettingsTab } from "./Servers.tsx";
 
 // The call code (LiveKit) is big, so it only loads when a call starts.
 const CallPanel = lazy(() => import("./CallPanel.tsx").then((m) => ({ default: m.CallPanel })));
@@ -46,7 +46,7 @@ type ServerDialog =
   | { kind: "create" }
   | { kind: "invite"; serverId: number }
   | { kind: "channel"; serverId: number; channel: Channel | null; channelKind?: ChannelKind }
-  | { kind: "settings"; serverId: number }
+  | { kind: "settings"; serverId: number; tab?: SettingsTab }
   | { kind: "admin" }
   | { kind: "link"; code: string };
 
@@ -87,6 +87,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const [unread, setUnread] = useState<Set<number>>(new Set());
   const [servers, setServers] = useState<ChatServer[]>([]);
   const [invites, setInvites] = useState<InvitePreview[]>([]);
+  /** Automod alerts not looked at yet, per server (owners and admins only get them). */
+  const [automodAlerts, setAutomodAlerts] = useState<Record<number, number>>({});
   const [serverDialog, setServerDialog] = useState<ServerDialog | null>(() => {
     // Opened from an invite link: …/invite/CODE.
     const m = /^\/invite\/([A-Za-z0-9_-]{8,32})\/?$/.exec(location.pathname);
@@ -173,6 +175,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           setFamily(e.family);
           setMe((m) => ({ ...m, isKid: e.family.parents.length > 0 }));
           if (e.family.kids.length) void api<FamilyAlert[]>("/api/family/alerts").then(setFamilyAlerts);
+          break;
+        case "automod.alert":
+          setAutomodAlerts((all) => ({ ...all, [e.event.serverId]: (all[e.event.serverId] ?? 0) + 1 }));
           break;
         case "family.alert":
           setFamilyAlerts((list) => [e.alert, ...list.filter((a) => a.id !== e.alert.id)]);
@@ -476,6 +481,11 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
               if (c.kind === "voice" && server?.calls) void joinVoice(currentServer, c);
             }}
             onSettings={() => setServerDialog({ kind: "settings", serverId: currentServer.id })}
+            automodAlerts={automodAlerts[currentServer.id] ?? 0}
+            onModLog={() => {
+              setAutomodAlerts((all) => ({ ...all, [currentServer.id]: 0 }));
+              setServerDialog({ kind: "settings", serverId: currentServer.id, tab: "modlog" });
+            }}
             onInvite={() => setServerDialog({ kind: "invite", serverId: currentServer.id })}
             onChannel={(c, channelKind) => setServerDialog({ kind: "channel", serverId: currentServer.id, channel: c, channelKind })}
           />
@@ -625,6 +635,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
               serverId: currentServer.id,
               topic: currentChannel.topic,
               canModerate: isMod(currentServer),
+              timedOutUntil: currentServer.timedOutUntil,
               voice:
                 currentChannel.kind === "voice"
                   ? {
@@ -729,6 +740,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         <ServerSettings
           me={me}
           server={dialogServer}
+          initialTab={serverDialog.tab}
           onClose={() => setServerDialog(null)}
           onGone={() => {
             setServerDialog(null);

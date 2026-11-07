@@ -71,7 +71,7 @@ Each kid has rules their parents set:
   because the server can't read encrypted chats: it hides filtered words in what the kid reads
   and stops the kid sending them. For plain messages (server channels, or chats before
   everyone has set up encryption) the server checks too. The filter is in
-  `packages/shared/src/profanity.ts`; Automod (Phase 6) will reuse it.
+  `packages/shared/src/profanity.ts`; Automod uses the same engine (see [AUTOMOD.md](AUTOMOD.md)).
 - **Approve new friends** (on by default). A friendship with a kid waits ("held") until a
   parent of each kid in it says yes; until then they can't start a chat. A kid's own parents
   don't need approving.

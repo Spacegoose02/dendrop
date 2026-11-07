@@ -10,9 +10,11 @@ import {
   type Me,
   type ServerCreatorRequest,
   type ServerInvite,
+  type ServerTimeout,
   type VoiceChannelState,
 } from "@dendrop/shared";
 import { api, ApiError } from "./api.ts";
+import { AutomodTab, ModLogTab } from "./Automod.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { Modal } from "./Modal.tsx";
 import "./servers.css";
@@ -58,6 +60,8 @@ export function ServerSidebar({
   onSettings,
   onInvite,
   onChannel,
+  automodAlerts = 0,
+  onModLog,
 }: {
   server: ChatServer;
   activeChannel: number | null;
@@ -73,6 +77,9 @@ export function ServerSidebar({
   onInvite: () => void;
   /** Make a channel (null, of this kind) or edit one. */
   onChannel: (c: Channel | null, kind?: ChannelKind) => void;
+  /** Automod alerts the owner or an admin hasn't looked at yet. */
+  automodAlerts?: number;
+  onModLog?: () => void;
 }) {
   const mod = isMod(server);
   return (
@@ -87,6 +94,15 @@ export function ServerSidebar({
         </div>
       </header>
       <div className="sidebar-body">
+        {mod && automodAlerts > 0 && onModLog && (
+          <button className="nav-item automod-alerts" onClick={onModLog}>
+            <span className="nav-icon" aria-hidden>
+              🛡
+            </span>
+            Automod alerts
+            <span className="badge">{automodAlerts}</span>
+          </button>
+        )}
         {canInvite(server) && (
           <button className="nav-item invite-people" onClick={onInvite}>
             <span className="nav-icon" aria-hidden>
@@ -673,20 +689,38 @@ export function ChannelDialog({
   );
 }
 
-type SettingsTab = "profile" | "members" | "invites" | "bans";
+export type SettingsTab = "profile" | "members" | "invites" | "bans" | "automod" | "modlog";
 
-/** Server settings: profile and pictures, members and roles, invites, bans, and leaving. */
-export function ServerSettings({ me, server, onClose, onGone }: { me: Me; server: ChatServer; onClose: () => void; onGone: () => void }) {
+/** Server settings: profile and pictures, members and roles, invites, bans, automod, and leaving. */
+export function ServerSettings({
+  me,
+  server,
+  initialTab,
+  onClose,
+  onGone,
+}: {
+  me: Me;
+  server: ChatServer;
+  initialTab?: SettingsTab;
+  onClose: () => void;
+  onGone: () => void;
+}) {
   const mod = isMod(server);
-  const [tab, setTab] = useState<SettingsTab>("profile");
+  const [tab, setTab] = useState<SettingsTab>(initialTab && (mod || initialTab === "profile" || initialTab === "members") ? initialTab : "profile");
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "profile", label: "Profile" },
     { id: "members", label: "Members" },
     ...(canInvite(server) ? [{ id: "invites" as const, label: "Invites" }] : []),
-    ...(mod ? [{ id: "bans" as const, label: "Bans" }] : []),
+    ...(mod
+      ? [
+          { id: "bans" as const, label: "Bans" },
+          { id: "automod" as const, label: "Automod" },
+          { id: "modlog" as const, label: "Mod log" },
+        ]
+      : []),
   ];
   return (
-    <Modal title={server.name} onClose={onClose}>
+    <Modal title={server.name} onClose={onClose} wide>
       <div className="chips server-tabs" role="tablist">
         {tabs.map((t) => (
           <button key={t.id} role="tab" aria-selected={tab === t.id} className={`chip ${tab === t.id ? "on" : ""}`} onClick={() => setTab(t.id)}>
@@ -698,6 +732,8 @@ export function ServerSettings({ me, server, onClose, onGone }: { me: Me; server
       {tab === "members" && <MembersTab me={me} server={server} />}
       {tab === "invites" && <InvitesTab server={server} />}
       {tab === "bans" && <BansTab server={server} />}
+      {tab === "automod" && <AutomodTab server={server} />}
+      {tab === "modlog" && <ModLogTab server={server} />}
     </Modal>
   );
 }
@@ -838,9 +874,23 @@ function ProfileTab({ me, server, onGone }: { me: Me; server: ChatServer; onGone
   );
 }
 
+const TIMEOUTS: [number, string][] = [
+  [5, "5 minutes"],
+  [60, "1 hour"],
+  [24 * 60, "1 day"],
+  [7 * 24 * 60, "1 week"],
+];
+
 function MembersTab({ me, server }: { me: Me; server: ChatServer }) {
   const [error, setError] = useState<string | null>(null);
   const owner = server.myRole === "owner";
+  const mod = isMod(server);
+  const [timeouts, setTimeouts] = useState<Map<number, string>>(new Map());
+  const loadTimeouts = () =>
+    mod
+      ? api<ServerTimeout[]>(`/api/servers/${server.id}/timeouts`).then((list) => setTimeouts(new Map(list.map((t) => [t.user.id, t.until]))))
+      : Promise.resolve();
+  useEffect(() => void loadTimeouts().catch(() => {}), [server.id]);
   const run = async (fn: () => Promise<unknown>) => {
     setError(null);
     try {
@@ -860,7 +910,10 @@ function MembersTab({ me, server }: { me: Me; server: ChatServer }) {
               {m.nickname ?? m.user.displayName}
               {m.user.id === me.id ? " (you)" : ""}
             </span>
-            <span className="muted small">@{m.user.username}</span>
+            <span className="muted small">
+              @{m.user.username}
+              {timeouts.has(m.user.id) && ` · ⏳ timed out until ${new Date(timeouts.get(m.user.id)!).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}`}
+            </span>
           </span>
           {owner && m.role !== "owner" ? (
             <select
@@ -876,6 +929,28 @@ function MembersTab({ me, server }: { me: Me; server: ChatServer }) {
           )}
           {m.user.id !== me.id && canRemove(m.role) && (
             <span className="member-actions">
+              {timeouts.has(m.user.id) ? (
+                <button className="ghost small" onClick={() => void run(() => api(`/api/servers/${server.id}/timeouts/${m.user.id}`, { method: "DELETE" }).then(loadTimeouts))}>
+                  End timeout
+                </button>
+              ) : (
+                <select
+                  className="timeout-select"
+                  value=""
+                  aria-label={`Time out ${m.user.displayName}`}
+                  onChange={(e) => {
+                    const minutes = Number(e.target.value);
+                    if (minutes) void run(() => api(`/api/servers/${server.id}/timeouts/${m.user.id}`, { method: "PUT", body: { minutes } }).then(loadTimeouts));
+                  }}
+                >
+                  <option value="">Time out…</option>
+                  {TIMEOUTS.map(([n, label]) => (
+                    <option key={n} value={n}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              )}
               {owner && (
                 <button
                   className="ghost small"
