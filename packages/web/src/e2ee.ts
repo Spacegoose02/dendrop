@@ -329,8 +329,15 @@ export async function reveal(m: Message): Promise<ChatMessage> {
   if (!m.keyVersion || m.deleted) return { ...m, text: m.body };
   if (!keyring.identity) return { ...m, text: "", locked: "Encrypted. Unlock encryption on this device to read it." };
   try {
-    const key = await keyring.key(m.conversationId, m.keyVersion);
-    if (!key) return { ...m, text: "", locked: "Encrypted before your keys were reset, so it can't be read on this account." };
+    return await openWith(m, await keyring.key(m.conversationId, m.keyVersion));
+  } catch {
+    return { ...m, text: "", locked: "This message couldn't be decrypted." };
+  }
+}
+
+async function openWith(m: Message, key: CryptoKey | undefined): Promise<ChatMessage> {
+  if (!key) return { ...m, text: "", locked: "Encrypted before your keys were reset, so it can't be read on this account." };
+  try {
     const [iv, ct] = m.body.split(".").map(unb64) as [Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>];
     const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv, additionalData: msgAad(m.conversationId, m.authorId) }, key, ct);
     const p = JSON.parse(dec.decode(plain)) as Payload;
@@ -338,6 +345,33 @@ export async function reveal(m: Message): Promise<ChatMessage> {
   } catch {
     return { ...m, text: "", locked: "This message couldn't be decrypted." };
   }
+}
+
+/**
+ * For a parent looking at a kid's chat through an open alert: opens the parent's own copies of
+ * the conversation's keys (fetched through the alert, not as a member) and decrypts with them.
+ * Messages sent before the parent was linked have no copy for them and stay locked.
+ */
+export async function openForParent(alertId: number, conversationId: number): Promise<Map<number, CryptoKey>> {
+  const me = keyring.identity;
+  const keys = new Map<number, CryptoKey>();
+  if (!me) return keys;
+  for (const w of await api<WrappedKey[]>(`/api/family/alerts/${alertId}/keys`)) {
+    try {
+      keys.set(w.version, (await unwrapKey(w.wrapped, me, wrapAad(conversationId, w.version))).aes);
+    } catch {
+      /* skipped, like in the keyring */
+    }
+  }
+  return keys;
+}
+
+export async function revealWith(m: Message, keys: Map<number, CryptoKey>): Promise<ChatMessage> {
+  if (!m.keyVersion) return { ...m, text: m.body };
+  if (!keyring.identity) return { ...m, text: "", locked: "Encrypted. Unlock encryption on this device to read it." };
+  const key = keys.get(m.keyVersion);
+  if (!key) return { ...m, text: "", locked: "Sent before you were linked as a parent, so it can't be opened." };
+  return openWith(m, key);
 }
 
 export async function encryptMessage(cid: number, authorId: number, version: number, text: string, files: FileMeta[] = []): Promise<string> {
@@ -358,8 +392,8 @@ export async function encryptFile(cid: number, version: number, file: File): Pro
 }
 
 /** Downloads and decrypts an attachment, as a Blob of its real type. */
-export async function decryptFile(m: ChatMessage, a: Attachment, meta: FileMeta): Promise<Blob> {
-  const key = await keyring.key(m.conversationId, m.keyVersion!);
+export async function decryptFile(m: ChatMessage, a: Attachment, meta: FileMeta, keyOverride?: CryptoKey): Promise<Blob> {
+  const key = keyOverride ?? (await keyring.key(m.conversationId, m.keyVersion!));
   if (!key) throw new Error("No key for this file");
   const res = await fetch(a.url, { credentials: "same-origin" });
   if (!res.ok) throw new Error(`Download failed (${res.status})`);

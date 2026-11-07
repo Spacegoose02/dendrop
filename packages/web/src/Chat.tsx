@@ -1,5 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
-import { INLINE_IMAGE_TYPES, LIMITS, type Attachment, type Call, type Conversation, type Me, type Message } from "@dendrop/shared";
+import {
+  findBlockedWords,
+  INLINE_IMAGE_TYPES,
+  LIMITS,
+  maskBlockedWords,
+  type Attachment,
+  type Call,
+  type Conversation,
+  type KidRules,
+  type KidStatus,
+  type Me,
+  type Message,
+} from "@dendrop/shared";
 import { api, apiForm, ApiError } from "./api.ts";
 import { EMOJI } from "./emoji.ts";
 import { Avatar } from "./Avatar.tsx";
@@ -41,6 +53,7 @@ export function Chat({
   keyState,
   onEncryption,
   channel,
+  kid,
 }: {
   me: Me;
   conversation: Conversation;
@@ -58,6 +71,8 @@ export function Chat({
   onEncryption: () => void;
   /** Set for a server channel: plain messages (no end-to-end keys), a topic, and moderators. */
   channel?: ChannelInfo;
+  /** Set when this is a kid account: the family filter and whether chat time is on. */
+  kid?: { rules: KidRules; status: KidStatus } | null;
 }) {
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
@@ -74,6 +89,14 @@ export function Chat({
   const [dragging, setDragging] = useState(false);
   const lastMarked = useRef(0);
   const [showInfo, setShowInfo] = useState(false);
+  /** Messages whose filtered words were already reported to the kid's parents. */
+  const reported = useRef(new Set<number>());
+  const [helpSent, setHelpSent] = useState(false);
+  const filter = kid?.rules.profanityFilter ? kid.rules.blockedWords : null;
+  const timeUp = kid && !kid.status.allowedNow ? (kid.status.reason ?? "Chat time is over for now.") : null;
+  /** Tells the kid's parents about a filtered word (never which one), which opens this chat to them. */
+  const report = (type: "profanity" | "help") =>
+    api(`/api/family/alerts`, { body: { type, conversationId: conversation.id } }).catch(() => {});
 
   const members = new Map(conversation.members.map((m) => [m.id, m]));
   const others = conversation.members.filter((m) => m.id !== me.id);
@@ -178,6 +201,11 @@ export function Chat({
   const send = async () => {
     const body = draft.trim();
     if ((!body && files.length === 0) || sending) return;
+    if (filter && findBlockedWords(body, filter).length) {
+      setError("That message has a word your family filter blocks. Your parents get a heads-up (not the word).");
+      void report("profanity");
+      return;
+    }
     const sendingFiles = files;
     setDraft("");
     setFiles([]);
@@ -253,6 +281,11 @@ export function Chat({
     const original = history?.messages.find((m) => m.id === editing.id);
     setEditing(null);
     if (!text || !original || text === original.text) return;
+    if (filter && findBlockedWords(text, filter).length) {
+      setError("That edit has a word your family filter blocks.");
+      void report("profanity");
+      return;
+    }
     try {
       const edit = async (c: Conversation) => {
         const version = channel ? null : await keyring.forSending(c);
@@ -271,7 +304,7 @@ export function Chat({
   };
 
   const remove = async (m: ChatMessage) => {
-    if (!confirm("Delete this message? It can't be brought back.")) return;
+    if (!confirm(kid ? "Delete this message? Your parents get a copy of deleted messages." : "Delete this message? It can't be brought back.")) return;
     try {
       // Moderators remove other people's channel messages through the server's own route.
       const url = channel && m.authorId !== me.id ? `/api/servers/${channel.serverId}/messages/${m.id}` : `/api/messages/${m.id}`;
@@ -378,6 +411,11 @@ export function Chat({
           const grouped = !newDay && continues(prev, m);
           const author = members.get(m.authorId);
           const mine = m.authorId === me.id;
+          const shown = filter && m.text ? maskBlockedWords(m.text, filter) : m.text;
+          if (shown !== m.text && !mine && !reported.current.has(m.id)) {
+            reported.current.add(m.id);
+            void report("profanity");
+          }
           return (
             <div key={m.id}>
               {newDay && <div className="day-sep">{day(m.createdAt)}</div>}
@@ -418,7 +456,7 @@ export function Chat({
                     <>
                       {m.text && (
                         <p className="msg-body">
-                          {m.text}
+                          {shown}
                           {m.editedAt && <span className="muted small"> (edited)</span>}
                         </p>
                       )}
@@ -459,6 +497,30 @@ export function Chat({
 
       <footer className="composer">
         {!channel && <EncryptionBanner me={me} conversation={conversation} keyState={keyState} onEncryption={onEncryption} />}
+        {conversation.guardians.length > 0 && (
+          <p className="family-banner small">
+            👪 {conversation.guardians.map((g) => g.displayName).join(" and ")}{" "}
+            {kid
+              ? "can read this chat if they get an alert about it."
+              : `${conversation.guardians.length > 1 ? "are parents" : "is a parent"} of a kid here, and can read this chat if they get an alert about it.`}
+            {kid && (
+              <>
+                {" "}
+                <button
+                  className="link"
+                  disabled={helpSent}
+                  onClick={() => {
+                    setHelpSent(true);
+                    void report("help");
+                  }}
+                >
+                  {helpSent ? "Asked them to look" : "Ask them to look"}
+                </button>
+              </>
+            )}
+          </p>
+        )}
+        {timeUp && <p className="family-banner small">⏰ {timeUp} You can still read messages.</p>}
         {error && <p className="error small">{error}</p>}
         {files.length > 0 && (
           <div className="pending-files">
@@ -511,7 +573,7 @@ export function Chat({
               </div>
             )}
           </div>
-          <button className="primary send" onClick={() => void send()} disabled={sending || (!draft.trim() && files.length === 0)} aria-label="Send">
+          <button className="primary send" onClick={() => void send()} disabled={sending || !!timeUp || (!draft.trim() && files.length === 0)} aria-label="Send">
             {sending ? "…" : "Send"}
           </button>
         </div>
@@ -559,7 +621,7 @@ function EncryptionBanner({
 }
 
 /** An encrypted file: pictures are decrypted and shown, other files decrypt when downloaded. */
-function EncryptedAttachment({ m, a, meta }: { m: ChatMessage; a: Attachment; meta: FileMeta | undefined }) {
+export function EncryptedAttachment({ m, a, meta, keyOverride }: { m: ChatMessage; a: Attachment; meta: FileMeta | undefined; keyOverride?: CryptoKey }) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const isImage = !!meta && INLINE_IMAGE_TYPES.includes(meta.ty);
@@ -568,7 +630,7 @@ function EncryptedAttachment({ m, a, meta }: { m: ChatMessage; a: Attachment; me
     if (!meta || !isImage) return;
     let made: string | null = null;
     let cancelled = false;
-    decryptFile(m, a, meta)
+    decryptFile(m, a, meta, keyOverride)
       .then((blob) => {
         if (cancelled) return;
         made = URL.createObjectURL(blob);
@@ -579,12 +641,12 @@ function EncryptedAttachment({ m, a, meta }: { m: ChatMessage; a: Attachment; me
       cancelled = true;
       if (made) URL.revokeObjectURL(made);
     };
-  }, [m, a, meta, isImage]);
+  }, [m, a, meta, isImage, keyOverride]);
 
   const download = async () => {
     if (!meta) return;
     try {
-      const href = URL.createObjectURL(await decryptFile(m, a, meta));
+      const href = URL.createObjectURL(await decryptFile(m, a, meta, keyOverride));
       const link = document.createElement("a");
       link.href = href;
       link.download = meta.n;
@@ -616,7 +678,7 @@ function EncryptedAttachment({ m, a, meta }: { m: ChatMessage; a: Attachment; me
   );
 }
 
-function AttachmentView({ a }: { a: Attachment }) {
+export function AttachmentView({ a }: { a: Attachment }) {
   if (INLINE_IMAGE_TYPES.includes(a.contentType)) {
     return (
       <a href={a.url} target="_blank" rel="noreferrer" className="attachment-image">

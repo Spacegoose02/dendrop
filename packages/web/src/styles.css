@@ -867,3 +867,120 @@ button.attachment-file {
   font: inherit;
   text-align: left;
 }
+
+/* ---- Kid-safe chat ---------------------------------------------------------------- */
+.family-banner {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-bg-raised);
+  color: var(--dd-text-muted);
+}
+.family-button {
+  position: relative;
+  padding: 4px 6px;
+}
+.family-button .dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+}
+.family {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.family section h3 {
+  margin: 0 0 6px;
+}
+.family-list {
+  margin: 6px 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.family-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 6px 0;
+}
+.family-row input {
+  flex: 1;
+  min-width: 0;
+}
+.family-row input[type="time"],
+.family-row input[type="number"] {
+  flex: 0 0 auto;
+  width: 8em;
+}
+.family-row .spacer {
+  flex: 1;
+}
+.family-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0;
+  font-size: 13px;
+}
+.family-alerts {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.family-alerts li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-bg-raised);
+}
+.family-alerts li.done {
+  opacity: 0.6;
+}
+.family-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.kid-card {
+  padding: 12px;
+  border-radius: var(--dd-radius-sm);
+  border: 1px solid var(--dd-border);
+}
+.kid-card h4 {
+  margin: 12px 0 4px;
+}
+.family-code {
+  font-size: 22px;
+  letter-spacing: 0.15em;
+}
+.family-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 55vh;
+  overflow-y: auto;
+  margin: 8px 0;
+}
+.family-msg {
+  padding: 6px 8px;
+  border-radius: var(--dd-radius-sm);
+}
+.family-msg.flagged {
+  outline: 2px solid var(--dd-accent);
+}
+.family-msg .badge {
+  margin-left: 6px;
+}
