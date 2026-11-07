@@ -6,6 +6,7 @@ import { api } from "./api.ts";
 import { Avatar } from "./Avatar.tsx";
 import { applyOutput, loadAudio, micError, playSound, useAudioPrefs, type AudioPrefs } from "./audio.ts";
 import { keyring } from "./e2ee.ts";
+import { voiceControls } from "./keybinds.ts";
 import { roomAudioOptions, useRoomAudio } from "./voiceAudio.ts";
 import { conversationTitle } from "./util.ts";
 
@@ -120,6 +121,13 @@ export function CallPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const toggleMic = useRef(() => {});
+  useEffect(() => {
+    const mute = () => toggleMic.current();
+    voiceControls.addEventListener("mute", mute);
+    return () => voiceControls.removeEventListener("mute", mute);
+  }, []);
+
   if (!room) return null;
   const local = room.localParticipant;
   const micOn = local.isMicrophoneEnabled;
@@ -128,19 +136,20 @@ export function CallPanel({
   const title = conversation ? conversationTitle(conversation, me.id) : "Call";
   const waiting = status === "connected" && room.remoteParticipants.size === 0;
 
+  toggleMic.current = () =>
+    void local
+      .setMicrophoneEnabled(!micOn)
+      .then(() => {
+        playSound(micOn ? "mute" : "unmute");
+        setVersion((v) => v + 1);
+      })
+      .catch((err: Error) => setError(micError(err)));
+
   const controls = (
     <div className="call-controls">
       <button
         className={micOn ? "" : "off"}
-        onClick={() =>
-          void local
-            .setMicrophoneEnabled(!micOn)
-            .then(() => {
-              playSound(micOn ? "mute" : "unmute");
-              setVersion((v) => v + 1);
-            })
-            .catch((err: Error) => setError(micError(err)))
-        }
+        onClick={() => toggleMic.current()}
         aria-pressed={!micOn}
         title={micOn ? "Mute" : "Unmute"}
       >
