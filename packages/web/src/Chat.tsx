@@ -15,6 +15,14 @@ const day = (iso: string) => new Date(iso).toLocaleDateString([], { weekday: "lo
 const continues = (prev: ChatMessage | undefined, m: ChatMessage) =>
   !!prev && prev.authorId === m.authorId && new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60_000 && day(prev.createdAt) === day(m.createdAt);
 
+/** What Chat needs to know when it shows a server channel instead of a DM. */
+export interface ChannelInfo {
+  serverId: number;
+  topic: string;
+  /** The owner and admins can delete anyone's message. */
+  canModerate: boolean;
+}
+
 export function Chat({
   me,
   conversation,
@@ -30,6 +38,7 @@ export function Chat({
   onCall,
   keyState,
   onEncryption,
+  channel,
 }: {
   me: Me;
   conversation: Conversation;
@@ -45,6 +54,8 @@ export function Chat({
   onCall: (video: boolean) => void;
   keyState: "loading" | "off" | "locked" | "on";
   onEncryption: () => void;
+  /** Set for a server channel: plain messages (no end-to-end keys), a topic, and moderators. */
+  channel?: ChannelInfo;
 }) {
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
@@ -194,7 +205,8 @@ export function Chat({
   /** Sends a message: encrypted once the conversation has a key, plain until everyone has set up. */
   const post = async (c: Conversation, body: string, sendingFiles: File[]): Promise<Message> => {
     const url = `/api/conversations/${c.id}/messages`;
-    const version = await keyring.forSending(c);
+    // Server channels aren't end-to-end encrypted yet, so they never make keys.
+    const version = channel ? null : await keyring.forSending(c);
     if (version) {
       const encrypted = await Promise.all(sendingFiles.map((f) => encryptFile(c.id, version, f)));
       const cipher = await encryptMessage(c.id, me.id, version, body, encrypted.map((x) => x.meta));
@@ -241,7 +253,7 @@ export function Chat({
     if (!text || !original || text === original.text) return;
     try {
       const edit = async (c: Conversation) => {
-        const version = await keyring.forSending(c);
+        const version = channel ? null : await keyring.forSending(c);
         const body = version ? await encryptMessage(c.id, me.id, version, text, original.files ?? []) : text;
         return api<Message>(`/api/messages/${original.id}`, { method: "PATCH", body: { body, keyVersion: version } });
       };
@@ -259,7 +271,9 @@ export function Chat({
   const remove = async (m: ChatMessage) => {
     if (!confirm("Delete this message? It can't be brought back.")) return;
     try {
-      await api<Message>(`/api/messages/${m.id}`, { method: "DELETE" });
+      // Moderators remove other people's channel messages through the server's own route.
+      const url = channel && m.authorId !== me.id ? `/api/servers/${channel.serverId}/messages/${m.id}` : `/api/messages/${m.id}`;
+      await api<Message>(url, { method: "DELETE" });
     } catch (err) {
       setError((err as Error).message);
     }
@@ -279,7 +293,11 @@ export function Chat({
         <button className="ghost back" onClick={onBack} aria-label="Back">
           ‹
         </button>
-        {!conversation.isGroup && others[0] ? (
+        {channel ? (
+          <span className="channel-hash" aria-hidden>
+            #
+          </span>
+        ) : !conversation.isGroup && others[0] ? (
           <Avatar name={others[0].displayName} online={online.has(others[0].id)} size={28} />
         ) : (
           <Avatar name={title} size={28} />
@@ -290,7 +308,11 @@ export function Chat({
             🔒
           </button>
         )}
-        {conversation.isGroup && <span className="muted small">{conversation.members.length} members</span>}
+        {channel ? (
+          channel.topic && <span className="muted small ellipsis channel-topic">{channel.topic}</span>
+        ) : (
+          conversation.isGroup && <span className="muted small">{conversation.members.length} members</span>
+        )}
         {callsEnabled && !inThisCall && (
           <span className="header-actions">
             {call && call.joined.length > 0 ? (
@@ -328,10 +350,16 @@ export function Chat({
         {history && !history.hasMore && (
           <div className="chat-start">
             <h3>{title}</h3>
-            <p className="muted">
-              This is the start of your conversation.{" "}
-              {conversation.e2ee ? "New messages are end-to-end encrypted: only the people in it can read them." : "Only the people in it can see it."}
-            </p>
+            {channel ? (
+              <p className="muted">
+                This is the start of {title}. Everyone who can see this channel can read it. Server channels aren't end-to-end encrypted.
+              </p>
+            ) : (
+              <p className="muted">
+                This is the start of your conversation.{" "}
+                {conversation.e2ee ? "New messages are end-to-end encrypted: only the people in it can read them." : "Only the people in it can see it."}
+              </p>
+            )}
           </div>
         )}
         {loadingOlder && <p className="muted center-text small">Loading older messages…</p>}
@@ -344,7 +372,7 @@ export function Chat({
           return (
             <div key={m.id}>
               {newDay && <div className="day-sep">{day(m.createdAt)}</div>}
-              <div className={`msg ${grouped ? "grouped" : ""}`} tabIndex={mine && !m.deleted ? 0 : undefined}>
+              <div className={`msg ${grouped ? "grouped" : ""}`} tabIndex={(mine || channel?.canModerate) && !m.deleted ? 0 : undefined}>
                 {grouped ? (
                   <span className="msg-time-gutter">{time(m.createdAt)}</span>
                 ) : (
@@ -402,9 +430,9 @@ export function Chat({
                     <div className="seen small muted">{conversation.isGroup ? `Seen by ${seenBy.join(", ")}` : "Seen"}</div>
                   )}
                 </div>
-                {mine && !m.deleted && editing?.id !== m.id && (
+                {(mine || channel?.canModerate) && !m.deleted && editing?.id !== m.id && (
                   <div className="msg-actions">
-                    {!m.locked && (
+                    {mine && !m.locked && (
                       <button className="ghost" onClick={() => setEditing({ id: m.id, text: m.text })} title="Edit">
                         Edit
                       </button>
@@ -421,7 +449,7 @@ export function Chat({
       </div>
 
       <footer className="composer">
-        <EncryptionBanner me={me} conversation={conversation} keyState={keyState} onEncryption={onEncryption} />
+        {!channel && <EncryptionBanner me={me} conversation={conversation} keyState={keyState} onEncryption={onEncryption} />}
         {error && <p className="error small">{error}</p>}
         {files.length > 0 && (
           <div className="pending-files">

@@ -1,0 +1,299 @@
+/* Chat servers: rail icons, the channel sidebar, the directory and server dialogs. Theme tokens only. */
+
+.server-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--dd-radius-lg);
+  background: var(--dd-bg-raised);
+  color: var(--dd-text);
+  font-weight: 800;
+  object-fit: cover;
+  overflow: hidden;
+  transition: border-radius 0.15s;
+}
+
+/* Rail */
+.rail {
+  overflow-y: auto;
+}
+.rail-server {
+  position: relative;
+  padding: 0;
+  background: none;
+  border-radius: var(--dd-radius-lg);
+}
+.rail-server:hover {
+  background: none;
+}
+.rail-server:hover .server-icon,
+.rail-server.active .server-icon {
+  border-radius: var(--dd-radius);
+}
+.rail-server.active .server-icon {
+  outline: 3px solid var(--dd-accent);
+  outline-offset: 2px;
+}
+.rail-dot {
+  position: absolute;
+  left: -10px;
+  top: 50%;
+  width: 6px;
+  height: 12px;
+  margin-top: -6px;
+  border-radius: 0 4px 4px 0;
+  background: var(--dd-text);
+}
+.rail-add {
+  position: relative;
+  font-size: 22px;
+  color: var(--dd-online);
+}
+.rail-add.active {
+  color: var(--dd-accent-text);
+}
+.rail-badge {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--dd-danger);
+  color: var(--dd-text);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 18px;
+}
+
+/* Server sidebar */
+.server-header {
+  border-bottom: 1px solid var(--dd-border);
+}
+.server-banner {
+  display: block;
+  width: 100%;
+  height: 96px;
+  object-fit: cover;
+}
+.server-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px 10px 16px;
+}
+.server-title strong {
+  flex: 1;
+}
+.channel-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.nav-item.channel {
+  gap: 8px;
+  padding: 6px 8px;
+}
+.channel-mark {
+  width: 18px;
+  text-align: center;
+  color: var(--dd-text-faint);
+  font-size: 15px;
+}
+.channel-edit {
+  position: absolute;
+  right: 2px;
+  display: none;
+  padding: 4px 6px;
+}
+.channel-row:hover .channel-edit,
+.channel-edit:focus-visible {
+  display: block;
+}
+.server-member {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  color: var(--dd-text-muted);
+  font-size: 14px;
+}
+.role-tag {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-bg-raised);
+  color: var(--dd-text-muted);
+}
+.role-tag.owner {
+  background: var(--dd-accent);
+  color: var(--dd-accent-text);
+}
+.channel-hash {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--dd-text-faint);
+}
+.channel-topic {
+  border-left: 1px solid var(--dd-border);
+  padding-left: 10px;
+}
+
+/* Directory */
+.directory {
+  max-width: 880px;
+}
+.server-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.server-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius-lg);
+  background: var(--dd-bg-sidebar);
+  overflow: hidden;
+}
+.server-card > button {
+  margin: auto 12px 0;
+}
+.server-card-banner {
+  width: 100%;
+  height: 72px;
+  object-fit: cover;
+}
+.server-card-banner.blank {
+  background: linear-gradient(135deg, var(--dd-accent), var(--dd-accent-2));
+  opacity: 0.5;
+}
+.server-card-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  margin-top: -26px;
+}
+.server-card-body .server-icon {
+  border: 3px solid var(--dd-bg-sidebar);
+}
+.server-card-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.server-card-body .server-card-text {
+  margin-top: 22px;
+}
+.server-card-desc {
+  margin: 0 12px;
+  color: var(--dd-text-muted);
+}
+.invite-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius);
+  background: var(--dd-bg-sidebar);
+}
+.invite-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* Dialogs */
+select {
+  font: inherit;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: var(--dd-radius-sm);
+  border: 1px solid var(--dd-border);
+  background: var(--dd-bg-input);
+  color: var(--dd-text);
+}
+.inline-label {
+  flex: 1;
+}
+.inline-label select,
+.inline-label input {
+  width: 100%;
+}
+.pick .invite-friend {
+  margin-left: auto;
+}
+.spaced {
+  margin-top: 10px;
+}
+.server-tabs {
+  margin-top: -4px;
+}
+.server-settings .section-label {
+  margin-left: 0;
+}
+.picture-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.picture-row label.button {
+  margin: 0;
+  color: var(--dd-text);
+  font-size: 14px;
+}
+.banner-preview {
+  width: 120px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: var(--dd-radius-sm);
+}
+.banner-preview.blank {
+  display: block;
+  background: var(--dd-bg-raised);
+}
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--dd-border);
+}
+.member-row:last-child {
+  border-bottom: 0;
+}
+.member-row code {
+  font-family: var(--dd-font-mono);
+}
+.member-actions {
+  display: flex;
+}
+.status-approved {
+  color: var(--dd-online);
+}
+
+/* Phones: the rail shows next to the list, and hides when something is open. */
+@media (max-width: 720px) {
+  .shell:not(.show-main) {
+    grid-template-columns: var(--dd-rail-width) 1fr;
+  }
+  .shell:not(.show-main) .rail {
+    display: flex;
+  }
+  .channel-edit {
+    display: block;
+  }
+  .member-row {
+    flex-wrap: wrap;
+  }
+}
