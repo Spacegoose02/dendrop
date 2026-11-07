@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type { AdminServer, ChannelRef, ChatServer, LootdenStatus, ServerCreatorRequest } from "@dendrop/shared";
+import type { AdminServer, ChannelRef, ChatServer, DendutyStatus, LootdenStatus, ServerCreatorRequest } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { Modal } from "./Modal.tsx";
 import { ServerIcon } from "./Servers.tsx";
@@ -86,6 +86,7 @@ export function AdminDialog({ onClose, version }: { onClose: () => void; version
       ))}
 
       <LootdenSection />
+      <DendutySection />
     </Modal>
   );
 }
@@ -284,5 +285,166 @@ function MakeKid({ status, kid, onDone }: { status: LootdenStatus; kid: { userna
       </button>
       {error && <span className="small error-text">{error}</span>}
     </span>
+  );
+}
+
+/**
+ * The link to Den Duty, the family's chore tracker: its address, the home id and an API token.
+ * With it, kids' chores today show under their name for them and their parents, and Den Duty's
+ * events are posted into channels.
+ */
+function DendutySection() {
+  const [status, setStatus] = useState<DendutyStatus | null>(null);
+  const [url, setUrl] = useState("");
+  const [homeId, setHomeId] = useState("");
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [servers, setServers] = useState<ChatServer[]>([]);
+
+  const show = (st: DendutyStatus) => {
+    setStatus(st);
+    setUrl(st.settings.url);
+    setHomeId(st.settings.homeId);
+    setToken("");
+  };
+  useEffect(() => {
+    void api<DendutyStatus>("/api/admin/denduty").then(show, (err: Error) => setError(err.message));
+    void api<ChatServer[]>("/api/servers").then((list) => setServers(list.filter((x) => x.myRole !== "member")), () => {});
+  }, []);
+
+  const send = async (fn: () => Promise<DendutyStatus>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      show(await fn());
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const save = (e: FormEvent) => {
+    e.preventDefault();
+    void send(() => api<DendutyStatus>("/api/admin/denduty", { method: "PUT", body: { url, homeId, token } }));
+  };
+  const linked = !!status?.settings.url;
+  const options = servers.flatMap((sv) => sv.channels.filter((c) => c.kind === "text").map((c) => ({ value: `${sv.id}:${c.id}`, label: `${sv.name} › #${c.name}` })));
+  const value = (ref: ChannelRef | null) => (ref ? `${ref.serverId}:${ref.channelId}` : "");
+  const pickChannel = (key: "family" | "parents", v: string) => {
+    const [serverId, channelId] = v.split(":").map(Number);
+    void send(() => api<DendutyStatus>("/api/admin/denduty/channels", { method: "PUT", body: { [key]: v ? { serverId, channelId } : null } }));
+  };
+  const picker = (key: "family" | "parents", label: string, hint: string) => (
+    <div className="lootden-pick">
+      <span>
+        <strong>{label}</strong>
+        <span className="muted small">{hint}</span>
+      </span>
+      <select value={value(status!.settings[key])} disabled={busy} onChange={(e) => pickChannel(key, e.target.value)} aria-label={label}>
+        <option value="">Off</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+  const pickKid = (kidId: string, v: string) =>
+    void send(() => api<DendutyStatus>("/api/admin/denduty/kids", { method: "PUT", body: { kidId, userId: v === "auto" ? "auto" : v === "" ? null : Number(v) } }));
+
+  return (
+    <>
+      <div className="section-label">Den Duty</div>
+      <p className="muted small">
+        Link Den Duty, the family's chore tracker. Kids' chores today show under their name (“🧹 2 of 5 chores left”) for them and their parents, and what happens in
+        Den Duty is posted into the channels you pick. Make a read token in Den Duty: Settings, Home Assistant and the API. The home id is on the same page.
+      </p>
+      <form className="lootden-form" onSubmit={save}>
+        <label>
+          Den Duty's address
+          <input type="url" placeholder="https://chores.example.com" value={url} onChange={(e) => setUrl(e.target.value)} />
+        </label>
+        <label>
+          Home id
+          <input autoComplete="off" placeholder="From Den Duty's Settings" value={homeId} onChange={(e) => setHomeId(e.target.value)} />
+        </label>
+        <label>
+          API token
+          <input
+            type="password"
+            autoComplete="off"
+            placeholder={status?.settings.hasToken ? "Saved (leave empty to keep it)" : "dnk_…"}
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+          />
+        </label>
+        <div className="account-save">
+          <button className="primary" disabled={busy || !url.trim()}>
+            {linked ? "Save" : "Link Den Duty"}
+          </button>
+          {linked && (
+            <>
+              <button type="button" className="ghost" disabled={busy} onClick={() => void send(() => api<DendutyStatus>("/api/admin/denduty/check", { body: {} }))}>
+                Check now
+              </button>
+              <button
+                type="button"
+                className="ghost danger"
+                disabled={busy}
+                onClick={() => confirm("Unlink Den Duty? Chores lines and posts stop.") && void send(() => api<DendutyStatus>("/api/admin/denduty", { method: "PUT", body: { url: "" } }))}
+              >
+                Unlink
+              </button>
+            </>
+          )}
+        </div>
+      </form>
+      {error && <p className="error">{error}</p>}
+      {linked && status && (
+        <>
+          {status.error ? (
+            <p className="error">{status.error}</p>
+          ) : (
+            <p className="muted small">{status.lastOkAt ? `Connected, checked ${ago(status.lastOkAt)}.` : "Not checked yet."}</p>
+          )}
+          <div className="lootden-picks">
+            {picker("family", "Family channel", "Chores approved, bonus points, goals and family goals reached, rewards handed over. Fine for kids to read.")}
+            {picker("parents", "Parents channel", "Chores waiting for a check, shop orders, time-outs, help asks and reminders. Has to be a channel no kid account can read.")}
+            {options.length === 0 && <p className="muted small">Make a server (or be an admin of one) to pick a channel.</p>}
+          </div>
+          <div className="section-label">Kids</div>
+          {status.kids.length === 0 && <p className="muted small">No kids in that Den Duty home yet.</p>}
+          {status.kids.map((k) => (
+            <div key={k.denduty.id} className="member-row">
+              <span className="nav-text">
+                <span className="ellipsis">
+                  {k.denduty.name} <span className="muted small">in Den Duty</span>
+                </span>
+                <span className="muted small">
+                  {k.user ? `↔ ${k.user.displayName} (@${k.user.username})${k.matchedBy === "name" ? ", same name" : ""}` : k.matchedBy === "picked" ? "Not shown in Dendrop" : "No Dendrop kid account with that name"}
+                  {k.chores ? ` · ${k.chores.left} of ${k.chores.due} chores left today` : ""}
+                </span>
+              </span>
+              <select
+                aria-label={`Dendrop account for ${k.denduty.name}`}
+                disabled={busy}
+                value={k.matchedBy === "picked" ? String(k.user?.id ?? "") : "auto"}
+                onChange={(e) => pickKid(k.denduty.id, e.target.value)}
+              >
+                <option value="auto">Match by name</option>
+                <option value="">Nobody</option>
+                {status.kidAccounts.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.displayName} (@{u.username})
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </>
+      )}
+    </>
   );
 }

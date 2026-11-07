@@ -539,6 +539,43 @@ export interface LootdenStatus {
   playing: number;
 }
 
+/** A kid's chores today, from Den Duty: shown as "🧹 2 chores left" to the kid and their parents. */
+export interface ChoresToday {
+  due: number;
+  done: number;
+  left: number;
+}
+
+/** The super admin's Den Duty link settings. The token itself is never sent back. */
+export interface DendutySettings {
+  /** Den Duty's address, e.g. https://chores.example.com, or "" when not linked. */
+  url: string;
+  /** The Den Duty home, from Settings, Home Assistant and the API. */
+  homeId: string;
+  hasToken: boolean;
+  /** Where cheerful things go (chores approved, goals reached): fine for kids to read. */
+  family: ChannelRef | null;
+  /** Where grown-up things go (chores to review, shop orders, time-outs, help asks, reminders). Never posted where a kid can read it. */
+  parents: ChannelRef | null;
+}
+
+/** How the Den Duty link is doing, for the admin page. */
+export interface DendutyStatus {
+  settings: DendutySettings;
+  lastOkAt: string | null;
+  error: string | null;
+  /** Den Duty's kids, and the Dendrop kid account each goes with. */
+  kids: {
+    denduty: { id: string; name: string };
+    user: PublicUser | null;
+    /** "name": matched on its own by name; "picked": chosen by the admin (user null: nobody); null: no kid account with that name. */
+    matchedBy: "name" | "picked" | null;
+    chores: ChoresToday | null;
+  }[];
+  /** Dendrop kid accounts, to pick from. */
+  kidAccounts: PublicUser[];
+}
+
 export const WEBHOOK_LIMITS = {
   perChannel: 10,
   name: 32,
@@ -599,7 +636,9 @@ export type ServerEvent =
   /** To a server's owner and admins: automod caught something with the alert action on. */
   | { type: "automod.alert"; event: AutomodEvent }
   /** Someone you can see started or stopped playing something (null: nothing now). */
-  | { type: "activity"; userId: number; activity: Activity | null };
+  | { type: "activity"; userId: number; activity: Activity | null }
+  /** A kid's chores today changed (from Den Duty), to the kid and their parents (null: nothing to show). */
+  | { type: "chores"; userId: number; chores: ChoresToday | null };
 
 /** Events a client sends over the gateway. Everything else goes through the HTTP API. */
 export type ClientEvent = { type: "typing"; conversationId: number } | { type: "ping" };
