@@ -761,6 +761,7 @@ function ProfileTab({ me, server, onGone }: { me: Me; server: ChatServer; onGone
   const [description, setDescription] = useState(server.description);
   const [isPublic, setIsPublic] = useState(server.isPublic);
   const [memberInvites, setMemberInvites] = useState(server.memberInvites);
+  const [playTogether, setPlayTogether] = useState(server.playTogether);
   const [nickname, setNickname] = useState(server.nickname ?? "");
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -828,9 +829,18 @@ function ProfileTab({ me, server, onGone }: { me: Me; server: ChatServer; onGone
               <span className="muted small">Off means only the owner and admins can make invites.</span>
             </span>
           </label>
+          <label className="toggle">
+            <input type="checkbox" checked={playTogether} onChange={(e) => setPlayTogether(e.target.checked)} />
+            <span>
+              <strong>Voice channels for playing together</strong>
+              <span className="muted small">
+                When two or more members are playing the same game (from LootDen), a voice channel opens for it and goes away once they stop.
+              </span>
+            </span>
+          </label>
           <button
             className="primary wide"
-            onClick={() => void run(() => api(`/api/servers/${server.id}`, { method: "PATCH", body: { name, description, isPublic, memberInvites } }))}
+            onClick={() => void run(() => api(`/api/servers/${server.id}`, { method: "PATCH", body: { name, description, isPublic, memberInvites, playTogether } }))}
           >
             Save server profile
           </button>

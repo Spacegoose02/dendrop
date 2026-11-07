@@ -8,6 +8,7 @@ import { now } from "./db.js";
 import { HttpError } from "./errors.js";
 import { FriendRepo } from "./friends.js";
 import { cleanChannelName, ServerRepo } from "./servers.js";
+import { removeVoiceWhenEmpty } from "./temp-voice.js";
 import type { UserRecord } from "./users.js";
 
 /** A LootDen game as GET /api/games/:id gives it (only what Dendrop uses). */
@@ -214,12 +215,7 @@ export class LootdenExtras {
     // Over, deleted, or game nights turned off: take their voice channels away when empty.
     for (const k of known) {
       if (live.has(k.lootden_id) && k.server_id === ref?.serverId) continue;
-      const voice = k.voice_channel_id ? this.servers.channelById(k.voice_channel_id) : undefined;
-      if (voice && (this.ctx.voiceCount?.(voice.id) ?? 0) > 0) continue;
-      if (voice) {
-        for (const f of this.servers.deleteChannel(voice.serverId, voice.id)) rmSync(path.join(this.uploads, f), { force: true });
-        this.ctx.serverChanged?.(voice.serverId);
-      }
+      if (!removeVoiceWhenEmpty(this.ctx, this.servers, this.uploads, k.voice_channel_id)) continue;
       db.prepare("DELETE FROM lootden_game_nights WHERE lootden_id = ?").run(k.lootden_id);
     }
     if (!target || !ref) return;
