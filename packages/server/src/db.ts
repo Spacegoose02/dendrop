@@ -368,6 +368,10 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE users ADD COLUMN name_color TEXT;
   ALTER TABLE users ADD COLUMN text_color TEXT;
   `,
+  `
+  -- Chores first: a kid can't chat until today's Den Duty chores are done.
+  ALTER TABLE kid_rules ADD COLUMN chores_first INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export function now(): string {

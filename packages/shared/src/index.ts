@@ -371,6 +371,8 @@ export interface KidRules {
   dailyMinutes: number | null;
   /** IANA time zone the times and days are counted in, such as "America/Chicago". */
   timezone: string;
+  /** No chat until today's Den Duty chores are done (needs Den Duty linked). */
+  choresFirst: boolean;
 }
 
 /** Whether a kid can chat right now. */
@@ -571,6 +573,8 @@ export interface DendutyStatus {
     /** "name": matched on its own by name; "picked": chosen by the admin (user null: nobody); null: no kid account with that name. */
     matchedBy: "name" | "picked" | null;
     chores: ChoresToday | null;
+    /** Why this kid's chat is paused by Den Duty right now, as the kid sees it; null when it isn't. */
+    chatPaused: string | null;
   }[];
   /** Dendrop kid accounts, to pick from. */
   kidAccounts: PublicUser[];
