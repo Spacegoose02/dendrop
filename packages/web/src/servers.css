@@ -653,3 +653,76 @@ select {
 .member-row .make-kid {
   flex-basis: 100%;
 }
+
+/* Bots: buttons under a bot's message, the reply only the clicker sees, and the Bots tab. */
+.msg-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.msg-button {
+  padding: 4px 12px;
+  border-radius: var(--dd-radius-sm);
+  border: 1px solid var(--dd-border);
+  background: var(--dd-bg-raised);
+  color: var(--dd-text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+.msg-button:hover:not(:disabled) {
+  background: var(--dd-bg-hover);
+}
+.msg-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.msg-button.primary {
+  background: var(--dd-accent);
+  border-color: var(--dd-accent);
+  color: var(--dd-accent-text);
+}
+.msg-button.success {
+  border-color: var(--dd-online);
+  color: var(--dd-online);
+}
+.msg-button.danger {
+  border-color: var(--dd-danger);
+  color: var(--dd-danger);
+}
+.msg-bot-reply {
+  margin: 6px 0 0;
+  padding: 4px 8px;
+  border-left: 3px solid var(--dd-accent);
+  background: var(--dd-bg-raised);
+  border-radius: var(--dd-radius-sm);
+}
+.bot-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 0 12px;
+  border-bottom: 1px solid var(--dd-border);
+}
+.bot-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bot-settings label.check {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+}
+.bot-settings label.check input {
+  width: auto;
+  flex: none;
+  margin: 0;
+}
+.bot-settings .row-actions {
+  display: flex;
+  gap: 8px;
+}

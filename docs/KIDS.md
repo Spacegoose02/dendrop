@@ -87,3 +87,11 @@ Each kid has rules their parents set:
 - A parent can't read messages from before they were linked, or from a key version made before
   they reset their own keys.
 - Calls aren't recorded, and a call that's going when chat time ends isn't cut off yet.
+
+## Bots
+
+Bots ([BOTS.md](BOTS.md)) only live in server channels: they can't be friends, so they're never
+in a kid's DMs or group chats. Kids can't make bots. A bot only reads channel messages when its
+owner turns that on, and the server's Bots tab says so. Clicking a bot's button counts as
+chatting, so it follows the kid's allowed hours, and a bot's private reply to a kid is checked
+against their family filter.

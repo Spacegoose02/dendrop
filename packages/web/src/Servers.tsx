@@ -18,6 +18,7 @@ import { AutomodTab, ModLogTab } from "./Automod.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { Modal } from "./Modal.tsx";
 import { WebhooksTab } from "./Webhooks.tsx";
+import { BotsTab } from "./Bots.tsx";
 import { ActivityLine } from "./activity.tsx";
 import { useColors } from "./colors.ts";
 import "./servers.css";
@@ -196,6 +197,7 @@ export function ServerSidebar({
               <ActivityLine userId={m.user.id} />
             </span>
             {m.role !== "member" && <span className={`role-tag ${m.role}`}>{m.role}</span>}
+            {m.user.isBot && <span className="bot-tag">bot</span>}
           </div>
         ))}
       </div>
@@ -700,7 +702,7 @@ export function ChannelDialog({
   );
 }
 
-export type SettingsTab = "profile" | "members" | "invites" | "bans" | "automod" | "modlog" | "webhooks";
+export type SettingsTab = "profile" | "members" | "invites" | "bans" | "automod" | "modlog" | "webhooks" | "bots";
 
 /** Server settings: profile and pictures, members and roles, invites, bans, automod, and leaving. */
 export function ServerSettings({
@@ -728,6 +730,7 @@ export function ServerSettings({
           { id: "automod" as const, label: "Automod" },
           { id: "modlog" as const, label: "Mod log" },
           { id: "webhooks" as const, label: "Webhooks" },
+          { id: "bots" as const, label: "Bots" },
         ]
       : []),
   ];
@@ -747,6 +750,7 @@ export function ServerSettings({
       {tab === "automod" && <AutomodTab server={server} />}
       {tab === "modlog" && <ModLogTab server={server} />}
       {tab === "webhooks" && <WebhooksTab server={server} />}
+      {tab === "bots" && <BotsTab server={server} />}
     </Modal>
   );
 }
@@ -929,7 +933,9 @@ function MembersTab({ me, server }: { me: Me; server: ChatServer }) {
             </span>
             <ActivityLine userId={m.user.id} />
           </span>
-          {owner && m.role !== "owner" ? (
+          {m.user.isBot ? (
+            <span className="bot-tag">bot</span>
+          ) : owner && m.role !== "owner" ? (
             <select
               value={m.role}
               aria-label={`Role for ${m.user.displayName}`}

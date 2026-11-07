@@ -79,6 +79,8 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     const other = isUsername(name) ? users.byUsername(name) : undefined;
     if (!other) throw new HttpError(404, "No one has that username");
     if (other.id === me.id) throw new HttpError(400, "You can't add yourself");
+    // Bots live in server channels only, so they're never in DMs or encrypted chats.
+    if (other.isBot) throw new HttpError(400, "Bots can't be friends; add them to a server instead");
     const f = friends.request(me.id, other.id);
     pushFriend(me.id, other.id);
     ctx.family.friendsChanged(me.id, other.id);

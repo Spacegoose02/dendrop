@@ -127,8 +127,8 @@ Built on Phase 1 accounts, so it can start earlier if it becomes the priority. S
   - **Family wall:** Ctrl+Shift+S screenshots can be shared to a Dendrop channel, kid-safe filtering kept.
   - **Kid accounts:** LootDen's kid profiles and parent links can seed Dendrop's kid-safe accounts (Phase 5), so a parent sets things up once.
   - **Game links:** pasting a LootDen game link shows a card with cover art and a "Send to PC" button.
-- **Integrations → Den Duty integration.** [Den Duty](https://github.com/Spacegoose02/den-duty) is the family's chore tracker. Done: kids' chores today under their name for them and their parents, and its events posted into a family channel and a grown-ups-only channel ([DENDUTY.md](DENDUTY.md)). Next: time-outs that pause chat (needs a Den Duty change), then a bot to approve chores from chat.
-- A general bot / webhook API, which the LootDen integration and the kid-safe alert webhooks both use. Incoming webhooks are done (Server settings → Webhooks); bots that read and answer are still to come.
+- **Integrations → Den Duty integration.** [Den Duty](https://github.com/Spacegoose02/den-duty) is the family's chore tracker. Done: kids' chores today under their name for them and their parents, and its events posted into a family channel and a grown-ups-only channel ([DENDUTY.md](DENDUTY.md)). Next: time-outs that pause chat (needs a Den Duty change), then approving chores from chat through the bot API ([BOTS.md](BOTS.md)).
+- A general bot / webhook API, which the LootDen integration and the kid-safe alert webhooks both use. Incoming webhooks are done (Server settings → Webhooks), and so are bots: accounts that post with buttons, hear clicks and answer ([BOTS.md](BOTS.md)).
 
 ---
 

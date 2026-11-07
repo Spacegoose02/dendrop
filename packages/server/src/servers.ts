@@ -417,6 +417,7 @@ export class ServerRepo {
     const current = this.role(serverId, userId);
     if (!current) throw new HttpError(404, "They aren't in this server");
     if (current === "owner") throw new HttpError(400, "Transfer ownership instead");
+    if (role === "admin" && this.users.byId(userId)?.isBot) throw new HttpError(400, "Bots can't be admins");
     this.atomic(() => {
       this.db.prepare("UPDATE server_members SET role = ? WHERE server_id = ? AND user_id = ?").run(role, serverId, userId);
       this.syncServer(serverId);
@@ -427,6 +428,7 @@ export class ServerRepo {
   transfer(serverId: number, from: number, to: number): void {
     if (from === to) return;
     if (!this.role(serverId, to)) throw new HttpError(404, "They aren't in this server");
+    if (this.users.byId(to)?.isBot) throw new HttpError(400, "A bot can't own a server");
     this.atomic(() => {
       this.db.prepare("UPDATE server_members SET role = 'admin' WHERE server_id = ? AND user_id = ?").run(serverId, from);
       this.db.prepare("UPDATE server_members SET role = 'owner' WHERE server_id = ? AND user_id = ?").run(serverId, to);

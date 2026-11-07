@@ -368,6 +368,39 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE users ADD COLUMN name_color TEXT;
   ALTER TABLE users ADD COLUMN text_color TEXT;
   `,
+  `
+  -- Bots: accounts with no password that post through the bot API (/api/bot/v1) with a token.
+  -- Only a hash of the token is kept. A deleted bot keeps its users row (is_bot = 1, no bots
+  -- row) so its old messages still show its name.
+  ALTER TABLE users ADD COLUMN is_bot INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE bots (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    description TEXT NOT NULL DEFAULT '',
+    token_hash TEXT NOT NULL,
+    signing_secret TEXT NOT NULL,
+    events_url TEXT,
+    is_public INTEGER NOT NULL DEFAULT 0,
+    reads_messages INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT
+  );
+  CREATE INDEX bots_owner ON bots(owner_id);
+
+  -- Buttons under a bot's message (JSON, see MessageButton).
+  ALTER TABLE messages ADD COLUMN buttons TEXT;
+
+  -- Clicks on bots' buttons. A bot can answer one within BOT_LIMITS.replyMinutes.
+  CREATE TABLE bot_interactions (
+    id INTEGER PRIMARY KEY,
+    bot_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    button_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    replied_at TEXT
+  );
+  `,
 ];
 
 export function now(): string {

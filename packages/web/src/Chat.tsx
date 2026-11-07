@@ -16,6 +16,7 @@ import { api, apiForm, ApiError } from "./api.ts";
 import { EMOJI } from "./emoji.ts";
 import { ActivityLine } from "./activity.tsx";
 import { GameLinks } from "./GameLink.tsx";
+import { MessageButtons } from "./Bots.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { decryptFile, encryptFile, encryptMessage, keyring, reveal, type ChatMessage, type FileMeta } from "./e2ee.ts";
 import { EncryptionInfo } from "./EncryptionInfo.tsx";
@@ -453,6 +454,11 @@ export function Chat({
                           app
                         </span>
                       )}
+                      {!m.webhook && author?.isBot && (
+                        <span className="bot-tag" title="A bot">
+                          bot
+                        </span>
+                      )}
                       <span className="muted small">{time(m.createdAt)}</span>
                     </div>
                   )}
@@ -485,6 +491,7 @@ export function Chat({
                         </p>
                       )}
                       {m.text && <GameLinks text={m.text} />}
+                      <MessageButtons m={m} />
                       {m.attachments.length > 0 && (
                         <div className="attachments">
                           {m.attachments.map((a, j) =>
