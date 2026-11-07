@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type { ChatServer, DendutyStatus, Message, ServerInvite } from "@dendrop/shared";
-import { eventText, type DendutyEvent, type DendutyFetch } from "../src/denduty.js";
+import { chatPauseText, eventText, type DendutyEvent, type DendutyFetch } from "../src/denduty.js";
 import { account, listen, startServer, type TestServer } from "./helpers.js";
 
-type Call = (cookie: string, method: "GET" | "POST" | "PUT", url: string, payload?: object) => Promise<{ status: number; body: any }>;
+type Call = (cookie: string, method: "GET" | "POST" | "PUT" | "PATCH", url: string, payload?: object) => Promise<{ status: number; body: any }>;
 
 const words = { icon: "✨", name: "Shinies", timezone: "America/New_York" };
 const ev = (event: string, fields: Record<string, unknown> = {}): DendutyEvent => ({ id: 1, event, kid: "Ava", kid_id: "k1", at: "2026-11-07T12:00:00Z", ...fields });
@@ -24,6 +24,29 @@ describe("Den Duty event wording", () => {
     assert.match(eventText(ev("timeout_started", { what: "No Roblox", ends_at: "2026-11-08T23:00:00Z" }), words)!.text, /^⏸️ Time-out for Ava: No Roblox until Sun 6:00 PM$/);
     for (const quiet of ["practice_waiting", "med_refill_due", "reward_refunded", "reminder_done", "helpdesk_answered", "something_new"]) assert.equal(eventText(ev(quiet), words), null);
     assert.equal(eventText(ev("points_changed", { amount: -2, kind: "reversal" }), words), null);
+  });
+});
+
+describe("Den Duty chat pauses", () => {
+  const at = Date.parse("2026-11-07T12:00:00Z");
+  const soon = "2026-11-07T23:00:00Z";
+  const chores = { due: 4, done: 1, left: 3 };
+  it("pauses chat the whole time-out, kindly, with when it's back", () => {
+    assert.equal(
+      chatPauseText([{ what: "No chatting", chat: "all", endsAt: soon }], chores, false, "America/New_York", at),
+      "Chat is taking a break for your Den Duty time-out (No chatting) until Sat 6:00 PM. You've got this! 💛",
+    );
+    // Over between checks: chat opens again.
+    assert.equal(chatPauseText([{ what: "x", chat: "all", endsAt: "2026-11-07T11:59:00Z" }], null, false, "UTC", at), null);
+  });
+  it("holds chat until today's chores are done, from a time-out or the chores-first rule", () => {
+    const left = "Chat opens once today's chores are done: 3 to go in Den Duty. You can do it! 🧹";
+    assert.equal(chatPauseText([{ what: "Chores first", chat: "chores", endsAt: soon }], chores, false, "UTC", at), left);
+    assert.equal(chatPauseText([], chores, true, "UTC", at), left);
+    assert.equal(chatPauseText([], chores, false, "UTC", at), null);
+    assert.equal(chatPauseText([], { due: 4, done: 4, left: 0 }, true, "UTC", at), null);
+    // No chores today, or Den Duty out of touch: nothing to wait for.
+    assert.equal(chatPauseText([{ what: "Chores first", chat: "chores", endsAt: soon }], null, true, "UTC", at), null);
   });
 });
 
@@ -166,6 +189,48 @@ describe("Den Duty link", () => {
     events.push({ id: 14, event: "helpdesk_requested", kid: "Ava", kid_id: "k1", request: "A ride", at: "2026-11-07T12:03:00Z" });
     await call(admin, "POST", "/api/admin/denduty/check");
     assert.equal((await messages(parents.conversationId)).length, 1);
+  });
+
+  it("pauses a kid's chat for a time-out or chores first, and opens it again", async () => {
+    const send = () => call(ava, "POST", `/api/conversations/${family.conversationId}/messages`, { body: "hi" });
+    const endsAt = new Date(Date.now() + 3_600_000).toISOString();
+    kids = [{ id: "k1", name: "Ava", chores: { due: 5, done: 3, left: 2 }, chatLocks: [{ id: "t1", what: "No chatting", chat: "all", endsAt }] }];
+    const gw = await listen(s, ava);
+    await call(admin, "POST", "/api/admin/denduty/check");
+    const { family: pushed } = await gw.waitFor("family.updated");
+    assert.equal(pushed.status!.allowedNow, false);
+    assert.match(pushed.status!.reason!, /^Chat is taking a break for your Den Duty time-out \(No chatting\) until .+\. You've got this! 💛$/);
+    const blocked = await send();
+    assert.equal(blocked.status, 403);
+    assert.match(blocked.body.error, /Den Duty time-out/);
+    // The admin page says why too; grown-ups aren't held back.
+    const st = (await call(admin, "GET", "/api/admin/denduty")).body as DendutyStatus;
+    assert.match(st.kids[0]!.chatPaused!, /No chatting/);
+    assert.equal((await call(mom, "POST", `/api/conversations/${family.conversationId}/messages`, { body: "hi" })).status, 200);
+
+    // A "chores first" time-out: chat waits for the last two chores.
+    kids = [{ id: "k1", name: "Ava", chores: { due: 5, done: 3, left: 2 }, chatLocks: [{ id: "t2", what: "Chores first", chat: "chores", endsAt }] }];
+    await call(admin, "POST", "/api/admin/denduty/check");
+    assert.match((await send()).body.error, /2 to go/);
+    kids = [{ id: "k1", name: "Ava", chores: { due: 5, done: 5, left: 0 }, chatLocks: [{ id: "t2", what: "Chores first", chat: "chores", endsAt }] }];
+    await call(admin, "POST", "/api/admin/denduty/check");
+    assert.equal((await send()).status, 200);
+
+    // The everyday rule a parent sets in Family: no chat until chores are done.
+    kids = [{ id: "k1", name: "Ava", chores: { due: 2, done: 0, left: 2 } }];
+    await call(admin, "POST", "/api/admin/denduty/check");
+    assert.equal((await send()).status, 200, "off by default");
+    assert.equal((await call(mom, "PATCH", `/api/family/kids/${avaId}`, { choresFirst: true })).status, 200);
+    const info = (await call(ava, "GET", "/api/family")).body;
+    assert.equal(info.rules.choresFirst, true);
+    assert.match(info.status.reason, /2 to go/);
+    assert.equal((await send()).status, 403);
+    // Ended early in Den Duty, or chores done: chat's back.
+    kids = [{ id: "k1", name: "Ava", chores: { due: 2, done: 2, left: 0 } }];
+    await call(admin, "POST", "/api/admin/denduty/check");
+    assert.equal((await send()).status, 200);
+    await call(mom, "PATCH", `/api/family/kids/${avaId}`, { choresFirst: false });
+    gw.ws.close();
   });
 
   it("reports Den Duty errors, and unlinks", async () => {

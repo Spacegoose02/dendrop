@@ -13,8 +13,9 @@ for (const entry of ["main", "preload"]) {
     target: "node22",
     format: "cjs",
     outfile: path.join(root, "dist", `${entry}.cjs`),
-    // ws's optional native speedups: it works without them.
-    external: ["electron", "bufferutil", "utf-8-validate"],
+    // ws's optional native speedups: it works without them. uiohook-napi is a native module,
+    // loaded from node_modules at run time (ptt.ts).
+    external: ["electron", "bufferutil", "utf-8-validate", "uiohook-napi"],
     logLevel: "warning",
   });
 }

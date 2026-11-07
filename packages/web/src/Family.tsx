@@ -86,7 +86,7 @@ function WhatParentsSee({ names }: { names: string }) {
       <li>Messages you delete are kept for them until they've looked.</li>
       <li>Every time they look, it shows up here for you.</li>
       <li>Everyone you chat with can see that your parents have this.</li>
-      <li>They set your chat hours, daily time, word filter, and whether new friends need a yes.</li>
+      <li>They set your chat hours, daily time, word filter, and whether new friends need a yes. Den Duty time-outs can pause chat too.</li>
     </ul>
   );
 }
@@ -110,6 +110,7 @@ function KidView({ me, family, conversations }: { me: Me; family: FamilyInfo; co
         <h3>Your rules</h3>
         <ul className="family-list small">
           <li>{status.allowedNow ? "You can chat right now." : `⏰ ${status.reason}`}</li>
+          {rules.choresFirst && <li>Chores first: chat opens once today's Den Duty chores are done</li>}
           {rules.allowedFrom && rules.allowedUntil && (
             <li>
               Chat hours: {rules.allowedFrom} to {rules.allowedUntil}
@@ -323,7 +324,7 @@ function KidCard({ kid, onChanged }: { kid: FamilyKid; onChanged: () => void }) 
           <strong>{kid.user.displayName}</strong>
           <span className="muted small">
             {" "}
-            · {kid.status.allowedNow ? "can chat now" : "chat time is over"} · {kid.status.minutesToday} min today
+            · <span title={kid.status.reason ?? undefined}>{kid.status.allowedNow ? "can chat now" : "can't chat right now"}</span> · {kid.status.minutesToday} min today
             {kid.parents.length > 1 && ` · with ${kid.parents.map((p) => p.displayName).join(", ")}`}
           </span>
         </span>
@@ -370,6 +371,13 @@ function KidCard({ kid, onChanged }: { kid: FamilyKid; onChanged: () => void }) 
           <input type="time" value={rules.allowedUntil!} onChange={(e) => set({ allowedUntil: e.target.value })} aria-label="Until" />
         </div>
       )}
+      <label className="toggle">
+        <input type="checkbox" checked={rules.choresFirst} onChange={(e) => set({ choresFirst: e.target.checked })} />
+        <span>
+          <strong>Chores first</strong>
+          <span className="muted small">No chat until today's Den Duty chores are done. Needs Den Duty linked by the server admin. Time-outs in Den Duty can also pause chat.</span>
+        </span>
+      </label>
       <label className="toggle">
         <input type="checkbox" checked={rules.dailyMinutes !== null} onChange={(e) => set({ dailyMinutes: e.target.checked ? 60 : null })} />
         <span>
