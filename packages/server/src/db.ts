@@ -369,6 +369,10 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE users ADD COLUMN text_color TEXT;
   `,
   `
+  -- Chores first: a kid can't chat until today's Den Duty chores are done.
+  ALTER TABLE kid_rules ADD COLUMN chores_first INTEGER NOT NULL DEFAULT 0;
+  `,
+  `
   -- Voice channels opened while two or more people in a server play the same game (from
   -- LootDen's Playing now). game is the title in lowercase. voice_channel_id is null when a
   -- moderator deleted the channel: it isn't opened again until everyone has stopped.

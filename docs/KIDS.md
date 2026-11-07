@@ -79,6 +79,8 @@ Each kid has rules their parents set:
 - **Chat hours** (like 07:00 to 20:30, in the kid's time zone) and a **daily limit** in minutes
   the app is open. Outside them the kid can still read, but can't send, edit, call, join voice,
   start chats or add friends. The server enforces these.
+- **Chores first** (off by default, needs [Den Duty](DENDUTY.md) linked): no chat until today's
+  Den Duty chores are done. Den Duty time-outs can also pause chat; see [DENDUTY.md](DENDUTY.md#chat-pauses).
 
 ## What it can't do
 
