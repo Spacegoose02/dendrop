@@ -23,6 +23,7 @@ import { IncomingCall } from "./IncomingCall.tsx";
 import { NewGroup } from "./NewGroup.tsx";
 import { SettingsButton } from "./Settings.tsx";
 import { EncryptionDialog, type EncryptionMode } from "./EncryptionDialog.tsx";
+import { useVoiceKeybinds } from "./keybinds.ts";
 import { keyring, loadIdentity, reveal, type Identity } from "./e2ee.ts";
 import { conversationTitle, upsert, type History } from "./util.ts";
 import { AdminDialog } from "./Admin.tsx";
@@ -59,6 +60,7 @@ const viewConversation = (v: View, servers: ChatServer[]): number | null => {
  */
 export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () => void }) {
   const [me, setMe] = useState(initialMe);
+  useVoiceKeybinds();
   const [dialog, setDialog] = useState<"group" | null>(null);
   const [server, setServer] = useState<ServerInfo | null>(null);
   const [calls, setCalls] = useState<Record<number, Call>>({});
