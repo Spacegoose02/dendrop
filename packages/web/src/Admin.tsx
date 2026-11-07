@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import type { AdminServer, ServerCreatorRequest } from "@dendrop/shared";
+import { useEffect, useState, type FormEvent } from "react";
+import type { AdminServer, LootdenStatus, ServerCreatorRequest } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { Modal } from "./Modal.tsx";
 import { ServerIcon } from "./Servers.tsx";
@@ -84,6 +84,122 @@ export function AdminDialog({ onClose, version }: { onClose: () => void; version
           </button>
         </div>
       ))}
+
+      <LootdenSection />
     </Modal>
+  );
+}
+
+const ago = (iso: string) => {
+  const s = Math.round((Date.now() - Date.parse(iso)) / 1000);
+  return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : new Date(iso).toLocaleString();
+};
+
+/**
+ * The link to LootDen, the family's game library: its address and a LootDen admin's API token.
+ * With it, what people play shows in Dendrop as their activity.
+ */
+function LootdenSection() {
+  const [status, setStatus] = useState<LootdenStatus | null>(null);
+  const [url, setUrl] = useState("");
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void api<LootdenStatus>("/api/admin/lootden").then((st) => {
+      setStatus(st);
+      setUrl(st.settings.url);
+    }, (err: Error) => setError(err.message));
+  }, []);
+
+  const send = async (fn: () => Promise<LootdenStatus>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const st = await fn();
+      setStatus(st);
+      setUrl(st.settings.url);
+      setToken("");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const save = (e: FormEvent) => {
+    e.preventDefault();
+    void send(() => api<LootdenStatus>("/api/admin/lootden", { method: "PUT", body: { url, token } }));
+  };
+  const linked = !!status?.settings.url;
+
+  return (
+    <>
+      <div className="section-label">LootDen</div>
+      <p className="muted small">
+        Link LootDen, the family's game library, to show what people are playing (“Playing Stardew Valley on Den-PC”) to their friends and the people in their
+        servers. Everyone can turn that off in Settings. Make the token in LootDen while signed in as an admin: Profile, Devices and tokens, Create token.
+      </p>
+      <form className="lootden-form" onSubmit={save}>
+        <label>
+          LootDen's address
+          <input type="url" placeholder="https://games.example.com" value={url} onChange={(e) => setUrl(e.target.value)} />
+        </label>
+        <label>
+          API token
+          <input
+            type="password"
+            autoComplete="off"
+            placeholder={status?.settings.hasToken ? "Saved (leave empty to keep it)" : "From a LootDen admin's profile"}
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+          />
+        </label>
+        <div className="account-save">
+          <button className="primary" disabled={busy || !url.trim()}>
+            {linked ? "Save" : "Link LootDen"}
+          </button>
+          {linked && (
+            <>
+              <button type="button" className="ghost" disabled={busy} onClick={() => void send(() => api<LootdenStatus>("/api/admin/lootden/check", { body: {} }))}>
+                Check now
+              </button>
+              <button
+                type="button"
+                className="ghost danger"
+                disabled={busy}
+                onClick={() => confirm("Unlink LootDen? Nobody's activity will show any more.") && void send(() => api<LootdenStatus>("/api/admin/lootden", { method: "PUT", body: { url: "" } }))}
+              >
+                Unlink
+              </button>
+            </>
+          )}
+        </div>
+      </form>
+      {error && <p className="error">{error}</p>}
+      {linked && status && (
+        <>
+          {status.error ? (
+            <p className="error">{status.error}</p>
+          ) : (
+            <p className="muted small">
+              {status.lastOkAt ? `Connected, checked ${ago(status.lastOkAt)}.` : "Not checked yet."} {status.playing} playing right now.
+            </p>
+          )}
+          {status.accounts.map((a) => (
+            <div key={a.lootden.id} className="member-row">
+              <span className="nav-text">
+                <span className="ellipsis">
+                  {a.lootden.displayName} <span className="muted small">@{a.lootden.username} in LootDen{a.lootden.kid ? " · kid" : ""}</span>
+                </span>
+                <span className="muted small">
+                  {a.user ? `↔ ${a.user.displayName} (@${a.user.username}), same ${a.matchedBy === "sign-in" ? "TinyAuth sign-in" : a.matchedBy}` : "No Dendrop account with the same email or username"}
+                </span>
+              </span>
+            </div>
+          ))}
+        </>
+      )}
+    </>
   );
 }

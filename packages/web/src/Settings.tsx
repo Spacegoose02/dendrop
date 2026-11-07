@@ -174,18 +174,19 @@ function SettingsPane({
   );
 }
 
-/** Display name and read receipts. These are saved to your account, so they follow you to every device. */
+/** Display name, read receipts and sharing what you play. These are saved to your account, so they follow you to every device. */
 function AccountSection({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
   const [displayName, setDisplayName] = useState(me.displayName);
   const [readReceipts, setReadReceipts] = useState(me.readReceipts);
+  const [shareActivity, setShareActivity] = useState(me.shareActivity);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const changed = displayName.trim() !== me.displayName || readReceipts !== me.readReceipts;
+  const changed = displayName.trim() !== me.displayName || readReceipts !== me.readReceipts || shareActivity !== me.shareActivity;
 
   const save = async () => {
     setError(null);
     try {
-      onSaved(await api<Me>("/api/me", { method: "PATCH", body: { displayName, readReceipts } }));
+      onSaved(await api<Me>("/api/me", { method: "PATCH", body: { displayName, readReceipts, shareActivity } }));
       setStatus("Saved");
     } catch (err) {
       setError((err as Error).message);
@@ -219,6 +220,20 @@ function AccountSection({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) 
         <span>
           <strong>Read receipts</strong>
           <span className="muted small">Let people see when you've read their messages. When this is off you won't see theirs either.</span>
+        </span>
+      </label>
+      <label className="toggle">
+        <input
+          type="checkbox"
+          checked={shareActivity}
+          onChange={(e) => {
+            setShareActivity(e.target.checked);
+            setStatus(null);
+          }}
+        />
+        <span>
+          <strong>Show what I'm playing</strong>
+          <span className="muted small">When LootDen is linked, your friends and the people in your servers see the game you're playing and on which PC.</span>
         </span>
       </label>
       {error && <p className="error">{error}</p>}

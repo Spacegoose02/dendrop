@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import type { Friend, PublicUser } from "@dendrop/shared";
 import { api } from "./api.ts";
+import { ActivityLine } from "./activity.tsx";
 import { Avatar } from "./Avatar.tsx";
 
 export function Friends({
@@ -87,7 +88,7 @@ export function Friends({
         {accepted.map((f) => (
           <div className="person" key={f.user.id}>
             <Avatar name={f.user.displayName} online={online.has(f.user.id)} />
-            <PersonName u={f.user} sub={online.has(f.user.id) ? "Online" : "Offline"} />
+            <PersonName u={f.user} sub={online.has(f.user.id) ? "Online" : "Offline"} activity />
             <button className="primary" onClick={() => onMessage(f.user)}>
               Message
             </button>
@@ -135,7 +136,7 @@ export function Friends({
   );
 }
 
-function PersonName({ u, sub }: { u: PublicUser; sub?: string }) {
+function PersonName({ u, sub, activity }: { u: PublicUser; sub?: string; activity?: boolean }) {
   return (
     <span className="person-name">
       <strong className="ellipsis">{u.displayName}</strong>
@@ -143,6 +144,7 @@ function PersonName({ u, sub }: { u: PublicUser; sub?: string }) {
         @{u.username}
         {sub ? ` · ${sub}` : ""}
       </span>
+      {activity && <ActivityLine userId={u.id} />}
     </span>
   );
 }

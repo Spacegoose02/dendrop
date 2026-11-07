@@ -10,6 +10,7 @@ export interface UserRecord {
   oidcSubject: string | null;
   isSuperAdmin: boolean;
   readReceipts: boolean;
+  shareActivity: boolean;
   publicKey: string | null;
   keyBackup: string | null;
   canCreateServers: boolean;
@@ -27,6 +28,7 @@ interface Row {
   oidc_subject: string | null;
   is_super_admin: number;
   read_receipts: number;
+  share_activity: number;
   public_key: string | null;
   key_backup: string | null;
   can_create_servers: number;
@@ -43,6 +45,7 @@ const fromRow = (r: Row): UserRecord => ({
   oidcSubject: r.oidc_subject,
   isSuperAdmin: !!r.is_super_admin,
   readReceipts: !!r.read_receipts,
+  shareActivity: !!r.share_activity,
   publicKey: r.public_key,
   keyBackup: r.key_backup,
   canCreateServers: !!r.can_create_servers,
@@ -61,6 +64,7 @@ export const toMe = (u: UserRecord): Me => ({
   email: u.email,
   isSuperAdmin: u.isSuperAdmin,
   readReceipts: u.readReceipts,
+  shareActivity: u.shareActivity,
   canCreateServers: u.isSuperAdmin || u.canCreateServers,
   isKid: u.isKid,
 });
@@ -125,9 +129,10 @@ export class UserRepo {
 
   update(
     id: number,
-    patch: { displayName?: string; oidcSubject?: string; isSuperAdmin?: boolean; passwordHash?: string; readReceipts?: boolean },
+    patch: { displayName?: string; oidcSubject?: string; isSuperAdmin?: boolean; passwordHash?: string; readReceipts?: boolean; shareActivity?: boolean },
   ): UserRecord {
     if (patch.readReceipts !== undefined) this.db.prepare("UPDATE users SET read_receipts = ? WHERE id = ?").run(patch.readReceipts ? 1 : 0, id);
+    if (patch.shareActivity !== undefined) this.db.prepare("UPDATE users SET share_activity = ? WHERE id = ?").run(patch.shareActivity ? 1 : 0, id);
     if (patch.displayName !== undefined) this.db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run(patch.displayName, id);
     if (patch.oidcSubject !== undefined) this.db.prepare("UPDATE users SET oidc_subject = ? WHERE id = ?").run(patch.oidcSubject, id);
     if (patch.isSuperAdmin !== undefined) this.db.prepare("UPDATE users SET is_super_admin = ? WHERE id = ?").run(patch.isSuperAdmin ? 1 : 0, id);

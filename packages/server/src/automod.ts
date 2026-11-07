@@ -434,7 +434,7 @@ export class AutomodService {
     }
     if (edit) return undefined;
     const recent = `SELECT COUNT(*) AS n FROM messages m JOIN server_channels c ON c.conversation_id = m.conversation_id
-                    WHERE c.server_id = ? AND m.author_id = ? AND m.created_at > ?`;
+                    WHERE c.server_id = ? AND m.author_id = ? AND m.webhook_name IS NULL AND m.created_at > ?`;
     if (rule.maxMessages > 0) {
       const since = new Date(Date.now() - rule.perSeconds * 1000).toISOString();
       const n = Number((this.db.prepare(recent).get(serverId, userId, since) as { n: number }).n) + 1;

@@ -127,7 +127,7 @@ Built on Phase 1 accounts, so it can start earlier if it becomes the priority. S
   - **Family wall:** Ctrl+Shift+S screenshots can be shared to a Dendrop channel, kid-safe filtering kept.
   - **Kid accounts:** LootDen's kid profiles and parent links can seed Dendrop's kid-safe accounts (Phase 5), so a parent sets things up once.
   - **Game links:** pasting a LootDen game link shows a card with cover art and a "Send to PC" button.
-- A general bot / webhook API, which the LootDen integration and the kid-safe alert webhooks both use.
+- A general bot / webhook API, which the LootDen integration and the kid-safe alert webhooks both use. Incoming webhooks are done (Server settings → Webhooks); bots that read and answer are still to come.
 
 ---
 
@@ -182,11 +182,11 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Features | Themes (dark, nuclear, gaming, laser) | 7 | Missing |
 | Features | Pop-out chats | 2 | Missing |
 | Features | Android chat bubbles for DMs | 2 | Missing |
-| Features | Activity privacy | 1 | Partial: read receipts can be turned off |
+| Features | Activity privacy | 1 | Done: read receipts and showing what you're playing can each be turned off |
 | Features | Invite links | 3 | Done (links with expiry and use limits, and invites to friends) |
 | Features | Server chat profile / rename | 7 | Done (name, description, per-server nickname) |
 | Features | Server chat banner | 7 | Done (icon and banner) |
-| Integrations | LootDen integration | 8 | Missing |
+| Integrations | LootDen integration | 8 | Partial: "Playing now" activity and LootDen alerts into a channel through incoming webhooks ([LOOTDEN.md](LOOTDEN.md)); game nights, screenshots, kid profiles and game links still to come |
 | Kid safe chat | Profanity filters | 5 | Done for kid accounts: hidden in what they read and blocked when they send (on their device, and on the server for plain messages), extra words per kid |
 | Kid safe chat | Kid's deleted messages sent to parent | 5 | Done: kept (still encrypted, files too) until a parent has looked and marks it done |
 | Kid safe chat | Time-based controls | 5 | Done: chat hours and daily minutes, enforced by the server |

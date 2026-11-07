@@ -984,3 +984,35 @@ button.attachment-file {
 .family-msg .badge {
   margin-left: 6px;
 }
+
+/* What someone is playing (LootDen), under their name. */
+.activity {
+  display: block;
+  color: var(--dd-online);
+}
+.activity a {
+  color: inherit;
+}
+.pane-header .activity {
+  display: inline;
+  min-width: 0;
+}
+
+/* Messages posted by a webhook. */
+.bot-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-accent);
+  color: var(--dd-bg-rail);
+  align-self: center;
+}
+.activity a {
+  text-decoration: none;
+}
+.activity a:hover {
+  text-decoration: underline;
+}

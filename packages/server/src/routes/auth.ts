@@ -96,17 +96,21 @@ export function authRoutes(app: FastifyInstance, ctx: Context): void {
 
   app.get("/api/me", async (req) => toMe(requireUser(req)));
 
-  app.patch<{ Body: { displayName?: unknown; readReceipts?: unknown } }>("/api/me", async (req) => {
+  app.patch<{ Body: { displayName?: unknown; readReceipts?: unknown; shareActivity?: unknown } }>("/api/me", async (req) => {
     const user = requireUser(req);
-    const { displayName: name, readReceipts } = req.body ?? {};
+    const { displayName: name, readReceipts, shareActivity } = req.body ?? {};
     if (name !== undefined && (typeof name !== "string" || !name.trim())) throw new HttpError(400, "A display name can't be empty");
     if (readReceipts !== undefined && typeof readReceipts !== "boolean") throw new HttpError(400, "readReceipts is true or false");
-    return toMe(
+    if (shareActivity !== undefined && typeof shareActivity !== "boolean") throw new HttpError(400, "shareActivity is true or false");
+    const updated = toMe(
       users.update(user.id, {
         displayName: typeof name === "string" ? name.trim().slice(0, LIMITS.displayNameLength) : undefined,
         readReceipts: readReceipts as boolean | undefined,
+        shareActivity: shareActivity as boolean | undefined,
       }),
     );
+    if (shareActivity !== undefined && shareActivity !== user.shareActivity) ctx.lootden.shareChanged(user.id);
+    return updated;
   });
 
   app.get("/api/server", async (req): Promise<ServerInfo> => {

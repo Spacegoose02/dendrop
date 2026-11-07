@@ -23,6 +23,8 @@ interface MessageRow {
   edited_at: string | null;
   deleted_at: string | null;
   key_version: number | null;
+  webhook_id: number | null;
+  webhook_name: string | null;
 }
 
 interface AttachmentRow {
@@ -277,6 +279,7 @@ export class ConversationRepo {
       deleted: !!r.deleted_at,
       keyVersion: r.deleted_at ? null : r.key_version,
       attachments: r.deleted_at ? [] : files.filter((f) => f.message_id === r.id).map(toAttachment),
+      webhook: r.webhook_name ? { id: r.webhook_id, name: r.webhook_name } : null,
     }));
   }
 
@@ -298,15 +301,26 @@ export class ConversationRepo {
     return a && toAttachment(a);
   }
 
-  send(conversationId: number, authorId: number, body: unknown, files: NewAttachment[] = [], keyVersion: number | null = null): Message {
+  /**
+   * Posts a message. `webhook` posts it as an incoming webhook (whose maker is the author on
+   * record): it's shown under the webhook's name and doesn't move the maker's read marker.
+   */
+  send(
+    conversationId: number,
+    authorId: number,
+    body: unknown,
+    files: NewAttachment[] = [],
+    keyVersion: number | null = null,
+    webhook: { id: number; name: string } | null = null,
+  ): Message {
     if (files.length > LIMITS.attachmentsPerMessage) throw new HttpError(400, `Up to ${LIMITS.attachmentsPerMessage} files per message`);
     const version = this.checkCrypto(conversationId, keyVersion, body);
     const text = version ? (body as string) : cleanBody(body, files.length > 0);
     const id = tx(this.db, () => {
       const t = now();
       const res = this.db
-        .prepare("INSERT INTO messages (conversation_id, author_id, body, created_at, key_version) VALUES (?, ?, ?, ?, ?)")
-        .run(conversationId, authorId, text, t, version);
+        .prepare("INSERT INTO messages (conversation_id, author_id, body, created_at, key_version, webhook_id, webhook_name) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run(conversationId, authorId, text, t, version, webhook?.id ?? null, webhook?.name ?? null);
       const mid = Number(res.lastInsertRowid);
       const add = this.db.prepare(
         "INSERT INTO attachments (id, message_id, conversation_id, name, size, content_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -314,7 +328,7 @@ export class ConversationRepo {
       for (const f of files) add.run(f.id, mid, conversationId, f.name, f.size, f.contentType, t);
       this.db.prepare("UPDATE conversations SET last_message_at = ? WHERE id = ?").run(t, conversationId);
       // Sending counts as reading everything up to here.
-      this.db.prepare("UPDATE conversation_members SET last_read_message_id = ? WHERE conversation_id = ? AND user_id = ?").run(mid, conversationId, authorId);
+      if (!webhook) this.db.prepare("UPDATE conversation_members SET last_read_message_id = ? WHERE conversation_id = ? AND user_id = ?").run(mid, conversationId, authorId);
       return mid;
     });
     return this.message(id)!;
@@ -336,7 +350,7 @@ export class ConversationRepo {
   private own(messageId: number, userId: number): MessageRow {
     const r = this.db.prepare("SELECT * FROM messages WHERE id = ?").get(messageId) as MessageRow | undefined;
     if (!r || !this.isMember(r.conversation_id, userId)) throw new HttpError(404, "No such message");
-    if (r.author_id !== userId) throw new HttpError(403, "You can only change your own messages");
+    if (r.author_id !== userId || r.webhook_name) throw new HttpError(403, "You can only change your own messages");
     if (r.deleted_at) throw new HttpError(409, "That message was deleted");
     return r;
   }

@@ -20,6 +20,8 @@ export interface Me extends PublicUser {
   canCreateServers: boolean;
   /** A kid account: linked to at least one parent, with kid-safe rules. */
   isKid: boolean;
+  /** Show friends and server-mates what you're playing (from LootDen). */
+  shareActivity: boolean;
 }
 
 /** "held": both said yes, but a kid's parent still has to approve it before they can chat. */
@@ -115,6 +117,8 @@ export interface Message {
    * file names, and each attachment is stored encrypted under a placeholder name.
    */
   keyVersion: number | null;
+  /** Set when an incoming webhook posted it (LootDen alerts, a script...): shown under this name. */
+  webhook: { id: number | null; name: string } | null;
 }
 
 export interface AuthInfo {
@@ -438,6 +442,65 @@ export interface FamilyChat {
   messages: (Message & { deletedByKid?: boolean })[];
 }
 
+// ---- Integrations ---------------------------------------------------------------------
+
+/**
+ * An incoming webhook: a secret address that posts into one server text channel. LootDen's
+ * Apprise alerts, Home Assistant, scripts... The address is shown once, when it's made.
+ */
+export interface Webhook {
+  id: number;
+  serverId: number;
+  channelId: number;
+  /** The name its messages are shown under. */
+  name: string;
+  createdBy: PublicUser | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+/** A webhook just made (or given a new address): the only time its address is shown. */
+export interface NewWebhook extends Webhook {
+  url: string;
+}
+
+/** What someone is doing right now, from LootDen: "Playing Stardew Valley on Den-PC". */
+export interface Activity {
+  kind: "playing";
+  title: string;
+  /** The PC it's on. */
+  device: string;
+  startedAt: string;
+  /** The game's page in LootDen, when there is one. */
+  url: string | null;
+}
+
+/** The super admin's LootDen link settings. The token itself is never sent back. */
+export interface LootdenSettings {
+  /** LootDen's address, e.g. https://games.example.com, or "" when not linked. */
+  url: string;
+  hasToken: boolean;
+}
+
+/** How the LootDen link is doing, for the admin page. */
+export interface LootdenStatus {
+  settings: LootdenSettings;
+  /** When LootDen last answered, and what went wrong last time, if anything. */
+  lastOkAt: string | null;
+  error: string | null;
+  /** LootDen profiles, and the Dendrop account each lines up with (by TinyAuth sign-in, email or username). */
+  accounts: { lootden: { id: number; username: string; displayName: string; kid: boolean }; user: PublicUser | null; matchedBy: "sign-in" | "email" | "username" | null }[];
+  /** How many people are playing right now. */
+  playing: number;
+}
+
+export const WEBHOOK_LIMITS = {
+  perChannel: 10,
+  name: 32,
+  /** Messages a webhook can post per minute. */
+  perMinute: 30,
+} as const;
+
 /** Pictures the web client shows inline. Everything else is offered as a download. */
 export const INLINE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
@@ -489,7 +552,9 @@ export type ServerEvent =
   /** A new alert about one of your kids. */
   | { type: "family.alert"; alert: FamilyAlert }
   /** To a server's owner and admins: automod caught something with the alert action on. */
-  | { type: "automod.alert"; event: AutomodEvent };
+  | { type: "automod.alert"; event: AutomodEvent }
+  /** Someone you can see started or stopped playing something (null: nothing now). */
+  | { type: "activity"; userId: number; activity: Activity | null };
 
 /** Events a client sends over the gateway. Everything else goes through the HTTP API. */
 export type ClientEvent = { type: "typing"; conversationId: number } | { type: "ping" };

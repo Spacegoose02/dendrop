@@ -17,6 +17,8 @@ import { api, ApiError } from "./api.ts";
 import { AutomodTab, ModLogTab } from "./Automod.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { Modal } from "./Modal.tsx";
+import { WebhooksTab } from "./Webhooks.tsx";
+import { ActivityLine } from "./activity.tsx";
 import "./servers.css";
 
 /** A server's picture, or its initials on a rounded square. */
@@ -183,7 +185,10 @@ export function ServerSidebar({
         <div className="section-label">Members · {server.memberCount}</div>
         {server.members.map((m) => (
           <div key={m.user.id} className="server-member">
-            <span className="ellipsis">{m.nickname ?? m.user.displayName}</span>
+            <span className="server-member-name">
+              <span className="ellipsis">{m.nickname ?? m.user.displayName}</span>
+              <ActivityLine userId={m.user.id} />
+            </span>
             {m.role !== "member" && <span className={`role-tag ${m.role}`}>{m.role}</span>}
           </div>
         ))}
@@ -689,7 +694,7 @@ export function ChannelDialog({
   );
 }
 
-export type SettingsTab = "profile" | "members" | "invites" | "bans" | "automod" | "modlog";
+export type SettingsTab = "profile" | "members" | "invites" | "bans" | "automod" | "modlog" | "webhooks";
 
 /** Server settings: profile and pictures, members and roles, invites, bans, automod, and leaving. */
 export function ServerSettings({
@@ -716,6 +721,7 @@ export function ServerSettings({
           { id: "bans" as const, label: "Bans" },
           { id: "automod" as const, label: "Automod" },
           { id: "modlog" as const, label: "Mod log" },
+          { id: "webhooks" as const, label: "Webhooks" },
         ]
       : []),
   ];
@@ -734,6 +740,7 @@ export function ServerSettings({
       {tab === "bans" && <BansTab server={server} />}
       {tab === "automod" && <AutomodTab server={server} />}
       {tab === "modlog" && <ModLogTab server={server} />}
+      {tab === "webhooks" && <WebhooksTab server={server} />}
     </Modal>
   );
 }
@@ -914,6 +921,7 @@ function MembersTab({ me, server }: { me: Me; server: ChatServer }) {
               @{m.user.username}
               {timeouts.has(m.user.id) && ` · ⏳ timed out until ${new Date(timeouts.get(m.user.id)!).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}`}
             </span>
+            <ActivityLine userId={m.user.id} />
           </span>
           {owner && m.role !== "owner" ? (
             <select

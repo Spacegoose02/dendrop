@@ -4,7 +4,8 @@ Private, self-hosted chat for family and friends: direct messages, calls and cha
 with a raccoon at heart. Runs in one Docker container (made for Unraid) and signs in with
 [TinyAuth](https://github.com/steveiliop56/tinyauth) or any OpenID Connect provider.
 
-See [the roadmap](docs/ROADMAP.md) for what's planned and in what order.
+See [the roadmap](docs/ROADMAP.md) for what's planned and in what order, and
+[docs/LOOTDEN.md](docs/LOOTDEN.md) for linking LootDen and posting into channels with webhooks.
 
 ## Running it
 

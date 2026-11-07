@@ -22,11 +22,12 @@ export interface NotifyOptions {
 export function notificationFor(event: ServerEvent, o: NotifyOptions): NotificationContent | null {
   if (event.type === "message.created") {
     const m = event.message;
-    if (m.authorId === o.meId || m.deleted) return null;
+    if ((m.authorId === o.meId && !m.webhook) || m.deleted) return null;
     let body = "New message";
     if (o.notifySender) {
       const c = o.conversation(m.conversationId);
-      const author = c?.members.find((u) => u.id === m.authorId);
+      // A webhook's messages are shown under its own name, not its maker's.
+      const author = m.webhook ? { displayName: m.webhook.name } : c?.members.find((u) => u.id === m.authorId);
       if (c?.isGroup && c.name) body = author ? `New message from ${author.displayName} in ${c.name}` : `New message in ${c.name}`;
       else if (author) body = `New message from ${author.displayName}`;
     }
