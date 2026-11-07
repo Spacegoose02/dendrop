@@ -19,6 +19,7 @@ import { Avatar } from "./Avatar.tsx";
 import { Modal } from "./Modal.tsx";
 import { WebhooksTab } from "./Webhooks.tsx";
 import { ActivityLine } from "./activity.tsx";
+import { useColors } from "./colors.ts";
 import "./servers.css";
 
 /** A server's picture, or its initials on a rounded square. */
@@ -83,6 +84,7 @@ export function ServerSidebar({
   automodAlerts?: number;
   onModLog?: () => void;
 }) {
+  const colorsOf = useColors();
   const mod = isMod(server);
   return (
     <>
@@ -166,7 +168,9 @@ export function ServerSidebar({
                         return (
                           <li key={v.userId} className={`voice-member ${talking ? "speaking" : ""}`}>
                             <Avatar name={name} size={22} />
-                            <span className="ellipsis">{name}</span>
+                            <span className="ellipsis" style={colorsOf(m?.user).name}>
+                              {name}
+                            </span>
                             <span className="voice-icons" aria-label={[v.screen && "sharing screen", v.video && "camera on", v.deafened ? "deafened" : v.muted && "muted"].filter(Boolean).join(", ")}>
                               {v.screen && "🖥️"}
                               {v.video && "📷"}
@@ -186,7 +190,9 @@ export function ServerSidebar({
         {server.members.map((m) => (
           <div key={m.user.id} className="server-member">
             <span className="server-member-name">
-              <span className="ellipsis">{m.nickname ?? m.user.displayName}</span>
+              <span className="ellipsis" style={colorsOf(m.user).name}>
+                {m.nickname ?? m.user.displayName}
+              </span>
               <ActivityLine userId={m.user.id} />
             </span>
             {m.role !== "member" && <span className={`role-tag ${m.role}`}>{m.role}</span>}

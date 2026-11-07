@@ -9,6 +9,10 @@ export interface PublicUser {
    * set up encryption. Messages are encrypted to it; the server never has the private key.
    */
   publicKey: string | null;
+  /** The color their name is shown in (#rrggbb), or null for the theme's default. */
+  nameColor: string | null;
+  /** The color their messages are shown in (#rrggbb), or null for the theme's default. */
+  textColor: string | null;
 }
 
 export interface Me extends PublicUser {
@@ -560,6 +564,9 @@ export type ServerEvent =
 export type ClientEvent = { type: "typing"; conversationId: number } | { type: "ping" };
 
 export * from "./profanity.js";
+
+/** A #rrggbb color, the only form name and text colors are saved in. */
+export const isHexColor = (s: unknown): s is string => typeof s === "string" && /^#[0-9a-f]{6}$/i.test(s);
 
 export const isUsername = (s: unknown): s is string =>
   typeof s === "string" && s.length >= 2 && s.length <= LIMITS.usernameLength && /^[\w.-]+$/.test(s);

@@ -3,6 +3,7 @@ import type { Friend, PublicUser } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { ActivityLine } from "./activity.tsx";
 import { Avatar } from "./Avatar.tsx";
+import { useColors } from "./colors.ts";
 
 export function Friends({
   friends,
@@ -137,9 +138,12 @@ export function Friends({
 }
 
 function PersonName({ u, sub, activity }: { u: PublicUser; sub?: string; activity?: boolean }) {
+  const colorsOf = useColors();
   return (
     <span className="person-name">
-      <strong className="ellipsis">{u.displayName}</strong>
+      <strong className="ellipsis" style={colorsOf(u).name}>
+        {u.displayName}
+      </strong>
       <span className="muted small ellipsis">
         @{u.username}
         {sub ? ` · ${sub}` : ""}
