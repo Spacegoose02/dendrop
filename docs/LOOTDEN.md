@@ -11,6 +11,8 @@ Dendrop links to it without anything changed in LootDen:
 - **Game nights:** each planned night is announced in a channel and gets a voice channel.
 - **Family wall:** new screenshots are shared to a channel, kid-safe where kids can read it.
 - **Kid accounts:** LootDen's kid profiles can be made Dendrop kid accounts in one click.
+- **Play limits:** a kid's LootDen bedtime and game time can count in their chat time rules.
+- **Surprise us:** LootDen's game night pick can be shared into a channel.
 
 ## Playing now
 
@@ -127,8 +129,29 @@ account of one of LootDen's admins. That's the same as linking them by hand in F
 the usual rules (the parent needs encryption turned on, and the kid starts with the default
 kid-safe rules, which parents can change).
 
-## Still to come
+## Play limits for kids
 
-- LootDen's **Surprise us** picks shared to chat: that's a button on LootDen's side, which
-  can post through a Dendrop webhook once LootDen has the option.
-- LootDen's daily play limits feeding Dendrop's kid time rules.
+For a kid account whose LootDen profile is matched, parents get two more switches in
+**Family**, under the kid's time rules. Both are off until a parent turns them on:
+
+- **LootDen bedtime:** chat closes during the bedtime set in LootDen (Settings, Profiles,
+  Play time), in LootDen's time zone, the same as outside chat hours: the kid can still read,
+  but not send, call or add friends. This is on top of Dendrop's own chat hours.
+- **Games count as screen time:** minutes played in LootDen today (including a game that's
+  running now) count toward the daily time, so chat and games share one budget. The budget is
+  the kid's own Dendrop daily time when it has one; otherwise it's LootDen's play time for
+  today (weekday or weekend, plus any bonus time a parent gave in LootDen). When it's used up,
+  parents get the usual "used today's time" alert, once a day.
+
+Dendrop reads each kid's limits from LootDen (`GET /api/users/:id/limits`) on the same
+30-second check, so a change in LootDen shows up within a minute. If LootDen can't be
+reached, the last limits it gave are kept; unlinking LootDen stops them applying.
+
+LootDen doesn't count chat time against games: its own limits only see play time.
+
+## Surprise us
+
+LootDen's **Surprise us** spin (Game night) gets a **Share to chat** button once LootDen has
+a chat webhook: in LootDen, **Settings → Scanning & alerts → Chat webhook**, paste the
+address of a Dendrop webhook (Server settings → Webhooks). The pick is posted as a link to the
+game, so Dendrop shows its card with the cover.
