@@ -3,6 +3,7 @@ import type { ChannelRef } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
 import { HttpError } from "../errors.js";
 import { LootdenExtras } from "../lootden-extras.js";
+import { PlayTogether } from "../play-together.js";
 import { isModerator, ServerRepo } from "../servers.js";
 
 /** LootDen being down or refusing is LootDen's error, not ours: 502 with what it said. */
@@ -18,6 +19,7 @@ const viaLootden = async <T>(fn: () => Promise<T>): Promise<T> => {
 /** The LootDen link: the super admin's settings, and what people are playing. */
 export function lootdenRoutes(app: FastifyInstance, ctx: Context): void {
   const extras = new LootdenExtras(ctx);
+  new PlayTogether(ctx);
   const servers = new ServerRepo(ctx.db, ctx.users);
   ctx.lootden.start();
   app.addHook("onClose", async () => ctx.lootden.stop());

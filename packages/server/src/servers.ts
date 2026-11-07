@@ -28,6 +28,7 @@ interface ServerRow {
   owner_id: number;
   is_public: number;
   member_invites: number;
+  play_together: number;
   icon_file: string | null;
   icon_type: string | null;
   banner_file: string | null;
@@ -278,6 +279,7 @@ export class ServerRepo {
       roles: this.roles(serverId),
       nickname: me.nickname,
       memberInvites: !!r.member_invites,
+      playTogether: !!r.play_together,
       channels: this.channelRows(serverId)
         .filter((c) => this.canSee(c, viewerId, role))
         .map((c) => this.toChannel(c, mod)),
@@ -367,7 +369,7 @@ export class ServerRepo {
     });
   }
 
-  update(serverId: number, patch: { name?: unknown; description?: unknown; isPublic?: unknown; memberInvites?: unknown }): void {
+  update(serverId: number, patch: { name?: unknown; description?: unknown; isPublic?: unknown; memberInvites?: unknown; playTogether?: unknown }): void {
     if (patch.name !== undefined) {
       this.db.prepare("UPDATE servers SET name = ? WHERE id = ?").run(cleanText(patch.name, LIMITS.serverName, "The server name", false), serverId);
     }
@@ -378,6 +380,9 @@ export class ServerRepo {
     if (typeof patch.isPublic === "boolean") this.db.prepare("UPDATE servers SET is_public = ? WHERE id = ?").run(patch.isPublic ? 1 : 0, serverId);
     if (typeof patch.memberInvites === "boolean") {
       this.db.prepare("UPDATE servers SET member_invites = ? WHERE id = ?").run(patch.memberInvites ? 1 : 0, serverId);
+    }
+    if (typeof patch.playTogether === "boolean") {
+      this.db.prepare("UPDATE servers SET play_together = ? WHERE id = ?").run(patch.playTogether ? 1 : 0, serverId);
     }
   }
 

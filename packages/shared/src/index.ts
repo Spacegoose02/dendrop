@@ -234,6 +234,8 @@ export interface ChatServer extends ChatServerSummary {
   nickname: string | null;
   /** Whether everyone can make invites, or only the owner and admins. */
   memberInvites: boolean;
+  /** Open a voice channel while two or more members play the same game (from LootDen). */
+  playTogether: boolean;
   channels: Channel[];
   members: ServerMember[];
   createdAt: string;
@@ -568,6 +570,16 @@ export interface Activity {
   url: string | null;
 }
 
+/** A suggestion to join the voice channel opened for a game you and others are playing. */
+export interface PlayTogether {
+  serverId: number;
+  channelId: number;
+  /** The game, as LootDen names it. */
+  game: string;
+  /** Everyone in that server playing it now, you included. */
+  userIds: number[];
+}
+
 /** A channel of a server, for where LootDen posts. */
 export interface ChannelRef {
   serverId: number;
@@ -728,6 +740,8 @@ export type ServerEvent =
   | { type: "automod.alert"; event: AutomodEvent }
   /** Someone you can see started or stopped playing something (null: nothing now). */
   | { type: "activity"; userId: number; activity: Activity | null }
+  /** You and others in a server are playing the same game: a voice channel is open for it. */
+  | { type: "play.together"; invite: PlayTogether }
   /** A kid's chores today changed (from Den Duty), to the kid and their parents (null: nothing to show). */
   | { type: "chores"; userId: number; chores: ChoresToday | null };
 

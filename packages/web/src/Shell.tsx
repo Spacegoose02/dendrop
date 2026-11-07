@@ -13,6 +13,7 @@ import type {
   Friend,
   InvitePreview,
   Me,
+  PlayTogether,
   PublicUser,
   ServerEvent,
   ServerInfo,
@@ -24,6 +25,7 @@ import { Chat } from "./Chat.tsx";
 import { Friends } from "./Friends.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { IncomingCall } from "./IncomingCall.tsx";
+import { PlayTogetherCard } from "./PlayTogether.tsx";
 import { NewGroup } from "./NewGroup.tsx";
 import { SettingsButton } from "./Settings.tsx";
 import { EncryptionDialog, type EncryptionMode } from "./EncryptionDialog.tsx";
@@ -100,6 +102,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const [invites, setInvites] = useState<InvitePreview[]>([]);
   /** Automod alerts not looked at yet, per server (owners and admins only get them). */
   const [automodAlerts, setAutomodAlerts] = useState<Record<number, number>>({});
+  /** A voice channel opened for a game you're playing with others, to join or not. */
+  const [playInvite, setPlayInvite] = useState<PlayTogether | null>(null);
   const [serverDialog, setServerDialog] = useState<ServerDialog | null>(() => {
     // Opened from an invite link: …/invite/CODE.
     const m = /^\/invite\/([A-Za-z0-9_-]{8,32})\/?$/.exec(location.pathname);
@@ -229,6 +233,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             else delete n[e.userId];
             return n;
           });
+          break;
+        case "play.together":
+          setPlayInvite(e.invite);
           break;
         case "presence":
           setOnline((s) => {
@@ -737,6 +744,24 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           }}
         />
       )}
+      {playInvite && server?.calls && !ringing && !dialog && inVoice?.voice.channelId !== playInvite.channelId && (() => {
+        const sv = servers.find((x) => x.id === playInvite.serverId);
+        const ch = sv?.channels.find((c) => c.id === playInvite.channelId);
+        if (!sv || !ch) return null;
+        return (
+          <PlayTogetherCard
+            me={me}
+            invite={playInvite}
+            server={sv}
+            onClose={() => setPlayInvite(null)}
+            onJoin={() => {
+              setPlayInvite(null);
+              open({ kind: "channel", serverId: sv.id, channelId: ch.id });
+              void joinVoice(sv, ch);
+            }}
+          />
+        );
+      })()}
       {serverDialog?.kind === "create" && (
         <CreateServer
           me={me}
