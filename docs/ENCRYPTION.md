@@ -42,7 +42,7 @@ so and doesn't join. Calls in conversations that aren't encrypted yet say "Not e
 encrypted" in the call panel.
 
 **Voice channels** in chat servers aren't end-to-end encrypted yet, like server text channels:
-the audio and video go through your own LiveKit server only (encrypted in transit), and the
+the audio, video and shared screens go through your own LiveKit server only (encrypted in transit), and the
 voice panel says so. Someone who loses access to a voice channel (removed from the server, or
 the channel is locked or deleted) is taken out of its room straight away.
 

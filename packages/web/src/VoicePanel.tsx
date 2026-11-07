@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Room, RoomEvent, type Participant } from "livekit-client";
+import { Room, RoomEvent, Track, type Participant } from "livekit-client";
 import type { Channel, ChatServer, Me, VoiceJoin, VoiceMember } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { RemoteAudio, Tile } from "./CallPanel.tsx";
+import { canShareScreen, ScreenTile, ShareDialog, shareOptions, type ShareQuality } from "./ScreenShare.tsx";
 
 /**
  * The voice channel you're in: connects to its LiveKit room and has the controls. Like a call,
@@ -35,6 +36,9 @@ export function VoicePanel({
   const [deafened, setDeafened] = useState(false);
   /** Whether the mic was on before deafening, so undeafening puts it back. */
   const micBeforeDeafen = useRef(true);
+  const [sharing, setSharing] = useState<"no" | "picking" | "starting">("no");
+  /** Whose screen is shown big, when more than one person shares. */
+  const [focus, setFocus] = useState<string | null>(null);
   const left = useRef(false);
   const bump = () => setVersion((v) => v + 1);
 
@@ -69,6 +73,11 @@ export function VoicePanel({
       bump();
     };
     room.on(RoomEvent.ActiveSpeakersChanged, onActive);
+    // Sharing can also stop from the browser's own "Stop sharing" button.
+    const onUnpublished = (pub: { source: Track.Source }) => {
+      if (pub.source === Track.Source.ScreenShare) report({ screen: false });
+    };
+    room.on(RoomEvent.LocalTrackUnpublished, onUnpublished);
     let cancelled = false;
     let connected = false;
     // The call server dropped us (or took us out); not us leaving, and not this effect cleaning up.
@@ -98,6 +107,7 @@ export function VoicePanel({
       cancelled = true;
       for (const e of events) room.off(e, bump);
       room.off(RoomEvent.ActiveSpeakersChanged, onActive);
+      room.off(RoomEvent.LocalTrackUnpublished, onUnpublished);
       room.off(RoomEvent.Disconnected, onDisconnected);
       void room.disconnect();
       onSpeakers([]);
@@ -117,6 +127,33 @@ export function VoicePanel({
   };
   const name = channel?.name ?? "voice";
   const alone = status === "connected" && room.remoteParticipants.size === 0;
+  const screenOn = local.isScreenShareEnabled;
+  const sharers = everyone.filter((p) => p.getTrackPublication(Track.Source.ScreenShare)?.track);
+  // The newest sharer is shown big unless you picked another.
+  const stage = sharers.find((p) => p.identity === focus) ?? sharers[sharers.length - 1];
+
+  const startShare = async (quality: ShareQuality, audio: boolean) => {
+    setSharing("starting");
+    const { capture, publish } = shareOptions(quality, audio);
+    try {
+      await local.setScreenShareEnabled(true, capture, publish);
+      if (local.isScreenShareEnabled) {
+        report({ screen: true });
+        setFocus(local.identity);
+      }
+    } catch (err) {
+      // Closing the picker isn't an error worth showing.
+      if ((err as Error).name !== "NotAllowedError") setError(`Screen: ${(err as Error).message}`);
+    }
+    setSharing("no");
+    bump();
+  };
+
+  const stopShare = async () => {
+    await local.setScreenShareEnabled(false);
+    report({ screen: false });
+    bump();
+  };
 
   const toggleMic = async () => {
     if (deafened) {
@@ -164,6 +201,18 @@ export function VoicePanel({
           {camOn ? "📷 Camera off" : "📷 Camera on"}
         </button>
       )}
+      {screenOn ? (
+        <button className="sharing" onClick={() => void stopShare()} aria-pressed title="Stop sharing your screen">
+          🖥️ Stop sharing
+        </button>
+      ) : (
+        !compact &&
+        canShareScreen() && (
+          <button onClick={() => setSharing("picking")} disabled={sharing !== "no" || status !== "connected"} title="Share your screen">
+            🖥️ Share screen
+          </button>
+        )
+      )}
       <button className="hangup" onClick={leave} title="Leave voice">
         Leave
       </button>
@@ -185,9 +234,36 @@ export function VoicePanel({
   }
 
   return (
-    <div className="call-panel voice-panel">
+    <div className={`call-panel voice-panel ${stage ? "with-stage" : ""}`}>
       <RemoteAudio room={room} deafened={deafened} />
-      <div className="call-tiles">
+      {stage && (
+        <div className="voice-stage">
+          <ScreenTile
+            key={stage.identity}
+            p={stage}
+            isMe={stage === local}
+            name={nickname(stage.identity) ?? stage.name ?? "Someone"}
+            focused
+          />
+          {sharers.length > 1 && (
+            <div className="stage-others">
+              {sharers
+                .filter((p) => p !== stage)
+                .map((p) => (
+                  <ScreenTile
+                    key={p.identity}
+                    p={p}
+                    isMe={p === local}
+                    name={nickname(p.identity) ?? p.name ?? "Someone"}
+                            focused={false}
+                    onFocus={() => setFocus(p.identity)}
+                  />
+                ))}
+            </div>
+          )}
+        </div>
+      )}
+      <div className={`call-tiles ${stage ? "strip" : ""}`}>
         {everyone.map((p) => (
           <Tile key={p.identity} p={p} isMe={p === local} myName={nickname(p.identity) ?? me.displayName} label={nickname(p.identity)} />
         ))}
@@ -199,6 +275,7 @@ export function VoicePanel({
         {error && <span className="error">{error}</span>}
       </div>
       {controls}
+      {sharing === "picking" && <ShareDialog onClose={() => setSharing("no")} onShare={(q, a) => void startShare(q, a)} />}
     </div>
   );
 }

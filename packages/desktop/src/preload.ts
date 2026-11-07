@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld("dendrop", {
   appSettings: (patch?: object) => ipcRenderer.invoke("dd:appSettings", patch),
   checkForUpdates: () => ipcRenderer.invoke("dd:checkForUpdates"),
   changeServer: () => ipcRenderer.invoke("dd:changeServer"),
+  /** Screens and windows to share, for the app's own picker; then pickScreen says which before sharing. */
+  screenSources: () => ipcRenderer.invoke("dd:screenSources"),
+  pickScreen: (id: string | null, audio: boolean) => ipcRenderer.invoke("dd:pickScreen", id, audio),
 });
 
 // The bundled setup and offline pages (checked in main.ts too).
