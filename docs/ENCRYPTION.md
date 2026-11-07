@@ -32,6 +32,15 @@ travel inside the encrypted message, and the server stores them as `file` /
 their public key). If the code you see for someone matches the one they see for themselves in
 Settings, nobody, the server included, has swapped their key.
 
+**Calls.** A call in an encrypted conversation is encrypted too, with LiveKit's end-to-end
+encryption (insertable streams, run in a worker). Each call's media key is HKDF of the
+conversation key, salted with the time the call started, so everyone in the call works out
+the same key without sending it anywhere, and every call gets a different one. Your LiveKit
+server only forwards encrypted audio and video. A call in an encrypted conversation never falls
+back to plain media: if a browser can't encrypt, or this device hasn't been unlocked, it says
+so and doesn't join. Calls in conversations that aren't encrypted yet say "Not end-to-end
+encrypted" in the call panel.
+
 ## Resetting
 
 If you forget your passphrase you can reset: that makes a new key pair. Messages encrypted to
@@ -41,7 +50,6 @@ readable for everyone else.
 
 ## What it doesn't cover yet
 
-- **Call media.** Calls go through your own LiveKit server; LiveKit's E2EE for media is next.
 - **Forward secrecy.** A conversation key is used until someone resets. Someone who gets your
   private key *and* the server's database could read past messages. A ratchet (Signal-style or
   MLS) would fix that; it's on the roadmap.
