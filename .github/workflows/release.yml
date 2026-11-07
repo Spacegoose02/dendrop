@@ -1,5 +1,5 @@
-# Push a tag like v0.2.0 to build the desktop app for Windows and Linux and attach it to a
-# GitHub release, with a SHA256SUMS file the app checks updates against (packages/desktop/src/updater.ts).
+# Push a tag like v0.2.0 to build the desktop app for Windows and Linux and the Android APK and
+# attach them to a GitHub release, with a SHA256SUMS file the app checks updates against (packages/desktop/src/updater.ts).
 name: Release
 
 on:
@@ -40,14 +40,47 @@ jobs:
             packages/desktop/release/*.AppImage
             packages/desktop/release/*.deb
 
+  # Same steps as android.yml's debug build. A signed release APK can join once the keystore
+  # secrets exist.
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: packages/android/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+      - run: npm ci
+      - run: npm run sync
+      - run: ./gradlew --no-daemon assembleDebug
+        working-directory: packages/android/android
+      - run: mv app/build/outputs/apk/debug/*.apk "app/build/outputs/apk/debug/Dendrop-${GITHUB_REF_NAME#v}-android-debug.apk"
+        working-directory: packages/android/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: packages/android/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
   release:
-    needs: [desktop]
+    needs: [desktop, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: desktop-*
       # A block scalar, because in a plain one the "  #" in the sed below starts a YAML comment.
       - run: |
           find dist -type f -exec sha256sum {} + | sed 's#  .*/#  #' | sort -k2 > SHA256SUMS
