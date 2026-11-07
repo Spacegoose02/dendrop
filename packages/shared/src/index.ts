@@ -377,11 +377,37 @@ export interface KidRules {
   timezone: string;
   /** No chat until today's Den Duty chores are done (needs Den Duty linked). */
   choresFirst: boolean;
+  /** LootDen's bedtime for the kid's LootDen profile closes chat too. */
+  lootdenBedtime: boolean;
+  /**
+   * Game time in LootDen counts toward the daily time: chat and games share one budget, the
+   * daily minutes above, or LootDen's daily play time when there are none.
+   */
+  lootdenPlayTime: boolean;
+}
+
+/** The kid's LootDen play limits, when LootDen is linked and their profile is matched. */
+export interface LootdenKidLimits {
+  /** No play (and, with lootdenBedtime, no chat) between these times in LootDen's time zone. */
+  bedtime: { from: string; to: string } | null;
+  /** Today's play time in LootDen with any bonus time, or null for no daily limit. */
+  dailyMinutes: number | null;
+  /** Minutes played in LootDen today, counting a game that's running now. */
+  playedMinutes: number;
+  /** LootDen's household time zone. */
+  timezone: string;
 }
 
 /** Whether a kid can chat right now. */
 export interface KidStatus {
+  /** Minutes with the app open today. */
   minutesToday: number;
+  /** Minutes of LootDen games counted toward the daily time today (0 unless lootdenPlayTime). */
+  gameMinutesToday: number;
+  /** Today's daily time in minutes: the kid's own, else LootDen's with lootdenPlayTime; null for none. */
+  limitMinutes: number | null;
+  /** The kid's LootDen play limits, or null when LootDen isn't linked or their profile isn't matched. */
+  lootden: LootdenKidLimits | null;
   allowedNow: boolean;
   /** Why not, in words for the kid. */
   reason: string | null;

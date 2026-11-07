@@ -373,6 +373,12 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE kid_rules ADD COLUMN chores_first INTEGER NOT NULL DEFAULT 0;
   `,
   `
+  -- Kid time rules that follow LootDen's play limits: its bedtime closes chat, and its game
+  -- time shares the daily time with chat. Off until a parent turns them on.
+  ALTER TABLE kid_rules ADD COLUMN lootden_bedtime INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE kid_rules ADD COLUMN lootden_play_time INTEGER NOT NULL DEFAULT 0;
+  `,
+  `
   -- Bots: accounts with no password that post through the bot API (/api/bot/v1) with a token.
   -- Only a hash of the token is kept. A deleted bot keeps its users row (is_bot = 1, no bots
   -- row) so its old messages still show its name.

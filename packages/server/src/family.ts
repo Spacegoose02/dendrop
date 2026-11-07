@@ -8,6 +8,7 @@ import type {
   FamilyLinkCode,
   KidRules,
   KidStatus,
+  LootdenKidLimits,
   PublicUser,
 } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
@@ -43,6 +44,8 @@ const DEFAULT_RULES: KidRules = {
   dailyMinutes: null,
   timezone: "UTC",
   choresFirst: false,
+  lootdenBedtime: false,
+  lootdenPlayTime: false,
 };
 
 /**
@@ -67,14 +70,27 @@ export const isTimeZone = (tz: unknown): tz is string => {
   }
 };
 
-/** The day (YYYY-MM-DD) and minute of the day at `at`, in a time zone. */
-export function localTime(tz: string, at: Date): { day: string; minute: number } {
+/** The day (YYYY-MM-DD), minute of the day and weekday (0 is Sunday) at `at`, in a time zone. */
+export function localTime(tz: string, at: Date): { day: string; minute: number; weekday: number } {
   const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      weekday: "short",
+      hourCycle: "h23",
+    })
       .formatToParts(at)
       .map((p) => [p.type, p.value]),
   ) as Record<string, string>;
-  return { day: `${parts.year}-${parts.month}-${parts.day}`, minute: Number(parts.hour) * 60 + Number(parts.minute) };
+  return {
+    day: `${parts.year}-${parts.month}-${parts.day}`,
+    minute: Number(parts.hour) * 60 + Number(parts.minute),
+    weekday: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(parts.weekday ?? "Sun"),
+  };
 }
 
 const toMinute = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3));
@@ -90,6 +106,8 @@ interface RulesRow {
   daily_minutes: number | null;
   timezone: string;
   chores_first: number;
+  lootden_bedtime: number;
+  lootden_play_time: number;
 }
 
 interface AlertRow {
@@ -132,9 +150,20 @@ export function guardianIds(db: Db, conversationId: number): number[] {
   ).map((r) => r.parent_id);
 }
 
+/** Is a minute of the day inside a span that may run past midnight? */
+const inSpan = (from: string, until: string, minute: number): boolean => {
+  const a = toMinute(from);
+  const b = toMinute(until);
+  return a < b ? minute >= a && minute < b : minute >= a || minute < b;
+};
+
 export class FamilyService {
   /** Whether each online kid could chat at the last tick, to tell them when that changes. */
   private lastAllowed = new Map<number, boolean>();
+  /** The day (kid's time zone) each kid's parents were last told the daily time ran out. */
+  private limitAlerted = new Map<number, string>();
+  /** The kid's LootDen play limits, when LootDen is linked (set by the LootDen link). */
+  playLimits: (kidId: number, at: Date) => LootdenKidLimits | null = () => null;
   private timer: ReturnType<typeof setInterval> | undefined;
   private chatPause: ChatPause = () => null;
 
@@ -242,6 +271,7 @@ export class FamilyService {
       this.db.prepare("DELETE FROM family_alerts WHERE kid_id = ?").run(kidId);
       this.db.prepare("UPDATE friendships SET held_for_parent = 0 WHERE user_a = ? OR user_b = ?").run(kidId, kidId);
       this.lastAllowed.delete(kidId);
+      this.limitAlerted.delete(kidId);
       return files;
     });
   }
@@ -272,12 +302,14 @@ export class FamilyService {
       dailyMinutes: r.daily_minutes,
       timezone: r.timezone,
       choresFirst: !!r.chores_first,
+      lootdenBedtime: !!r.lootden_bedtime,
+      lootdenPlayTime: !!r.lootden_play_time,
     };
   }
 
   setRules(kidId: number, patch: Partial<Record<keyof KidRules, unknown>>): KidRules {
     const next = { ...this.rules(kidId) };
-    const bool = (k: "profanityFilter" | "approveFriends" | "canJoinServers" | "choresFirst") => {
+    const bool = (k: "profanityFilter" | "approveFriends" | "canJoinServers" | "choresFirst" | "lootdenBedtime" | "lootdenPlayTime") => {
       if (patch[k] === undefined) return;
       if (typeof patch[k] !== "boolean") throw new HttpError(400, `${k} is true or false`);
       next[k] = patch[k];
@@ -286,6 +318,8 @@ export class FamilyService {
     bool("approveFriends");
     bool("canJoinServers");
     bool("choresFirst");
+    bool("lootdenBedtime");
+    bool("lootdenPlayTime");
     if (patch.blockedWords !== undefined) {
       if (!Array.isArray(patch.blockedWords) || patch.blockedWords.length > 200) throw new HttpError(400, "blockedWords is a list of up to 200 words");
       const words = patch.blockedWords.map((w) => (typeof w === "string" ? w.trim().toLowerCase() : ""));
@@ -320,7 +354,7 @@ export class FamilyService {
     this.db
       .prepare(
         `UPDATE kid_rules SET profanity_filter = ?, blocked_words = ?, approve_friends = ?, can_join_servers = ?,
-         allowed_from = ?, allowed_until = ?, daily_minutes = ?, timezone = ?, chores_first = ? WHERE kid_id = ?`,
+         allowed_from = ?, allowed_until = ?, daily_minutes = ?, timezone = ?, chores_first = ?, lootden_bedtime = ?, lootden_play_time = ? WHERE kid_id = ?`,
       )
       .run(
         next.profanityFilter ? 1 : 0,
@@ -332,29 +366,47 @@ export class FamilyService {
         next.dailyMinutes,
         next.timezone,
         next.choresFirst ? 1 : 0,
+        next.lootdenBedtime ? 1 : 0,
+        next.lootdenPlayTime ? 1 : 0,
         kidId,
       );
     return next;
   }
 
   status(kidId: number, at = new Date()): KidStatus {
+    return this.evaluate(kidId, at).status;
+  }
+
+  /** The kid's status, and which rule stops them chatting, if one does. */
+  private evaluate(kidId: number, at: Date): { status: KidStatus; stoppedBy: "paused" | "hours" | "bedtime" | "daily" | null } {
     const rules = this.rules(kidId);
     const { day, minute } = localTime(rules.timezone, at);
     const used = this.db.prepare("SELECT minutes FROM kid_usage WHERE kid_id = ? AND day = ?").get(kidId, day) as { minutes: number } | undefined;
     const minutesToday = used?.minutes ?? 0;
     // Den Duty first: a time-out that pauses chat, or chores still to do.
     const paused = this.chatPause(kidId, rules.choresFirst, rules.timezone);
-    if (paused) return { minutesToday, allowedNow: false, reason: paused };
-    if (rules.allowedFrom && rules.allowedUntil) {
-      const from = toMinute(rules.allowedFrom);
-      const until = toMinute(rules.allowedUntil);
-      const inside = from < until ? minute >= from && minute < until : minute >= from || minute < until;
-      if (!inside) return { minutesToday, allowedNow: false, reason: `Chat time is ${rules.allowedFrom} to ${rules.allowedUntil}.` };
+    const lootden = this.playLimits(kidId, at);
+    // Chat and games share one budget: the kid's own daily time, else LootDen's.
+    const shared = rules.lootdenPlayTime && lootden !== null;
+    const gameMinutesToday = shared ? lootden.playedMinutes : 0;
+    const limitMinutes = rules.dailyMinutes ?? (shared ? lootden.dailyMinutes : null);
+    const base = { minutesToday, gameMinutesToday, limitMinutes, lootden };
+    const stop = (stoppedBy: "paused" | "hours" | "bedtime" | "daily", reason: string) => ({ status: { ...base, allowedNow: false, reason }, stoppedBy });
+    if (paused) return stop("paused", paused);
+    if (rules.allowedFrom && rules.allowedUntil && !inSpan(rules.allowedFrom, rules.allowedUntil, minute)) {
+      return stop("hours", `Chat time is ${rules.allowedFrom} to ${rules.allowedUntil}.`);
     }
-    if (rules.dailyMinutes !== null && minutesToday >= rules.dailyMinutes) {
-      return { minutesToday, allowedNow: false, reason: `You've used today's ${rules.dailyMinutes} minutes. See you tomorrow!` };
+    const bedtime = rules.lootdenBedtime ? lootden?.bedtime : null;
+    if (bedtime && inSpan(bedtime.from, bedtime.to, localTime(lootden!.timezone, at).minute)) {
+      return stop("bedtime", `It's bedtime until ${bedtime.to}. Chat's back in the morning!`);
     }
-    return { minutesToday, allowedNow: true, reason: null };
+    if (limitMinutes !== null && minutesToday + gameMinutesToday >= limitMinutes) {
+      return stop(
+        "daily",
+        gameMinutesToday ? `You've used today's ${limitMinutes} minutes of chat and games. See you tomorrow!` : `You've used today's ${limitMinutes} minutes. See you tomorrow!`,
+      );
+    }
+    return { status: { ...base, allowedNow: true, reason: null }, stoppedBy: null };
   }
 
   /** Throws when a kid can't chat right now. Adults always can. */
@@ -377,8 +429,12 @@ export class FamilyService {
       this.db
         .prepare("INSERT INTO kid_usage (kid_id, day, minutes) VALUES (?, ?, 1) ON CONFLICT (kid_id, day) DO UPDATE SET minutes = minutes + 1")
         .run(kid, day);
-      const s = this.status(kid, at);
-      if (rules.dailyMinutes !== null && s.minutesToday === rules.dailyMinutes) this.alert(kid, "time_limit", {});
+      const { status: s, stoppedBy } = this.evaluate(kid, at);
+      // Once a day, when the daily time (chat, plus games when they share it) runs out.
+      if (stoppedBy === "daily" && this.limitAlerted.get(kid) !== day) {
+        this.limitAlerted.set(kid, day);
+        this.alert(kid, "time_limit", {});
+      }
       if (this.lastAllowed.get(kid) !== s.allowedNow) {
         if (this.lastAllowed.has(kid)) this.pushFamily([kid]);
         this.lastAllowed.set(kid, s.allowedNow);

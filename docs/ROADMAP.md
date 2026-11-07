@@ -187,11 +187,11 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Features | Invite links | 3 | Done (links with expiry and use limits, and invites to friends) |
 | Features | Server chat profile / rename | 7 | Done (name, description, per-server nickname) |
 | Features | Server chat banner | 7 | Done (icon and banner) |
-| Integrations | LootDen integration | 8 | Done: playing now, alerts through webhooks, game-link cards with Send to PC, game nights with a voice channel, family wall screenshots (kid-safe) and kid accounts from LootDen's kid profiles ([LOOTDEN.md](LOOTDEN.md)); "Surprise us" sharing needs a LootDen-side button |
+| Integrations | LootDen integration | 8 | Done: playing now, alerts through webhooks, game-link cards with Send to PC, game nights with a voice channel, family wall screenshots (kid-safe) and kid accounts from LootDen's kid profiles, LootDen bedtime and game time in kids' time rules, and "Surprise us" picks shared through a webhook (with LootDen's Share to chat button) ([LOOTDEN.md](LOOTDEN.md)) |
 | Integrations | Den Duty integration | 8 | Partial: chores line, events in channels and chat pauses from time-outs and chores ([DENDUTY.md](DENDUTY.md)); a bot still to come |
 | Kid safe chat | Profanity filters | 5 | Done for kid accounts: hidden in what they read and blocked when they send (on their device, and on the server for plain messages), extra words per kid |
 | Kid safe chat | Kid's deleted messages sent to parent | 5 | Done: kept (still encrypted, files too) until a parent has looked and marks it done |
-| Kid safe chat | Time-based controls | 5 | Done: chat hours and daily minutes, enforced by the server |
+| Kid safe chat | Time-based controls | 5 | Done: chat hours and daily minutes, enforced by the server; can follow LootDen's bedtime and share the daily time with games |
 | Kid safe chat | Parental controls | 5 | Done: family dashboard with friend approval, chat server permission, word filter and time rules |
 | Kid safe chat | Link kid accounts with parents | 5 | Done: link codes (the kid sees what parents can see first) and super admin links; LootDen kid profiles in Phase 8 |
 | Kid safe chat | Webhook alert notifications | 5 | Done: in-app alerts and a content-free webhook per parent (ntfy, Apprise, Home Assistant) |
