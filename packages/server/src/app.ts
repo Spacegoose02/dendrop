@@ -15,6 +15,7 @@ import { openDb, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { FamilyService, type WebhookPost } from "./family.js";
 import { Gateway } from "./gateway.js";
+import { DendutyLink, type DendutyFetch } from "./denduty.js";
 import { builtinLivekit } from "./livekit.js";
 import { LootdenLink, type LootdenFetch } from "./lootden.js";
 import { PushService } from "./push.js";
@@ -22,6 +23,7 @@ import { pushRoutes } from "./routes/push.js";
 import { authRoutes } from "./routes/auth.js";
 import { dmRoutes } from "./routes/dms.js";
 import { familyRoutes, guardKids } from "./routes/family.js";
+import { dendutyRoutes } from "./routes/denduty.js";
 import { lootdenRoutes } from "./routes/lootden.js";
 import { guardChannelConversations, serverRoutes } from "./routes/servers.js";
 import { webhookRoutes } from "./routes/webhooks.js";
@@ -48,6 +50,8 @@ export interface Context {
   automod: AutomodService;
   /** The link to LootDen: who's playing what. */
   lootden: LootdenLink;
+  /** The link to Den Duty: kids' chores, and its events posted into channels. */
+  denduty: DendutyLink;
   /** Set by the server routes: sends a server's members its new state (and prunes voice). */
   serverChanged?: (serverId: number) => void;
   /** Set by the server routes: how many people are in a voice channel. */
@@ -67,7 +71,7 @@ export interface BuiltApp {
 export async function buildApp(
   config: ServerConfig,
   db: Db = openDb(path.join(config.dataDir, "dendrop.db")),
-  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2]; webhookPost?: WebhookPost; lootdenFetch?: LootdenFetch } = {},
+  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2]; webhookPost?: WebhookPost; lootdenFetch?: LootdenFetch; dendutyFetch?: DendutyFetch } = {},
 ): Promise<BuiltApp> {
   const logger = process.env.NODE_ENV === "test" ? false : { level: process.env.DENDROP_LOG_LEVEL ?? "info" };
   // Built-in HTTPS (config.tls) is the same app on an https server; the types are the plain one's.
@@ -78,6 +82,8 @@ export async function buildApp(
   ) as unknown as FastifyInstance;
   const users = new UserRepo(db);
   const gateway = new Gateway();
+  const family = new FamilyService(db, users, gateway, { publicUrl: config.publicUrl }, options.webhookPost);
+  const push = new PushService(db, { publicUrl: config.publicUrl, allowHttp: config.pushAllowHttp }, options.pushPost);
   const ctx: Context = {
     config,
     db,
@@ -85,10 +91,11 @@ export async function buildApp(
     sessions: new SessionService(db, users),
     oidc: new OidcService(config, users),
     gateway,
-    push: new PushService(db, { publicUrl: config.publicUrl, allowHttp: config.pushAllowHttp }, options.pushPost),
-    family: new FamilyService(db, users, gateway, { publicUrl: config.publicUrl }, options.webhookPost),
+    push,
+    family,
     automod: new AutomodService(db, users, gateway, { publicUrl: config.publicUrl }),
     lootden: new LootdenLink(db, users, gateway, options.lootdenFetch),
+    denduty: new DendutyLink(db, users, gateway, family, push, options.dendutyFetch),
     onClientEvent: [],
     onPresence: [],
     callRingMs: options.callRingMs,
@@ -125,6 +132,7 @@ export async function buildApp(
   await app.register(async (api) => familyRoutes(api, ctx));
   await app.register(async (api) => webhookRoutes(api, ctx));
   await app.register(async (api) => lootdenRoutes(api, ctx));
+  await app.register(async (api) => dendutyRoutes(api, ctx));
   await app.register(async (api) => gatewayRoute(api, ctx));
   builtinLivekit(app, config);
 

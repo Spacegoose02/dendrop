@@ -6,6 +6,7 @@ import type {
   Channel,
   ChannelKind,
   ChatServer,
+  ChoresToday,
   Conversation,
   FamilyAlert,
   FamilyInfo,
@@ -30,7 +31,7 @@ import { useVoiceKeybinds } from "./keybinds.ts";
 import { keyring, loadIdentity, reveal, type Identity } from "./e2ee.ts";
 import { conversationTitle, upsert, type History } from "./util.ts";
 import { AdminDialog } from "./Admin.tsx";
-import { ActivityContext, ActivityLine } from "./activity.tsx";
+import { ActivityContext, ActivityLine, ChoresContext } from "./activity.tsx";
 import { LootdenUrlContext } from "./GameLink.tsx";
 import { FamilyDialog } from "./Family.tsx";
 import { ChannelDialog, CreateServer, Directory, InviteDialog, InviteLinkDialog, isMod, ServerIcon, ServerSettings, ServerSidebar, type SettingsTab } from "./Servers.tsx";
@@ -86,6 +87,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   /** What people are playing, from LootDen. */
   const [activities, setActivities] = useState<Record<number, Activity>>({});
   const loadActivities = useCallback(() => void api<Record<number, Activity>>("/api/activities").then(setActivities, () => {}), []);
+  /** Kids' chores today, from Den Duty: your own, or your kids'. */
+  const [chores, setChores] = useState<Record<number, ChoresToday>>({});
+  const loadChores = useCallback(() => void api<Record<number, ChoresToday>>("/api/chores").then(setChores, () => {}), []);
   const [online, setOnline] = useState<Set<number>>(new Set());
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [histories, setHistories] = useState<Record<number, History>>({});
@@ -167,6 +171,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     setConversations(c);
     void loadFamily().catch(() => {});
     loadActivities();
+    loadChores();
     // Anything open may have missed messages while disconnected; reload it on demand.
     setHistories({});
   }, []);
@@ -180,6 +185,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           break;
         case "family.updated":
           setFamily(e.family);
+          loadChores();
           setMe((m) => ({ ...m, isKid: e.family.parents.length > 0 }));
           if (e.family.kids.length) void api<FamilyAlert[]>("/api/family/alerts").then(setFamilyAlerts);
           break;
@@ -206,6 +212,14 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         case "friend.removed":
           setFriends((fs) => fs.filter((f) => f.user.id !== e.userId));
           loadActivities();
+          break;
+        case "chores":
+          setChores((all) => {
+            const n = { ...all };
+            if (e.chores) n[e.userId] = e.chores;
+            else delete n[e.userId];
+            return n;
+          });
           break;
         case "activity":
           setActivities((all) => {
@@ -326,7 +340,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           break;
       }
     },
-    [me.id, refresh, loadActivities],
+    [me.id, refresh, loadActivities, loadChores],
   );
 
   const sendRef = useRef<(data: object) => void>(() => {});
@@ -784,7 +798,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   );
   return (
     <LootdenUrlContext.Provider value={server?.lootdenUrl ?? null}>
-      <ActivityContext.Provider value={activities}>{shell}</ActivityContext.Provider>
+      <ActivityContext.Provider value={activities}>
+        <ChoresContext.Provider value={chores}>{shell}</ChoresContext.Provider>
+      </ActivityContext.Provider>
     </LootdenUrlContext.Provider>
   );
 }
