@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Room, RoomEvent, type Participant } from "livekit-client";
 import type { Channel, ChatServer, Me, VoiceJoin, VoiceMember } from "@dendrop/shared";
 import { api } from "./api.ts";
-import { Tile } from "./CallPanel.tsx";
+import { RemoteAudio, Tile } from "./CallPanel.tsx";
 
 /**
  * The voice channel you're in: connects to its LiveKit room and has the controls. Like a call,
@@ -173,6 +173,7 @@ export function VoicePanel({
   if (compact) {
     return (
       <div className="call-bar voice-bar">
+        <RemoteAudio room={room} deafened={deafened} />
         <span className="call-live" aria-hidden />
         <button className="link ellipsis" onClick={onOpen}>
           In voice: 🔊 {name}
@@ -185,9 +186,10 @@ export function VoicePanel({
 
   return (
     <div className="call-panel voice-panel">
+      <RemoteAudio room={room} deafened={deafened} />
       <div className="call-tiles">
         {everyone.map((p) => (
-          <Tile key={p.identity} p={p} isMe={p === local} myName={nickname(p.identity) ?? me.displayName} label={nickname(p.identity)} deafened={deafened} />
+          <Tile key={p.identity} p={p} isMe={p === local} myName={nickname(p.identity) ?? me.displayName} label={nickname(p.identity)} />
         ))}
       </div>
       <div className="call-status small muted">
