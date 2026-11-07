@@ -373,3 +373,108 @@ select {
   outline: 2px solid var(--dd-ring);
   outline-offset: 2px;
 }
+
+/* Screen sharing in voice channels: the shared screen big, people in a strip under it. */
+.voice-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.tile.screen-tile {
+  aspect-ratio: auto;
+  background: #000;
+}
+.tile.screen-tile.focused {
+  height: min(50vh, 640px);
+}
+.tile.screen-tile video {
+  object-fit: contain;
+}
+.tile.screen-tile:fullscreen {
+  border-radius: 0;
+}
+.screen-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.tile.screen-tile:hover .screen-actions,
+.screen-actions:focus-within {
+  opacity: 1;
+}
+.screen-actions button {
+  padding: 4px 8px;
+  font-size: 12px;
+  background: rgb(0 0 0 / 60%);
+  color: #fff;
+}
+.stage-others {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+.stage-others .tile.screen-tile {
+  aspect-ratio: 16 / 9;
+}
+.call-tiles.strip {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 180px));
+  max-height: 120px;
+}
+.call-tiles.strip .tile .avatar {
+  transform: scale(0.7);
+}
+.call-controls .sharing {
+  background: var(--dd-accent);
+  color: var(--dd-accent-text);
+}
+.share-sources {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  margin-bottom: 14px;
+}
+.share-source {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 6px;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius);
+  background: var(--dd-bg-input);
+  color: var(--dd-text);
+  cursor: pointer;
+}
+.share-source.picked {
+  border-color: var(--dd-accent);
+  box-shadow: 0 0 0 1px var(--dd-accent);
+}
+.share-source:focus-within {
+  outline: 2px solid var(--dd-ring);
+  outline-offset: 2px;
+}
+.share-source input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.share-source img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: #000;
+  border-radius: var(--dd-radius-sm);
+}
+@media (max-width: 700px) {
+  .tile.screen-tile.focused {
+    height: 40vh;
+  }
+}

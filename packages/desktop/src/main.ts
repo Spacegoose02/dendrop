@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, net, Notification, session, shell, Tray, type IpcMainInvokeEvent } from "electron";
+import { app, BrowserWindow, desktopCapturer, ipcMain, Menu, nativeImage, net, Notification, session, shell, Tray, type IpcMainInvokeEvent } from "electron";
 import WebSocket from "ws";
 import type { Conversation, ServerEvent } from "@dendrop/shared";
 import { isExternalLink, isFile, onOrigin, permissionAllowed } from "./links.js";
@@ -405,7 +405,41 @@ async function installNow(): Promise<void> {
 type AppSettingsPatch = Partial<Pick<DesktopSettings, "closeToTray" | "openAtLogin" | "notifications" | "notifySender" | "autoUpdate">>;
 const SETTING_KEYS = ["closeToTray", "openAtLogin", "notifications", "notifySender", "autoUpdate"] as const;
 
+// ---- Screen sharing ----------------------------------------------------------------------
+// Electron has no screen picker of its own on Windows and Linux. The web client shows its own
+// (a list of screens and windows from dd:screenSources), says which one with dd:pickScreen, and
+// then asks for the screen as a browser would; the display media handler hands over that one.
+
+let pickedScreen: { id: string; audio: boolean; at: number } | null = null;
+
+function screenSharing(ses: Electron.Session): void {
+  ses.setDisplayMediaRequestHandler(async (request, callback) => {
+    const pick = pickedScreen;
+    pickedScreen = null;
+    // Only the server's pages, and only right after someone picked a screen in the app.
+    if (!onOrigin(request.frame?.url ?? "", origin()) || !pick || Date.now() - pick.at > 30_000) return callback(null);
+    const sources = await desktopCapturer.getSources({ types: ["screen", "window"] }).catch(() => []);
+    const source = sources.find((x) => x.id === pick.id);
+    if (!source) return callback(null);
+    // Sound from the whole PC ("loopback") works on Windows; elsewhere the screen is shared without it.
+    callback({ video: source, ...(pick.audio && process.platform === "win32" ? { audio: "loopback" as const } : {}) });
+  });
+}
+
 function registerIpc(): void {
+  ipcMain.handle("dd:screenSources", async (e) => {
+    fromServer(e);
+    const sources = await desktopCapturer.getSources({ types: ["screen", "window"], thumbnailSize: { width: 320, height: 180 }, fetchWindowIcons: false });
+    return {
+      audio: process.platform === "win32",
+      sources: sources.map((x) => ({ id: x.id, name: x.name, kind: x.id.startsWith("screen:") ? "screen" : "window", thumbnail: x.thumbnail.toDataURL() })),
+    };
+  });
+  ipcMain.handle("dd:pickScreen", (e, id: unknown, audio: unknown) => {
+    fromServer(e);
+    pickedScreen = typeof id === "string" ? { id, audio: audio === true, at: Date.now() } : null;
+  });
+
   // The setup page: check the address really is a Dendrop server, then save it and load it.
   ipcMain.handle("dd:setServer", async (e, input: unknown) => {
     fromPage(e, SETUP_PAGE, OFFLINE_PAGE);
@@ -466,6 +500,7 @@ void app.whenReady().then(async () => {
   ses.setPermissionRequestHandler((_wc, permission, callback, details) => callback(permissionAllowed(permission, details.requestingUrl, origin())));
   // The page's own Notification API stays off: the app shows its own, without message text.
   ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => permission !== "notifications" && permissionAllowed(permission, requestingOrigin, origin()));
+  screenSharing(ses);
 
   watcher = new GatewayWatcher({
     origin,
