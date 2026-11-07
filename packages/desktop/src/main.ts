@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow, desktopCapturer, ipcMain, Menu, nativeImage, net, Notification, session, shell, Tray, type IpcMainInvokeEvent } from "electron";
+import { app, BrowserWindow, desktopCapturer, globalShortcut, ipcMain, Menu, nativeImage, net, Notification, session, shell, Tray, type IpcMainInvokeEvent } from "electron";
 import WebSocket from "ws";
 import type { Conversation, ServerEvent } from "@dendrop/shared";
 import { isExternalLink, isFile, onOrigin, permissionAllowed } from "./links.js";
@@ -426,7 +426,37 @@ function screenSharing(ses: Electron.Session): void {
   });
 }
 
+// ---- Voice shortcuts ---------------------------------------------------------------------
+// Mute and deafen work while Dendrop is in the background. Electron's shortcuts only see the
+// keys registered here (no keyboard hook), and they fire on press only, so push-to-talk stays
+// in the window.
+
+const SHORTCUT_ACTIONS = ["mute", "deafen"] as const;
+let shortcuts: Partial<Record<(typeof SHORTCUT_ACTIONS)[number], string>> = {};
+
+function setShortcuts(wanted: Record<string, unknown>): Record<string, boolean> {
+  for (const acc of Object.values(shortcuts)) if (acc) globalShortcut.unregister(acc);
+  shortcuts = {};
+  const ok: Record<string, boolean> = {};
+  for (const action of SHORTCUT_ACTIONS) {
+    const acc = wanted[action];
+    ok[action] = false;
+    if (typeof acc !== "string" || !acc || acc.length > 64 || Object.values(shortcuts).includes(acc)) continue;
+    try {
+      ok[action] = globalShortcut.register(acc, () => win?.webContents.send("dd:shortcut", action));
+    } catch {
+      ok[action] = false;
+    }
+    if (ok[action]) shortcuts[action] = acc;
+  }
+  return ok;
+}
+
 function registerIpc(): void {
+  ipcMain.handle("dd:setShortcuts", (e, wanted: unknown) => {
+    fromServer(e);
+    return setShortcuts(wanted && typeof wanted === "object" ? (wanted as Record<string, unknown>) : {});
+  });
   ipcMain.handle("dd:screenSources", async (e) => {
     fromServer(e);
     const sources = await desktopCapturer.getSources({ types: ["screen", "window"], thumbnailSize: { width: 320, height: 180 }, fetchWindowIcons: false });
@@ -488,6 +518,7 @@ function registerIpc(): void {
 
 app.on("second-instance", () => showWindow());
 app.on("before-quit", () => (quitting = true));
+app.on("will-quit", () => globalShortcut.unregisterAll());
 app.on("window-all-closed", () => {
   if (quitting || !tray || !settings.get().closeToTray) app.quit();
 });

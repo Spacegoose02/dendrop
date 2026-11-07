@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { comboFromEvent, comboLabel, hasGlobalShortcuts, saveKeybinds, setRecording, useKeybinds, type Combo, type VoiceAction } from "./keybinds.ts";
 import { applyOutput, canPickOutput, micConstraints, micError, playSound, saveAudio, useAudioPrefs, VoiceGate, type AudioPrefs, type NoiseLevel } from "./audio.ts";
 
 const NOISE: { id: NoiseLevel; label: string; detail: string }[] = [
@@ -81,6 +82,8 @@ export function AudioSettings() {
       </label>
 
       <MicCheck prefs={prefs} onAllowed={loadDevices} />
+
+      <Keybinds />
 
       <h3>Input sensitivity</h3>
       <div className="chips" role="radiogroup" aria-label="Input sensitivity">
@@ -239,5 +242,99 @@ function MicCheck({ prefs, onAllowed }: { prefs: AudioPrefs; onAllowed: () => vo
       <audio ref={echo} autoPlay muted={!hear} />
       {error && <p className="error">{error}</p>}
     </div>
+  );
+}
+
+const ACTIONS: { id: VoiceAction; label: string }[] = [
+  { id: "pushToTalk", label: "Push to talk (hold)" },
+  { id: "mute", label: "Mute or unmute" },
+  { id: "deafen", label: "Deafen or undeafen" },
+];
+
+/** Input mode, and the keys for push-to-talk, mute and deafen. */
+function Keybinds() {
+  const k = useKeybinds();
+  const [recordingFor, setRecordingFor] = useState<VoiceAction | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!recordingFor) return;
+    setRecording(true);
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.code === "Escape") return setRecordingFor(null);
+      const c = comboFromEvent(e);
+      if (!c) return;
+      // Plain letters would fire while typing anywhere but a text box; push-to-talk is the exception people expect.
+      if (recordingFor !== "pushToTalk" && !c.ctrl && !c.alt && !c.meta && !/^F\d{1,2}$/.test(c.code)) {
+        setNote("Use Ctrl, Alt or an F key for mute and deafen, so typing doesn't set them off.");
+        return;
+      }
+      const binds = { ...k.binds };
+      // One key does one thing.
+      for (const a of Object.keys(binds) as VoiceAction[]) if (a !== recordingFor && binds[a] && comboLabel(binds[a]!) === comboLabel(c)) binds[a] = null;
+      binds[recordingFor] = c;
+      saveKeybinds({ ...k, binds });
+      setNote(null);
+      setRecordingFor(null);
+    };
+    addEventListener("keydown", onKey, true);
+    return () => {
+      removeEventListener("keydown", onKey, true);
+      setRecording(false);
+    };
+  }, [recordingFor, k]);
+
+  const setBind = (a: VoiceAction, c: Combo | null) => saveKeybinds({ ...k, binds: { ...k.binds, [a]: c } });
+
+  return (
+    <>
+      <h3>Input mode</h3>
+      <div className="chips" role="radiogroup" aria-label="Input mode">
+        {(
+          [
+            ["voice", "Voice activity"],
+            ["ptt", "Push to talk"],
+          ] as const
+        ).map(([id, label]) => (
+          <button key={id} role="radio" aria-checked={k.inputMode === id} className={`chip ${k.inputMode === id ? "on" : ""}`} onClick={() => saveKeybinds({ ...k, inputMode: id })}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="muted small">
+        {k.inputMode === "ptt"
+          ? k.binds.pushToTalk
+            ? `Your mic only sends while you hold ${comboLabel(k.binds.pushToTalk)}, with Dendrop in front.`
+            : "Pick a push-to-talk key below. Until then your mic stays quiet."
+          : "Your mic sends when you talk, using the input sensitivity below."}
+      </p>
+      <h3>Keybinds</h3>
+      <div className="keybinds">
+        {ACTIONS.map((a) => {
+          const c = k.binds[a.id];
+          return (
+            <div key={a.id} className="keybind">
+              <span>{a.label}</span>
+              <button type="button" className={`keycap ${recordingFor === a.id ? "recording" : ""}`} onClick={() => setRecordingFor(recordingFor === a.id ? null : a.id)}>
+                {recordingFor === a.id ? "Press keys…" : c ? comboLabel(c) : "Not set"}
+              </button>
+              {c && (
+                <button type="button" className="ghost" onClick={() => setBind(a.id, null)} aria-label={`Clear ${a.label}`}>
+                  Clear
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {note && <p className="error">{note}</p>}
+      <p className="muted small">
+        {hasGlobalShortcuts()
+          ? "Mute and deafen also work while Dendrop is in the background. Push to talk works with Dendrop in front."
+          : "Keybinds work while this tab is in front. In the PC app, mute and deafen also work in the background."}
+      </p>
+    </>
   );
 }

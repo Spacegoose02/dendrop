@@ -4,6 +4,7 @@ import type { Channel, ChatServer, Me, VoiceJoin, VoiceMember } from "@dendrop/s
 import { api } from "./api.ts";
 import { loadAudio, micError, playSound, useAudioPrefs } from "./audio.ts";
 import { RemoteAudio, Tile } from "./CallPanel.tsx";
+import { comboLabel, useKeybinds, voiceControls } from "./keybinds.ts";
 import { roomAudioOptions, useRoomAudio } from "./voiceAudio.ts";
 import { canShareScreen, ScreenTile, ShareDialog, shareOptions, type ShareQuality } from "./ScreenShare.tsx";
 
@@ -43,7 +44,9 @@ export function VoicePanel({
   const [focus, setFocus] = useState<string | null>(null);
   const left = useRef(false);
   const prefs = useAudioPrefs();
-  useRoomAudio(room, prefs);
+  const keybinds = useKeybinds();
+  const [sending, setSending] = useState(true);
+  useRoomAudio(room, prefs, setSending);
   const bump = () => setVersion((v) => v + 1);
 
   const report = (state: Partial<Pick<VoiceMember, "muted" | "deafened" | "video" | "screen">>) =>
@@ -129,6 +132,19 @@ export function VoicePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Keybinds: the latest toggles, whichever render they came from.
+  const toggles = useRef({ mute: () => {}, deafen: () => {} });
+  useEffect(() => {
+    const mute = () => toggles.current.mute();
+    const deafen = () => toggles.current.deafen();
+    voiceControls.addEventListener("mute", mute);
+    voiceControls.addEventListener("deafen", deafen);
+    return () => {
+      voiceControls.removeEventListener("mute", mute);
+      voiceControls.removeEventListener("deafen", deafen);
+    };
+  }, []);
+
   if (!room) return null;
   const local = room.localParticipant;
   const micOn = local.isMicrophoneEnabled;
@@ -198,6 +214,8 @@ export function VoicePanel({
     }
     bump();
   };
+
+  toggles.current = { mute: () => void toggleMic(), deafen: () => void toggleDeafen() };
 
   const toggleCamera = async () => {
     await local.setCameraEnabled(!camOn).catch((err: Error) => setError(`Camera: ${err.message}`));
@@ -289,6 +307,12 @@ export function VoicePanel({
         {status !== "failed" && <span>Voice channels aren't end-to-end encrypted yet. </span>}
         {status === "connecting" && "Connecting…"}
         {alone && "It's just you in here. Others can drop in any time."}
+        {keybinds.inputMode === "ptt" && micOn && status === "connected" && (
+          <span className={sending ? "ptt-live" : ""}>
+            {" "}
+            {keybinds.binds.pushToTalk ? (sending ? "Talking…" : `Hold ${comboLabel(keybinds.binds.pushToTalk)} to talk.`) : "Push to talk has no key yet (Settings)."}
+          </span>
+        )}
         {error && <span className="error">{error}</span>}
       </div>
       {controls}
