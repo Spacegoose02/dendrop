@@ -16,6 +16,8 @@ export interface Me extends PublicUser {
   isSuperAdmin: boolean;
   /** Tell others when you've read their messages. Off means you don't see theirs either. */
   readReceipts: boolean;
+  /** Can make chat servers: super admins always, everyone else once a super admin approves them. */
+  canCreateServers: boolean;
 }
 
 export type FriendState = "friends" | "incoming" | "outgoing";
@@ -138,6 +140,98 @@ export interface CallJoin {
   token: string;
 }
 
+// ---- Chat servers ---------------------------------------------------------------------
+
+export type ServerRole = "owner" | "admin" | "member";
+
+/** What anyone may see of a public server (in the directory or an invite), and members of a private one. */
+export interface ChatServerSummary {
+  id: number;
+  name: string;
+  description: string;
+  iconUrl: string | null;
+  bannerUrl: string | null;
+  /** Public servers are listed in the directory and anyone signed in can join. Private ones need an invite. */
+  isPublic: boolean;
+  memberCount: number;
+}
+
+/** A server you're in, as you see it. Locked channels you can't see aren't included. */
+export interface ChatServer extends ChatServerSummary {
+  ownerId: number;
+  myRole: ServerRole;
+  /** Your nickname here, or null to use your display name. */
+  nickname: string | null;
+  /** Whether everyone can make invites, or only the owner and admins. */
+  memberInvites: boolean;
+  channels: Channel[];
+  members: ServerMember[];
+  createdAt: string;
+}
+
+export interface Channel {
+  id: number;
+  serverId: number;
+  /**
+   * The conversation holding this channel's messages. Messages, files, edits, typing and read
+   * markers go through the same /api/conversations/:id endpoints as DMs.
+   */
+  conversationId: number;
+  name: string;
+  topic: string;
+  position: number;
+  /** Locked channels are seen only by the people picked for them, plus the owner and admins. */
+  locked: boolean;
+  /** For locked channels, who was picked (owners and admins see this; others get []). */
+  memberIds: number[];
+}
+
+export interface ServerMember {
+  user: PublicUser;
+  role: ServerRole;
+  nickname: string | null;
+  joinedAt: string;
+}
+
+export interface ServerInvite {
+  code: string;
+  serverId: number;
+  createdBy: number;
+  createdAt: string;
+  expiresAt: string | null;
+  /** null for unlimited. */
+  maxUses: number | null;
+  uses: number;
+  /** Set for an invite sent to one friend; only they can use it. */
+  forUserId: number | null;
+}
+
+/** What an invite shows before you join. */
+export interface InvitePreview {
+  code: string;
+  server: ChatServerSummary;
+  invitedBy: PublicUser | null;
+  expiresAt: string | null;
+  /** You're already a member. */
+  joined: boolean;
+}
+
+/** Your request to be allowed to make chat servers. */
+export interface ServerCreatorRequest {
+  user: PublicUser;
+  reason: string;
+  status: "pending" | "approved" | "denied";
+  createdAt: string;
+  decidedAt: string | null;
+}
+
+/** A server as a super admin sees it: enough to oversee the instance, never its messages. */
+export interface AdminServer extends ChatServerSummary {
+  owner: PublicUser | null;
+  channelCount: number;
+  createdAt: string;
+}
+
 /** Pictures the web client shows inline. Everything else is offered as a download. */
 export const INLINE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
@@ -149,6 +243,13 @@ export const LIMITS = {
   usernameLength: 32,
   displayNameLength: 64,
   pageSize: 50,
+  serverName: 48,
+  serverDescription: 300,
+  channelName: 32,
+  channelTopic: 200,
+  channelsPerServer: 100,
+  serversPerUser: 100,
+  serverImageBytes: 5 * 1024 * 1024,
   /** Ciphertext of a full-length message, with room for file names. */
   encryptedBodyLength: 32_000,
 } as const;
@@ -166,7 +267,15 @@ export type ServerEvent =
   | { type: "read"; conversationId: number; userId: number; messageId: number }
   | { type: "call.updated"; call: Call }
   | { type: "call.ended"; conversationId: number; missed: boolean }
-  | { type: "presence"; userId: number; online: boolean };
+  | { type: "presence"; userId: number; online: boolean }
+  /** A server you're in changed, or you joined it. Each member gets their own view. */
+  | { type: "server.updated"; server: ChatServer }
+  /** You left or were removed, or the server was deleted. */
+  | { type: "server.removed"; serverId: number }
+  /** A friend invited you to a server. */
+  | { type: "server.invited"; invite: InvitePreview }
+  /** Your request to make servers was approved or denied; to super admins, a new or decided request. */
+  | { type: "server.request"; request: ServerCreatorRequest };
 
 /** Events a client sends over the gateway. Everything else goes through the HTTP API. */
 export type ClientEvent = { type: "typing"; conversationId: number } | { type: "ping" };

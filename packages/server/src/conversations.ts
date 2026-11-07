@@ -193,7 +193,7 @@ export class ConversationRepo {
     const ids = this.db
       .prepare(
         `SELECT c.id FROM conversations c JOIN conversation_members m ON m.conversation_id = c.id
-         WHERE m.user_id = ? ORDER BY COALESCE(c.last_message_at, c.created_at) DESC`,
+         WHERE m.user_id = ? AND c.kind = 'dm' ORDER BY COALESCE(c.last_message_at, c.created_at) DESC`,
       )
       .all(userId) as { id: number }[];
     return ids.map((r) => this.get(r.id, userId)!).filter(Boolean);
@@ -335,10 +335,15 @@ export class ConversationRepo {
 
   /**
    * Deletes the text and files but keeps the row, so the history shows "message deleted" in
-   * place. Returns the ids of the files to remove from disk.
+   * place. Returns the ids of the files to remove from disk. Moderators (checked by the caller)
+   * can delete anyone's message.
    */
-  delete(messageId: number, userId: number): { message: Message; removedFiles: string[] } {
-    this.own(messageId, userId);
+  delete(messageId: number, userId: number, asModerator = false): { message: Message; removedFiles: string[] } {
+    if (asModerator) {
+      const r = this.db.prepare("SELECT deleted_at FROM messages WHERE id = ?").get(messageId) as { deleted_at: string | null } | undefined;
+      if (!r) throw new HttpError(404, "No such message");
+      if (r.deleted_at) throw new HttpError(409, "That message was deleted");
+    } else this.own(messageId, userId);
     const removedFiles = tx(this.db, () => {
       const ids = (this.db.prepare("SELECT id FROM attachments WHERE message_id = ?").all(messageId) as { id: string }[]).map((r) => r.id);
       this.db.prepare("DELETE FROM attachments WHERE message_id = ?").run(messageId);
