@@ -66,6 +66,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
   };
   ctx.serverChanged = push;
   ctx.voiceCount = (channelId) => voice.state(channelId)?.members.length ?? 0;
+  ctx.voiceMembers = (channelId) => voice.state(channelId)?.members.map((m) => m.userId) ?? [];
   const superAdmins = () => (db.prepare("SELECT id FROM users WHERE is_super_admin = 1").all() as { id: number }[]).map((r) => r.id);
 
   /** The caller's role, or a 404 if they aren't in the server (so private servers stay hidden). */
@@ -110,7 +111,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     return servers.view(sid, me.id);
   });
 
-  app.patch<{ Params: { id: string }; Body: { name?: unknown; description?: unknown; isPublic?: unknown; memberInvites?: unknown } }>(
+  app.patch<{ Params: { id: string }; Body: { name?: unknown; description?: unknown; isPublic?: unknown; memberInvites?: unknown; playTogether?: unknown } }>(
     "/api/servers/:id",
     async (req) => {
       const me = requireUser(req);

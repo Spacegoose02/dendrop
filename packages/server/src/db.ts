@@ -378,6 +378,20 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE kid_rules ADD COLUMN lootden_bedtime INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE kid_rules ADD COLUMN lootden_play_time INTEGER NOT NULL DEFAULT 0;
   `,
+  `
+  -- Voice channels opened while two or more people in a server play the same game (from
+  -- LootDen's Playing now). game is the title in lowercase. voice_channel_id is null when a
+  -- moderator deleted the channel: it isn't opened again until everyone has stopped.
+  CREATE TABLE play_together_channels (
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    game TEXT NOT NULL,
+    voice_channel_id INTEGER,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (server_id, game)
+  );
+  -- Owners and admins can turn these off for their server.
+  ALTER TABLE servers ADD COLUMN play_together INTEGER NOT NULL DEFAULT 1;
+  `,
 ];
 
 export function now(): string {

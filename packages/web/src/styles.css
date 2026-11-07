@@ -804,6 +804,13 @@ textarea:focus {
   flex-wrap: wrap;
   margin-top: 12px;
 }
+.play-together-icon {
+  font-size: 40px;
+  line-height: 1;
+}
+.play-together p {
+  margin: 4px 0 0;
+}
 
 /* End-to-end encryption */
 .danger-button {
