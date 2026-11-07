@@ -12,6 +12,7 @@ export interface UserRecord {
   readReceipts: boolean;
   publicKey: string | null;
   keyBackup: string | null;
+  canCreateServers: boolean;
   createdAt: string;
 }
 
@@ -26,6 +27,7 @@ interface Row {
   read_receipts: number;
   public_key: string | null;
   key_backup: string | null;
+  can_create_servers: number;
   created_at: string;
 }
 
@@ -40,6 +42,7 @@ const fromRow = (r: Row): UserRecord => ({
   readReceipts: !!r.read_receipts,
   publicKey: r.public_key,
   keyBackup: r.key_backup,
+  canCreateServers: !!r.can_create_servers,
   createdAt: r.created_at,
 });
 
@@ -49,7 +52,13 @@ export const toPublic = (u: UserRecord): PublicUser => ({
   displayName: u.displayName,
   publicKey: u.publicKey,
 });
-export const toMe = (u: UserRecord): Me => ({ ...toPublic(u), email: u.email, isSuperAdmin: u.isSuperAdmin, readReceipts: u.readReceipts });
+export const toMe = (u: UserRecord): Me => ({
+  ...toPublic(u),
+  email: u.email,
+  isSuperAdmin: u.isSuperAdmin,
+  readReceipts: u.readReceipts,
+  canCreateServers: u.isSuperAdmin || u.canCreateServers,
+});
 
 export interface NewUser {
   username: string;
@@ -94,6 +103,11 @@ export class UserRepo {
       )
       .run(u.username, u.displayName, u.email ?? null, u.passwordHash ?? null, u.oidcSubject ?? null, u.isSuperAdmin ? 1 : 0, now());
     return this.byId(Number(res.lastInsertRowid))!;
+  }
+
+  setCanCreateServers(id: number, allowed: boolean): UserRecord {
+    this.db.prepare("UPDATE users SET can_create_servers = ? WHERE id = ?").run(allowed ? 1 : 0, id);
+    return this.byId(id)!;
   }
 
   setKeys(id: number, publicKey: string, keyBackup: string): UserRecord {

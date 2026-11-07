@@ -157,10 +157,10 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Systems | Automatically open when PC starts | 2 | Missing |
 | Systems | Keybinds | 2 | Missing |
 | Systems | Server: Docker / Unraid hosting | 0 | Done (Unraid template still to do) |
-| Backbone | Ability for chat servers | 3 | Missing |
+| Backbone | Ability for chat servers | 3 | Partial: server API done, web UI next |
 | Backbone | Users / TinyAuth for SSO | 1 | Done |
-| Backbone | Super admin over whole server | 1 | Partial: role exists; admin tools come with servers |
-| Backbone | Joinable chat servers, can be private | 3 | Missing |
+| Backbone | Super admin over whole server | 1 | Partial: approves server makers, sees and deletes any server (never its messages); UI next |
+| Backbone | Joinable chat servers, can be private | 3 | Partial: server API done, web UI next |
 | Backbone | Private chat / direct message | 1 | Partial: DMs and group DMs live, end-to-end encrypted |
 | Backbone | Screen sharing | 4 | Missing |
 | Backbone | Game streaming | 4 | Missing |
@@ -169,10 +169,10 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Backbone | Speaker settings | 4 | Missing |
 | Backbone | Microphone settings | 4 | Missing |
 | Backbone | Friend invites | 1 | Done |
-| Backbone | Browse other chat servers | 3 | Missing |
-| Backbone | Lock channels / owner chooses members | 3 | Missing |
-| Backbone | Creator is owner of chat server | 3 | Missing |
-| Backbone | Approval needed to create servers | 3 | Missing |
+| Backbone | Browse other chat servers | 3 | Partial: public directory API, web UI next |
+| Backbone | Lock channels / owner chooses members | 3 | Partial: server API done, web UI next |
+| Backbone | Creator is owner of chat server | 3 | Partial: owner and admin roles, transfer; web UI next |
+| Backbone | Approval needed to create servers | 3 | Partial: request and approval API, web UI next |
 | Features | Message read receipts | 1 | Done |
 | Features | Emojis | 1 | Partial: built-in picker; search and custom emoji in Phase 7 |
 | Features | GIFs | 3 | Missing |
@@ -183,9 +183,9 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Features | Pop-out chats | 2 | Missing |
 | Features | Android chat bubbles for DMs | 2 | Missing |
 | Features | Activity privacy | 1 | Partial: read receipts can be turned off |
-| Features | Invite links | 3 | Missing |
-| Features | Server chat profile / rename | 7 | Missing |
-| Features | Server chat banner | 7 | Missing |
+| Features | Invite links | 3 | Partial: links with expiry and use limits, friend invites; web UI next |
+| Features | Server chat profile / rename | 7 | Partial: name, description and per-server nickname in the API |
+| Features | Server chat banner | 7 | Partial: icon and banner uploads in the API |
 | Integrations | LootDen integration | 8 | Missing |
 | Kid safe chat | Profanity filters | 5 | Missing |
 | Kid safe chat | Kid's deleted messages sent to parent | 5 | Missing |

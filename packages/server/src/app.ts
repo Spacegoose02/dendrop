@@ -17,6 +17,7 @@ import { PushService } from "./push.js";
 import { pushRoutes } from "./routes/push.js";
 import { authRoutes } from "./routes/auth.js";
 import { dmRoutes } from "./routes/dms.js";
+import { guardChannelConversations, serverRoutes } from "./routes/servers.js";
 import { toMe, UserRepo, type UserRecord } from "./users.js";
 
 declare module "fastify" {
@@ -85,11 +86,14 @@ export async function buildApp(
     db.close();
   });
 
+  guardChannelConversations(app, ctx);
+
   app.get("/api/health", async () => ({ status: "ok" }));
 
   await app.register(async (api) => authRoutes(api, ctx));
   await app.register(async (api) => dmRoutes(api, ctx));
   await app.register(async (api) => pushRoutes(api, ctx));
+  await app.register(async (api) => serverRoutes(api, ctx));
   await app.register(async (api) => gatewayRoute(api, ctx));
 
   serveWeb(app, config);

@@ -126,6 +126,88 @@ export const MIGRATIONS: string[] = [
     PRIMARY KEY (conversation_id, version, user_id)
   );
   `,
+  `
+  -- Chat servers. Each channel keeps its messages in a conversation of kind 'channel', whose
+  -- conversation_members rows are the people who can see the channel (kept in sync here).
+  ALTER TABLE conversations ADD COLUMN kind TEXT NOT NULL DEFAULT 'dm';
+  ALTER TABLE users ADD COLUMN can_create_servers INTEGER NOT NULL DEFAULT 0;
+
+  CREATE TABLE servers (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    owner_id INTEGER NOT NULL REFERENCES users(id),
+    is_public INTEGER NOT NULL DEFAULT 0,
+    member_invites INTEGER NOT NULL DEFAULT 1,
+    -- Pictures live in <data>/uploads/<file>; the type is kept for serving.
+    icon_file TEXT,
+    icon_type TEXT,
+    banner_file TEXT,
+    banner_type TEXT,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE server_members (
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL DEFAULT 'member',
+    nickname TEXT,
+    joined_at TEXT NOT NULL,
+    PRIMARY KEY (server_id, user_id)
+  );
+  CREATE INDEX server_members_user ON server_members(user_id);
+
+  CREATE TABLE server_bans (
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    banned_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (server_id, user_id)
+  );
+
+  CREATE TABLE server_channels (
+    id INTEGER PRIMARY KEY,
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    conversation_id INTEGER NOT NULL UNIQUE REFERENCES conversations(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    topic TEXT NOT NULL DEFAULT '',
+    position INTEGER NOT NULL DEFAULT 0,
+    locked INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX server_channels_server ON server_channels(server_id, position);
+
+  -- Who a locked channel was opened to (owners and admins always see it).
+  CREATE TABLE channel_access (
+    channel_id INTEGER NOT NULL REFERENCES server_channels(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (channel_id, user_id)
+  );
+
+  CREATE TABLE server_invites (
+    code TEXT PRIMARY KEY,
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    -- Set for an invite sent to one friend.
+    for_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    max_uses INTEGER,
+    uses INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX server_invites_server ON server_invites(server_id);
+  CREATE INDEX server_invites_for ON server_invites(for_user_id);
+
+  -- Asking a super admin for permission to make servers. One row per person.
+  CREATE TABLE server_creator_requests (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    decided_at TEXT,
+    decided_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+  );
+  `,
 ];
 
 export function now(): string {
