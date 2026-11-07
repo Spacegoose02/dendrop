@@ -13,6 +13,7 @@ import type { ServerConfig } from "./config.js";
 import { openDb, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { Gateway } from "./gateway.js";
+import { builtinLivekit } from "./livekit.js";
 import { PushService } from "./push.js";
 import { pushRoutes } from "./routes/push.js";
 import { authRoutes } from "./routes/auth.js";
@@ -95,6 +96,7 @@ export async function buildApp(
   await app.register(async (api) => pushRoutes(api, ctx));
   await app.register(async (api) => serverRoutes(api, ctx));
   await app.register(async (api) => gatewayRoute(api, ctx));
+  builtinLivekit(app, config);
 
   serveWeb(app, config);
   return { app, ctx };

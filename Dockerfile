@@ -1,5 +1,8 @@
-# Dendrop server image (API, gateway and web client).
+# Dendrop server image (API, gateway, web client and a LiveKit server for calls).
 # Build: docker build -t dendrop .
+
+# LiveKit for voice and video. Dendrop starts it itself (packages/server/src/livekit.ts).
+FROM livekit/livekit-server:v1.9.12 AS livekit
 
 FROM node:22-alpine AS build
 WORKDIR /app
@@ -35,9 +38,12 @@ RUN npm ci --omit=dev --ignore-scripts --workspace @dendrop/server --workspace @
 COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/server/dist/src packages/server/dist/src
 COPY --from=build /app/packages/web/dist packages/web/dist
+COPY --from=livekit /livekit-server /usr/local/bin/livekit-server
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && chmod 755 /usr/local/bin/docker-entrypoint.sh && mkdir -p /data
-EXPOSE 8080
+# 8080 web and API. 7881/tcp and 7882/udp carry call audio and video; map them to the same
+# numbers on the host.
+EXPOSE 8080 7881/tcp 7882/udp
 VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD wget -qO- "http://127.0.0.1:${DENDROP_PORT:-8080}/api/health" >/dev/null || exit 1

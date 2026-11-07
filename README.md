@@ -8,14 +8,56 @@ See [the roadmap](docs/ROADMAP.md) for what's planned and in what order.
 
 ## Running it
 
+Everything is in one image, `ghcr.io/spacegoose02/dendrop`: the web app, the API and a
+[LiveKit](https://livekit.io) server for calls, which Dendrop starts itself. Sign-in goes
+through your TinyAuth (or any OpenID Connect provider), which stays its own container.
+
+The first account made (with a password, or the first person to sign in through TinyAuth)
+becomes the super admin. Data lives in `/data` (`/mnt/user/appdata/dendrop` by default).
+
+### Unraid
+
+1. Install the template, from the Unraid terminal:
+
+   ```sh
+   wget -O /boot/config/plugins/dockerMan/templates-user/my-dendrop.xml \
+     https://raw.githubusercontent.com/Spacegoose02/dendrop/main/deploy/unraid/dendrop.xml
+   ```
+
+2. Docker tab, **Add Container**, pick **dendrop** from the Template list.
+3. Fill in **Public address** and the three **TinyAuth** fields (see below), then **Apply**.
+
+Or, by hand, Docker tab, Add Container:
+
+| Field | Value |
+| --- | --- |
+| Repository | `ghcr.io/spacegoose02/dendrop:latest` |
+| Network | Bridge |
+| WebUI | `http://[IP]:[PORT:8080]/` |
+| Port | container `8080`, host any free port |
+| Port | container `7881` TCP, host `7881` (calls) |
+| Port | container `7882` UDP, host `7882` (calls) |
+| Path | container `/data`, host `/mnt/user/appdata/dendrop` |
+| Variable | `DENDROP_PUBLIC_URL`, e.g. `https://chat.example.com` |
+
+The call ports must use the **same number** on the host as in the container, because that
+number is what callers are told to send audio and video to.
+
+Then, outside Unraid:
+
+- **Reverse proxy**: point `chat.example.com` at port 8080 with WebSockets on. Calls use the
+  same address (Dendrop passes LiveKit's `/rtc` through), so there's no second site.
+- **Router**: forward 7881/tcp and 7882/udp to the Unraid box so calls work away from home.
+
+The container starts as root, sets the owner of `/data` to `PUID:PGID` (99:100,
+nobody:users) and then runs as that user.
+
+### docker compose
+
 ```sh
 cp .env.example .env    # set DENDROP_PUBLIC_URL and the TinyAuth client
-docker compose up -d --build
+docker compose up -d    # or --build to build from this folder
 ```
-
-Open the address in `DENDROP_PUBLIC_URL`. The first account made (with a password, or the
-first person to sign in through TinyAuth) becomes the super admin. Data lives in `/data`
-(`/mnt/user/appdata/dendrop` by default).
 
 ### TinyAuth
 
@@ -26,15 +68,20 @@ someone signs in. Once everyone uses TinyAuth you can set `DENDROP_LOCAL_LOGIN=f
 
 ### Calls
 
-Voice and video go through [LiveKit](https://livekit.io), which runs as the second service in
-`docker-compose.yml`. Set `DENDROP_LIVEKIT_URL`, `DENDROP_LIVEKIT_API_KEY` and
-`DENDROP_LIVEKIT_API_SECRET` in `.env`, then:
+On by default, with nothing to set up beyond the two ports above. LiveKit finds your public
+IP when it starts; if it can't (no internet yet, or a STUN block), it keeps retrying, and you
+can set `DENDROP_CALLS_IP` to the public IP instead. `DENDROP_CALLS=off` turns calls off.
 
-- put port 7880 behind your reverse proxy with HTTPS (e.g. `calls.example.com`) and use that
-  `wss://` address as `DENDROP_LIVEKIT_URL`;
-- forward 7881/tcp and 50000-50100/udp on your router so calls work away from home.
+Already run your own LiveKit server? Set `DENDROP_LIVEKIT_URL`, `DENDROP_LIVEKIT_API_KEY` and
+`DENDROP_LIVEKIT_API_SECRET` and Dendrop uses that one instead of its own.
 
-Without those settings Dendrop runs as before and the call buttons don't show.
+### Phone notifications
+
+The Android app sends notifications through [ntfy](https://ntfy.sh). Install the ntfy app on
+the phone and pick it in Dendrop; it uses ntfy.sh unless you point it at your own ntfy server,
+so there's nothing to run on Unraid. Notifications say only "new message" or "incoming call".
+If your own ntfy server is on the home network over plain `http://`, set
+`DENDROP_PUSH_ALLOW_HTTP=true`.
 
 ## Developing
 

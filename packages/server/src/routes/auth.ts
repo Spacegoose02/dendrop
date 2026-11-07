@@ -4,6 +4,7 @@ import { requireUser, type Context } from "../app.js";
 import { hashPassword, verifyPassword } from "../auth/crypto.js";
 import { safeReturn } from "../auth/oidc.js";
 import { SESSION_COOKIE } from "../auth/sessions.js";
+import { callsEnabled } from "../config.js";
 import { HttpError } from "../errors.js";
 import { toMe, type UserRecord } from "../users.js";
 
@@ -110,7 +111,6 @@ export function authRoutes(app: FastifyInstance, ctx: Context): void {
 
   app.get("/api/server", async (req): Promise<ServerInfo> => {
     requireUser(req);
-    const l = config.livekit;
-    return { maxUploadBytes: config.maxUploadBytes, calls: !!(l.url && l.apiKey && l.apiSecret) };
+    return { maxUploadBytes: config.maxUploadBytes, calls: callsEnabled(config) };
   });
 }
