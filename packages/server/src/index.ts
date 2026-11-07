@@ -13,4 +13,5 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 await app.listen({ port: config.port, host: config.host });
+app.log.info(config.tls ? `HTTPS on, with the certificate in ${config.tls.cert}` : "Plain HTTP: put a reverse proxy with HTTPS in front, or set DENDROP_HTTPS, so encryption and calls work in browsers");
 if (!config.publicUrl) app.log.warn("DENDROP_PUBLIC_URL isn't set: single sign-on is off and cookies aren't marked secure");

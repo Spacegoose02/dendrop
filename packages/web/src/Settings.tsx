@@ -18,6 +18,7 @@ import { LIMITS, type Me } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { AudioSettings } from "./AudioSettings.tsx";
 import { securityCode } from "./e2ee.ts";
+import { HTTPS_GUIDE, isSecure } from "./secure.ts";
 import type { EncryptionMode } from "./EncryptionDialog.tsx";
 import "./settings.css";
 
@@ -235,12 +236,20 @@ function AccountSection({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) 
 function EncryptionSection({ me, keyState, onEncryption }: { me: Me; keyState: KeyState; onEncryption: (mode: EncryptionMode) => void }) {
   const [code, setCode] = useState<string | null>(null);
   useEffect(() => {
-    if (me.publicKey) void securityCode(me.publicKey).then(setCode);
+    if (me.publicKey && isSecure()) void securityCode(me.publicKey).then(setCode);
   }, [me.publicKey]);
 
   return (
     <section className="encryption-settings">
       <h3>End-to-end encryption</h3>
+      {!isSecure() && (
+        <p className="warning small">
+          This page is on plain <code>http://</code>, and browsers only allow encryption on <code>https://</code>.{" "}
+          <a href={HTTPS_GUIDE} target="_blank" rel="noreferrer">
+            How to set up HTTPS
+          </a>
+        </p>
+      )}
       {keyState === "off" && (
         <>
           <p className="muted small">Off. Turn it on so your direct messages can only be read by the people in them.</p>

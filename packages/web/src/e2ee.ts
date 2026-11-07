@@ -15,6 +15,7 @@
  */
 import type { Attachment, Conversation, E2eeSetup, KeyBackup, Message, PublicUser, WrappedKey } from "@dendrop/shared";
 import { api } from "./api.ts";
+import { INSECURE_ENCRYPTION, isSecure } from "./secure.ts";
 
 const PBKDF2_ROUNDS = 600_000;
 const enc = new TextEncoder();
@@ -121,8 +122,14 @@ async function openBackup(backup: KeyBackup, passphrase: string): Promise<ArrayB
   }
 }
 
+/** Stops with a clear reason, not "crypto.subtle is undefined", on a plain http:// page. */
+function requireSecure(): void {
+  if (!isSecure()) throw new Error(INSECURE_ENCRYPTION);
+}
+
 /** Makes a new key pair, saves it on the server (encrypted) and on this device. */
 export async function createIdentity(userId: number, passphrase: string, reset = false): Promise<Identity> {
+  requireSecure();
   const pair = (await crypto.subtle.generateKey(ECDH, true, ["deriveBits"])) as CryptoKeyPair;
   const publicKey = b64(await crypto.subtle.exportKey("raw", pair.publicKey));
   const pkcs8 = await crypto.subtle.exportKey("pkcs8", pair.privateKey);
@@ -133,12 +140,14 @@ export async function createIdentity(userId: number, passphrase: string, reset =
 
 /** Opens the key saved on the server with the passphrase, for a new device. */
 export async function unlockIdentity(userId: number, passphrase: string): Promise<Identity> {
+  requireSecure();
   const setup = await api<E2eeSetup>("/api/e2ee");
   if (!setup.publicKey || !setup.backup) throw new Error("Encryption isn't set up for this account yet");
   return keep(userId, setup.publicKey, await openBackup(setup.backup, passphrase));
 }
 
 export async function changePassphrase(oldPassphrase: string, newPassphrase: string): Promise<void> {
+  requireSecure();
   const setup = await api<E2eeSetup>("/api/e2ee");
   if (!setup.publicKey || !setup.backup) throw new Error("Encryption isn't set up for this account yet");
   const pkcs8 = await openBackup(setup.backup, oldPassphrase);

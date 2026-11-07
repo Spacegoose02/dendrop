@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import type { Me } from "@dendrop/shared";
 import { changePassphrase, createIdentity, unlockIdentity, type Identity } from "./e2ee.ts";
 import { Modal } from "./Modal.tsx";
+import { HTTPS_GUIDE, isSecure } from "./secure.ts";
 
 export type EncryptionMode = "setup" | "unlock" | "reset" | "change";
 
@@ -56,6 +57,9 @@ export function EncryptionDialog({
       setBusy(false);
     }
   };
+
+  // On plain http:// the browser has no WebCrypto, so explain that instead of failing on submit.
+  if (!isSecure()) return <NeedsHttps onClose={onClose} />;
 
   if (changed) {
     return (
@@ -131,6 +135,33 @@ export function EncryptionDialog({
           )}
         </div>
       </form>
+    </Modal>
+  );
+}
+
+/** Shown in place of the passphrase form when the page isn't on https:// (or localhost). */
+function NeedsHttps({ onClose }: { onClose: () => void }) {
+  const here = `${location.protocol}//${location.host}`;
+  return (
+    <Modal title="Encryption needs HTTPS" onClose={onClose}>
+      <div className="encryption-form">
+        <p>
+          You opened Dendrop at <code>{here}</code>. Browsers only allow the encryption Dendrop uses on a secure <code>https://</code>{" "}
+          address, so it can't be turned on from here. Your passphrase and the server are fine.
+        </p>
+        <p>
+          Whoever runs the Dendrop server can fix it by giving it an <code>https://</code> address: a reverse proxy with a certificate,
+          Tailscale, or Dendrop's own built-in HTTPS. Calls need it too, for the microphone and camera.
+        </p>
+        <p className="muted small">
+          <a href={HTTPS_GUIDE} target="_blank" rel="noreferrer">
+            How to set up HTTPS
+          </a>
+        </p>
+        <button type="button" className="primary wide" onClick={onClose}>
+          OK
+        </button>
+      </div>
     </Modal>
   );
 }

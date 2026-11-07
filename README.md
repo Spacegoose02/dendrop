@@ -39,9 +39,16 @@ Or, by hand, Docker tab, Add Container:
 | Port | container `7882` UDP, host `7882` (calls) |
 | Path | container `/data`, host `/mnt/user/appdata/dendrop` |
 | Variable | `DENDROP_PUBLIC_URL`, e.g. `https://chat.example.com` |
+| Variable | `DENDROP_HTTPS`, `self-signed` for built-in HTTPS without a proxy (optional) |
 
 The call ports must use the **same number** on the host as in the container, because that
 number is what callers are told to send audio and video to.
+
+**Use an `https://` address.** Browsers only allow encryption and the mic and camera on
+HTTPS, so on plain `http://192.168.x.x:8080` you can chat but not turn on encryption or
+make calls. For a quick start at home set **HTTPS** to `self-signed` and open
+`https://<Unraid IP>:8080`; [docs/HTTPS.md](docs/HTTPS.md) has that and the proper options
+(Tailscale, Nginx Proxy Manager or SWAG, Cloudflare Tunnel).
 
 Then, outside Unraid:
 

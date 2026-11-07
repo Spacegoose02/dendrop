@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cookie from "@fastify/cookie";
@@ -57,7 +57,13 @@ export async function buildApp(
   db: Db = openDb(path.join(config.dataDir, "dendrop.db")),
   options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2]; webhookPost?: WebhookPost } = {},
 ): Promise<BuiltApp> {
-  const app = Fastify({ logger: process.env.NODE_ENV === "test" ? false : { level: process.env.DENDROP_LOG_LEVEL ?? "info" }, trustProxy: true });
+  const logger = process.env.NODE_ENV === "test" ? false : { level: process.env.DENDROP_LOG_LEVEL ?? "info" };
+  // Built-in HTTPS (config.tls) is the same app on an https server; the types are the plain one's.
+  const app = (
+    config.tls
+      ? Fastify({ logger, trustProxy: true, https: readTls(config.tls) })
+      : Fastify({ logger, trustProxy: true })
+  ) as unknown as FastifyInstance;
   const users = new UserRepo(db);
   const gateway = new Gateway();
   const ctx: Context = {
@@ -117,6 +123,14 @@ export function requireUser(req: FastifyRequest): UserRecord {
 }
 
 /** The WebSocket gateway: pushes events to signed-in clients and takes typing pings. */
+function readTls(tls: NonNullable<ServerConfig["tls"]>): { cert: Buffer; key: Buffer } {
+  try {
+    return { cert: readFileSync(tls.cert), key: readFileSync(tls.key) };
+  } catch (err) {
+    throw new Error(`Can't read the HTTPS certificate (${tls.cert}) or key (${tls.key}): ${(err as Error).message}`);
+  }
+}
+
 function gatewayRoute(app: FastifyInstance, ctx: Context): void {
   app.get("/api/gateway", { websocket: true }, (socket, req) => {
     const user = req.user;
