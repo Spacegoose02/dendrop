@@ -1,5 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import type { Call, CallJoin, Conversation, Friend, Me, PublicUser, ServerEvent, ServerInfo } from "@dendrop/shared";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Call, CallJoin, Channel, ChatServer, Conversation, Friend, InvitePreview, Me, PublicUser, ServerEvent, ServerInfo } from "@dendrop/shared";
 import { api, connectGateway, logout } from "./api.ts";
 import { Chat } from "./Chat.tsx";
 import { Friends } from "./Friends.tsx";
@@ -10,11 +10,32 @@ import { SettingsButton } from "./Settings.tsx";
 import { EncryptionDialog, type EncryptionMode } from "./EncryptionDialog.tsx";
 import { keyring, loadIdentity, reveal, type Identity } from "./e2ee.ts";
 import { conversationTitle, upsert, type History } from "./util.ts";
+import { AdminDialog } from "./Admin.tsx";
+import { ChannelDialog, CreateServer, Directory, InviteDialog, InviteLinkDialog, isMod, ServerIcon, ServerSettings, ServerSidebar } from "./Servers.tsx";
 
 // The call code (LiveKit) is big, so it only loads when a call starts.
 const CallPanel = lazy(() => import("./CallPanel.tsx").then((m) => ({ default: m.CallPanel })));
 
-export type View = { kind: "friends" } | { kind: "conversation"; id: number };
+export type View =
+  | { kind: "friends" }
+  | { kind: "conversation"; id: number }
+  | { kind: "directory" }
+  | { kind: "channel"; serverId: number; channelId: number };
+
+type ServerDialog =
+  | { kind: "create" }
+  | { kind: "invite"; serverId: number }
+  | { kind: "channel"; serverId: number; channel: Channel | null }
+  | { kind: "settings"; serverId: number }
+  | { kind: "admin" }
+  | { kind: "link"; code: string };
+
+/** The conversation behind a view, if it shows one. */
+const viewConversation = (v: View, servers: ChatServer[]): number | null => {
+  if (v.kind === "conversation") return v.id;
+  if (v.kind !== "channel") return null;
+  return servers.find((s) => s.id === v.serverId)?.channels.find((c) => c.id === v.channelId)?.conversationId ?? null;
+};
 
 /**
  * The main layout: server rail, sidebar (DMs), main pane (friends or a chat).
@@ -38,8 +59,21 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const [histories, setHistories] = useState<Record<number, History>>({});
   const [typing, setTyping] = useState<Record<number, Record<number, number>>>({});
   const [unread, setUnread] = useState<Set<number>>(new Set());
+  const [servers, setServers] = useState<ChatServer[]>([]);
+  const [invites, setInvites] = useState<InvitePreview[]>([]);
+  const [serverDialog, setServerDialog] = useState<ServerDialog | null>(() => {
+    // Opened from an invite link: …/invite/CODE.
+    const m = /^\/invite\/([A-Za-z0-9_-]{8,32})\/?$/.exec(location.pathname);
+    if (!m) return null;
+    history.replaceState(null, "", "/");
+    return { kind: "link", code: m[1]! };
+  });
+  /** Goes up when a request to make servers comes in, so the admin dialog reloads. */
+  const [adminVersion, setAdminVersion] = useState(0);
   const viewRef = useRef(view);
   viewRef.current = view;
+  const serversRef = useRef(servers);
+  serversRef.current = servers;
   /** Encryption on this device: still checking, not set up for the account, set up but not unlocked here, or ready. */
   const [keyState, setKeyState] = useState<"loading" | "off" | "locked" | "on">("loading");
   const [encryptionDialog, setEncryptionDialog] = useState<EncryptionMode | null>(null);
@@ -70,12 +104,16 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   };
 
   const refresh = useCallback(async () => {
-    const [f, c, info, live] = await Promise.all([
+    const [f, c, info, live, sv, inv] = await Promise.all([
       api<Friend[]>("/api/friends"),
       api<Conversation[]>("/api/conversations"),
       api<ServerInfo>("/api/server"),
       api<Call[]>("/api/calls"),
+      api<ChatServer[]>("/api/servers"),
+      api<InvitePreview[]>("/api/invites"),
     ]);
+    setServers(sv);
+    setInvites(inv);
     setServer(info);
     setCalls(Object.fromEntries(live.map((x) => [x.conversationId, x])));
     setFriends(f);
@@ -130,7 +168,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
               return { ...h, [m.conversationId]: { ...cur, messages: upsert(cur.messages, shown) } };
             }),
           );
-          setConversations((cs) => {
+          const isChannel = serversRef.current.some((sv) => sv.channels.some((ch) => ch.conversationId === m.conversationId));
+          if (!isChannel) setConversations((cs) => {
             const c = cs.find((x) => x.id === m.conversationId);
             if (!c) {
               void api<Conversation[]>("/api/conversations").then(setConversations);
@@ -144,7 +183,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             return { ...t, [m.conversationId]: forConv };
           });
           const v = viewRef.current;
-          if (m.authorId !== me.id && !(v.kind === "conversation" && v.id === m.conversationId && document.hasFocus())) {
+          if (m.authorId !== me.id && !(viewConversation(v, serversRef.current) === m.conversationId && document.hasFocus())) {
             setUnread((u) => new Set(u).add(m.conversationId));
           }
           break;
@@ -179,6 +218,24 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             return n;
           });
           setInCall((c) => (c?.call.conversationId === e.conversationId ? null : c));
+          break;
+        case "server.updated":
+          setServers((list) =>
+            list.some((x) => x.id === e.server.id) ? list.map((x) => (x.id === e.server.id ? e.server : x)) : [...list, e.server],
+          );
+          setInvites((list) => list.filter((i) => i.server.id !== e.server.id));
+          break;
+        case "server.removed":
+          setServers((list) => list.filter((x) => x.id !== e.serverId));
+          setView((v) => (v.kind === "channel" && v.serverId === e.serverId ? { kind: "friends" } : v));
+          setServerDialog((d) => (d && "serverId" in d && d.serverId === e.serverId ? null : d));
+          break;
+        case "server.invited":
+          setInvites((list) => [e.invite, ...list.filter((i) => i.code !== e.invite.code)]);
+          break;
+        case "server.request":
+          if (e.request.user.id === me.id) setMe((m) => ({ ...m, canCreateServers: m.isSuperAdmin || e.request.status === "approved" }));
+          setAdminVersion((n) => n + 1);
           break;
         case "typing":
           setTyping((t) => ({ ...t, [e.conversationId]: { ...(t[e.conversationId] ?? {}), [e.userId]: Date.now() } }));
@@ -216,13 +273,22 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const open = (v: View) => {
     setView(v);
     setShowMain(true);
-    if (v.kind === "conversation") {
+    const cid = viewConversation(v, serversRef.current);
+    if (cid !== null) {
       setUnread((u) => {
         const n = new Set(u);
-        n.delete(v.id);
+        n.delete(cid);
         return n;
       });
     }
+  };
+
+  /** Opens a server at a channel (its first one by default). */
+  const openServer = (sv: ChatServer, channelId?: number) => {
+    setServers((list) => (list.some((x) => x.id === sv.id) ? list.map((x) => (x.id === sv.id ? sv : x)) : [...list, sv]));
+    serversRef.current = serversRef.current.some((x) => x.id === sv.id) ? serversRef.current : [...serversRef.current, sv];
+    setInvites((list) => list.filter((i) => i.server.id !== sv.id));
+    open({ kind: "channel", serverId: sv.id, channelId: channelId ?? sv.channels[0]?.id ?? 0 });
   };
 
   const messageFriend = async (user: PublicUser) => {
@@ -252,18 +318,72 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const ringing = Object.values(calls).find((c) => c.ringing.includes(me.id) && c.conversationId !== inCall?.call.conversationId);
 
   const current = view.kind === "conversation" ? conversations.find((c) => c.id === view.id) : undefined;
+  const currentServer = view.kind === "channel" ? servers.find((x) => x.id === view.serverId) : undefined;
+  const currentChannel = view.kind === "channel" ? currentServer?.channels.find((c) => c.id === view.channelId) : undefined;
+  /** A channel shown through Chat: its conversation, with server nicknames as names. */
+  const channelConversation = useMemo((): Conversation | undefined => {
+    if (!currentServer || !currentChannel) return undefined;
+    return {
+      id: currentChannel.conversationId,
+      isGroup: true,
+      name: `#${currentChannel.name}`,
+      members: currentServer.members.map((m) => ({ ...m.user, displayName: m.nickname ?? m.user.displayName })),
+      lastMessageAt: null,
+      createdAt: currentServer.createdAt,
+      reads: [],
+      e2ee: null,
+    };
+  }, [currentServer, currentChannel]);
+  const serverUnread = (sv: ChatServer) => sv.channels.some((c) => unread.has(c.conversationId));
+  const dialogServer = serverDialog && "serverId" in serverDialog ? servers.find((x) => x.id === serverDialog.serverId) : undefined;
   const incoming = friends.filter((f) => f.state === "incoming").length;
 
   return (
     <div className={`shell ${showMain ? "show-main" : ""}`}>
       <nav className="rail" aria-label="Servers">
-        <button className="rail-item active" title="Direct messages" onClick={() => open({ kind: "friends" })}>
+        <button
+          className={`rail-item ${view.kind === "friends" || view.kind === "conversation" ? "active" : ""}`}
+          title="Direct messages"
+          onClick={() => open(current ? view : { kind: "friends" })}
+        >
           <img src="/favicon.svg" alt="Direct messages" width={32} height={32} />
         </button>
         <div className="rail-sep" />
+        {servers.map((sv) => (
+          <button
+            key={sv.id}
+            className={`rail-server ${currentServer?.id === sv.id ? "active" : ""}`}
+            title={sv.name}
+            aria-label={sv.name}
+            onClick={() => openServer(sv)}
+          >
+            <ServerIcon server={sv} size={48} />
+            {serverUnread(sv) && <span className="rail-dot" aria-label="Unread" />}
+          </button>
+        ))}
+        <button
+          className={`rail-item rail-add ${view.kind === "directory" ? "active" : ""}`}
+          title="Find or create a server"
+          aria-label="Find or create a server"
+          onClick={() => open({ kind: "directory" })}
+        >
+          ＋{invites.length > 0 && <span className="rail-badge">{invites.length}</span>}
+        </button>
       </nav>
 
       <aside className="sidebar">
+        {currentServer ? (
+          <ServerSidebar
+            server={currentServer}
+            activeChannel={view.kind === "channel" ? view.channelId : null}
+            unread={unread}
+            onOpen={(c) => open({ kind: "channel", serverId: currentServer.id, channelId: c.id })}
+            onSettings={() => setServerDialog({ kind: "settings", serverId: currentServer.id })}
+            onInvite={() => setServerDialog({ kind: "invite", serverId: currentServer.id })}
+            onChannel={(c) => setServerDialog({ kind: "channel", serverId: currentServer.id, channel: c })}
+          />
+        ) : (
+        <>
         <header className="sidebar-header">Direct messages</header>
         <div className="sidebar-body">
           <button className={`nav-item ${view.kind === "friends" ? "active" : ""}`} onClick={() => open({ kind: "friends" })}>
@@ -299,6 +419,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             );
           })}
         </div>
+        </>
+        )}
         <footer className="me">
           <Avatar name={me.displayName} online={connected} size={36} title={connected ? "Connected" : "Reconnecting…"} />
           <div className="me-names">
@@ -343,6 +465,41 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             </button>
           </p>
         )}
+        {view.kind === "directory" && (
+          <Directory
+            me={me}
+            mine={servers}
+            invites={invites}
+            onJoined={(sv) => openServer(sv)}
+            onDeclined={(code) => setInvites((list) => list.filter((i) => i.code !== code))}
+            onCreate={() => setServerDialog({ kind: "create" })}
+            onAdmin={() => setServerDialog({ kind: "admin" })}
+            onBack={() => setShowMain(false)}
+          />
+        )}
+        {view.kind === "channel" && currentServer && !channelConversation && (
+          <div className="empty muted">{currentServer.channels.length ? "Pick a channel." : "This server has no channels yet."}</div>
+        )}
+        {currentServer && currentChannel && channelConversation && (
+          <Chat
+            key={channelConversation.id}
+            me={me}
+            conversation={channelConversation}
+            online={online}
+            history={histories[channelConversation.id]}
+            setHistory={(h) => setHistories((all) => ({ ...all, [channelConversation.id]: h(all[channelConversation.id]) }))}
+            typingIds={Object.keys(typing[channelConversation.id] ?? {}).map(Number)}
+            sendTyping={() => sendRef.current({ type: "typing", conversationId: channelConversation.id })}
+            callsEnabled={false}
+            call={undefined}
+            inThisCall={false}
+            onCall={() => {}}
+            onBack={() => setShowMain(false)}
+            keyState={keyState}
+            onEncryption={() => {}}
+            channel={{ serverId: currentServer.id, topic: currentChannel.topic, canModerate: isMod(currentServer) }}
+          />
+        )}
         {view.kind === "friends" && <Friends friends={friends} online={online} onMessage={messageFriend} onBack={() => setShowMain(false)} />}
         {view.kind === "conversation" && current && (
           <Chat
@@ -378,6 +535,55 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             // Hide it straight away; the server's update follows.
             setCalls((cs) => ({ ...cs, [cid]: { ...cs[cid]!, ringing: cs[cid]!.ringing.filter((id) => id !== me.id) } }));
             void api(`/api/conversations/${cid}/call/decline`, { body: {} });
+          }}
+        />
+      )}
+      {serverDialog?.kind === "create" && (
+        <CreateServer
+          me={me}
+          onClose={() => setServerDialog(null)}
+          onCreated={(sv) => {
+            setServerDialog(null);
+            openServer(sv);
+          }}
+        />
+      )}
+      {serverDialog?.kind === "link" && !encryptionDialog && (
+        <InviteLinkDialog
+          code={serverDialog.code}
+          onClose={() => setServerDialog(null)}
+          onJoined={(sv) => {
+            setServerDialog(null);
+            openServer(sv);
+          }}
+        />
+      )}
+      {serverDialog?.kind === "admin" && <AdminDialog version={adminVersion} onClose={() => setServerDialog(null)} />}
+      {serverDialog?.kind === "invite" && dialogServer && <InviteDialog server={dialogServer} friends={friends} onClose={() => setServerDialog(null)} />}
+      {serverDialog?.kind === "channel" && dialogServer && (
+        <ChannelDialog
+          server={dialogServer}
+          channel={serverDialog.channel}
+          onClose={() => setServerDialog(null)}
+          onDone={(made) => {
+            setServerDialog(null);
+            if (made) {
+              // The server's update may not be here yet; add the channel so it can open now.
+              setServers((list) => list.map((x) => (x.id === made.serverId && !x.channels.some((c) => c.id === made.id) ? { ...x, channels: [...x.channels, made] } : x)));
+              open({ kind: "channel", serverId: made.serverId, channelId: made.id });
+            }
+          }}
+        />
+      )}
+      {serverDialog?.kind === "settings" && dialogServer && (
+        <ServerSettings
+          me={me}
+          server={dialogServer}
+          onClose={() => setServerDialog(null)}
+          onGone={() => {
+            setServerDialog(null);
+            setServers((list) => list.filter((x) => x.id !== dialogServer.id));
+            setView({ kind: "friends" });
           }}
         />
       )}
