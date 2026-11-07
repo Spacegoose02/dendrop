@@ -70,6 +70,8 @@ export class LootdenLink {
   private polling: Promise<void> | null = null;
   /** Run after each good check: game nights and screenshots (see lootden-extras.ts). */
   afterPoll: (() => Promise<void>)[] = [];
+  /** Run whenever who's playing what changes, or someone turns sharing it on or off (see play-together.ts). */
+  onPlayingChanged: (() => void)[] = [];
 
   constructor(
     private readonly db: Db,
@@ -277,6 +279,22 @@ export class LootdenLink {
     for (const id of this.playing.keys()) if (!next.has(id)) changed.add(id);
     this.playing = next;
     for (const id of changed) this.announce(id);
+    if (changed.size) this.playingChanged();
+  }
+
+  private playingChanged(): void {
+    for (const fn of this.onPlayingChanged) {
+      try {
+        fn();
+      } catch (err) {
+        this.error = (err as Error).message;
+      }
+    }
+  }
+
+  /** Everyone playing something now, sharing it or not: callers check `shareActivity`. */
+  nowPlaying(): { userId: number; title: string; kidProfile: boolean }[] {
+    return [...this.playing].map(([userId, p]) => ({ userId, title: p.activity.title, kidProfile: p.kidProfile }));
   }
 
   /** People who can see what `userId` is doing: friends and people in a server with them. */
@@ -317,7 +335,9 @@ export class LootdenLink {
 
   /** Someone turned sharing what they play on or off. */
   shareChanged(userId: number): void {
-    if (this.playing.has(userId)) this.announce(userId);
+    if (!this.playing.has(userId)) return;
+    this.announce(userId);
+    this.playingChanged();
   }
 
   /** Everything `viewer` can see right now, by user id. */

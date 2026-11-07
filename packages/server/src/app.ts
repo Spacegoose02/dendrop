@@ -56,6 +56,8 @@ export interface Context {
   serverChanged?: (serverId: number) => void;
   /** Set by the server routes: how many people are in a voice channel. */
   voiceCount?: (channelId: number) => number;
+  /** Set by the server routes: who is in a voice channel. */
+  voiceMembers?: (channelId: number) => number[];
   /** Hooks for the gateway, so features can react to events from clients. */
   onClientEvent: ((user: UserRecord, event: ClientEvent) => void)[];
   onPresence: ((userId: number, online: boolean) => void)[];
