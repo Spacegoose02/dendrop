@@ -5,6 +5,10 @@ encrypted on your device, and the server only ever stores ciphertext. It's built
 browser's WebCrypto, so the web, desktop (Electron) and Android (Capacitor) apps share it.
 The code is in `packages/web/src/e2ee.ts`.
 
+Browsers only offer WebCrypto on a secure address (`https://`, or `localhost`), so the web
+app has to be opened over HTTPS to turn encryption on or unlock it. On plain `http://` it
+says so instead. [HTTPS.md](HTTPS.md) has the ways to set that up.
+
 ## How it works
 
 **Your account key.** Turning encryption on makes a P-256 key pair. The public key goes to

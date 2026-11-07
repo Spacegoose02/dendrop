@@ -27,7 +27,7 @@ function checkNew(ctx: Context, body: Credentials): { username: string; password
 
 export function authRoutes(app: FastifyInstance, ctx: Context): void {
   const { config, users, sessions, oidc } = ctx;
-  const secure = config.publicUrl.startsWith("https://");
+  const secure = config.publicUrl.startsWith("https://") || !!config.tls;
 
   const signIn = (req: FastifyRequest, reply: FastifyReply, user: UserRecord) => {
     const { token, maxAgeSeconds } = sessions.create(user.id, req.headers["user-agent"]);

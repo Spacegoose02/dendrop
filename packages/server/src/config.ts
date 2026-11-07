@@ -18,6 +18,11 @@ export interface ServerConfig {
   /** Allow http:// push endpoints, for a ntfy server on the home network. */
   pushAllowHttp: boolean;
   /**
+   * Serve HTTPS directly, without a reverse proxy: PEM files for the certificate (with any
+   * chain) and its private key. Null: plain HTTP, for running behind a proxy that does HTTPS.
+   */
+  tls: { cert: string; key: string } | null;
+  /**
    * Voice and video through LiveKit. Either the copy built into the Docker image (`builtin`
    * set, `url` empty: browsers reach it through Dendrop's own address), or a separate LiveKit
    * server (`url`, `apiKey` and `apiSecret` all set). Calls are off otherwise.
@@ -66,6 +71,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     signup: bool(env.DENDROP_SIGNUP, false),
     maxUploadBytes: Math.max(1, Number(env.DENDROP_MAX_UPLOAD_MB) || 25) * 1024 * 1024,
     pushAllowHttp: bool(env.DENDROP_PUSH_ALLOW_HTTP, false),
+    tls: tlsConfig(env),
     livekit: livekitConfig(env),
     oidc: {
       issuer: (env.DENDROP_OIDC_ISSUER ?? "").trim(),
@@ -77,6 +83,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       autoCreate: bool(env.DENDROP_OIDC_AUTO_CREATE, true),
     },
   };
+}
+
+/**
+ * DENDROP_TLS_CERT and DENDROP_TLS_KEY: your own certificate files (e.g. from `tailscale cert`
+ * or Let's Encrypt). DENDROP_HTTPS=self-signed: a certificate made for this server the first
+ * time it starts (docker-entrypoint.sh makes it, in /data/tls), which browsers warn about once.
+ */
+function tlsConfig(env: NodeJS.ProcessEnv): ServerConfig["tls"] {
+  const cert = (env.DENDROP_TLS_CERT ?? "").trim();
+  const key = (env.DENDROP_TLS_KEY ?? "").trim();
+  if (cert && key) return { cert, key };
+  if ((env.DENDROP_HTTPS ?? "").trim().toLowerCase() === "self-signed") {
+    const dir = path.join(path.resolve(env.DENDROP_DATA_DIR ?? "/data"), "tls");
+    return { cert: path.join(dir, "self-signed.crt"), key: path.join(dir, "self-signed.key") };
+  }
+  return null;
 }
 
 const port = (v: string | undefined, fallback: number): number => {

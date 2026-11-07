@@ -4,6 +4,7 @@
  * localStorage, because device ids only mean something on the device that made them.
  */
 import { useEffect, useState } from "react";
+import { INSECURE_MEDIA } from "./secure.ts";
 
 /** Standard is the browser's noise suppression; strong also asks for voice isolation where the browser has it. */
 export type NoiseLevel = "off" | "standard" | "strong";
@@ -96,6 +97,7 @@ export const canPickOutput = (): boolean => typeof (HTMLMediaElement.prototype a
 
 /** A readable message for a mic that couldn't start. */
 export function micError(err: Error): string {
+  if (!window.isSecureContext) return INSECURE_MEDIA;
   if (err.name === "NotFoundError" || err.name === "OverconstrainedError") {
     return "No microphone found. Plug one in, or pick another in Settings, Voice and audio.";
   }

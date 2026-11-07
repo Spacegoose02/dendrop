@@ -33,7 +33,9 @@ COPY packages/theme/package.json packages/theme/
 COPY packages/server/package.json packages/server/
 COPY packages/web/package.json packages/web/
 COPY packages/desktop/package.json packages/desktop/
-RUN npm ci --omit=dev --ignore-scripts --workspace @dendrop/server --workspace @dendrop/shared \
+# openssl makes the certificate for DENDROP_HTTPS=self-signed (docker-entrypoint.sh).
+RUN apk add --no-cache openssl \
+    && npm ci --omit=dev --ignore-scripts --workspace @dendrop/server --workspace @dendrop/shared \
     && npm cache clean --force
 COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/server/dist/src packages/server/dist/src
@@ -46,6 +48,8 @@ RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && chmod 755 /usr/local
 EXPOSE 8080 7881/tcp 7882/udp
 VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
-  CMD wget -qO- "http://127.0.0.1:${DENDROP_PORT:-8080}/api/health" >/dev/null || exit 1
+  CMD wget -qO- "http://127.0.0.1:${DENDROP_PORT:-8080}/api/health" >/dev/null \
+   || NODE_TLS_REJECT_UNAUTHORIZED=0 node -e "fetch('https://127.0.0.1:${DENDROP_PORT:-8080}/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))" 2>/dev/null \
+   || exit 1
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node", "--disable-warning=ExperimentalWarning", "packages/server/dist/src/index.js"]
