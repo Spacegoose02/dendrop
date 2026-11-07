@@ -204,7 +204,7 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Kid safe chat | Parents as ghost admins when alerted | 5 | Missing |
 | Sounds | Sounds for deafen/mute events | 4 | Done (mute, unmute, deafen, undeafen, join, leave; can be turned off) |
 | Sounds | Incoming call / message notifications | 2 | Missing |
-| Automod | Automod settings | 6 | Missing |
+| Automod | Automod settings | 6 | Done (blocked words, spam and mentions, links, new accounts; block, alert, timeout; exempt roles and channels; mod log) |
 | Look alike | Layout reference 1 (settings) | 1, 7 | Missing |
 | Look alike | Layout reference 2 (main chat) | 1, 7 | Missing |
 

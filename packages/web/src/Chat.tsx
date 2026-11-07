@@ -33,6 +33,8 @@ export interface ChannelInfo {
   topic: string;
   /** The owner and admins can delete anyone's message. */
   canModerate: boolean;
+  /** Set while you're timed out in this server: you can read but not post. */
+  timedOutUntil?: string | null;
   /** Set for a voice channel: its text chat shows here, with a button to drop into the voice. */
   voice?: { count: number; inIt: boolean; enabled: boolean; onJoin: () => void };
 }
@@ -94,6 +96,14 @@ export function Chat({
   const [helpSent, setHelpSent] = useState(false);
   const filter = kid?.rules.profanityFilter ? kid.rules.blockedWords : null;
   const timeUp = kid && !kid.status.allowedNow ? (kid.status.reason ?? "Chat time is over for now.") : null;
+  // A server timeout ends on its own: re-render when it does.
+  const [, setTick] = useState(0);
+  const timedOutUntil = channel?.timedOutUntil && Date.parse(channel.timedOutUntil) > Date.now() ? channel.timedOutUntil : null;
+  useEffect(() => {
+    if (!timedOutUntil) return;
+    const t = setTimeout(() => setTick((n) => n + 1), Math.min(Date.parse(timedOutUntil) - Date.now() + 500, 2 ** 31 - 1));
+    return () => clearTimeout(t);
+  }, [timedOutUntil]);
   /** Tells the kid's parents about a filtered word (never which one), which opens this chat to them. */
   const report = (type: "profanity" | "help") =>
     api(`/api/family/alerts`, { body: { type, conversationId: conversation.id } }).catch(() => {});
@@ -521,6 +531,12 @@ export function Chat({
           </p>
         )}
         {timeUp && <p className="family-banner small">⏰ {timeUp} You can still read messages.</p>}
+        {timedOutUntil && (
+          <p className="family-banner small timeout-banner">
+            ⏳ You're timed out in this server until{" "}
+            {new Date(timedOutUntil).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}. You can still read messages.
+          </p>
+        )}
         {error && <p className="error small">{error}</p>}
         {files.length > 0 && (
           <div className="pending-files">
@@ -573,7 +589,7 @@ export function Chat({
               </div>
             )}
           </div>
-          <button className="primary send" onClick={() => void send()} disabled={sending || !!timeUp || (!draft.trim() && files.length === 0)} aria-label="Send">
+          <button className="primary send" onClick={() => void send()} disabled={sending || !!timeUp || !!timedOutUntil || (!draft.trim() && files.length === 0)} aria-label="Send">
             {sending ? "…" : "Send"}
           </button>
         </div>

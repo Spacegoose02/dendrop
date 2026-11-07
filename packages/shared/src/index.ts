@@ -179,7 +179,75 @@ export interface ChatServer extends ChatServerSummary {
   channels: Channel[];
   members: ServerMember[];
   createdAt: string;
+  /** Set while automod or a moderator has timed you out here: you can read but not post or talk. */
+  timedOutUntil: string | null;
 }
+
+// ---- Automod --------------------------------------------------------------------------
+
+/**
+ * What automod does when a rule is hit. block: the message isn't posted. alert: the owner and
+ * admins are told right away. timeout: the sender can't post or talk in the server for a while
+ * (the message that set it off isn't posted either). Every hit is written to the automod log.
+ */
+export type AutomodAction = "block" | "alert" | "timeout";
+
+export type AutomodRuleKind = "words" | "spam" | "links" | "newAccounts";
+
+/** What every rule has. */
+export interface AutomodRuleBase {
+  enabled: boolean;
+  actions: AutomodAction[];
+  /** How long a timeout from this rule lasts. */
+  timeoutMinutes: number;
+  /** Roles the rule leaves alone. The owner and admins are exempt by default. */
+  exemptRoles: ServerRole[];
+  /** Channels the rule leaves alone. */
+  exemptChannelIds: number[];
+}
+
+export interface AutomodSettings {
+  /** Blocked words, using the same filter as kid-safe chat (catches f*ck, sh1t, fuuuck). */
+  words: AutomodRuleBase & { useBuiltinList: boolean; words: string[] };
+  /** Flooding: too many messages too fast, the same message over and over, or too many @mentions. */
+  spam: AutomodRuleBase & { maxMessages: number; perSeconds: number; maxDuplicates: number; maxMentions: number };
+  /** Links, except to the domains listed (and this Dendrop's own address). */
+  links: AutomodRuleBase & { allowedDomains: string[] };
+  /** Brand new accounts, or people who only just joined, can't post yet. */
+  newAccounts: AutomodRuleBase & { minAccountAgeHours: number; minMemberMinutes: number };
+}
+
+/** One entry in a server's automod log. */
+export interface AutomodEvent {
+  id: number;
+  serverId: number;
+  user: PublicUser | null;
+  channelId: number | null;
+  rule: AutomodRuleKind;
+  actions: AutomodAction[];
+  /** Why, in words: "Blocked word: darn", "6 messages in 5 seconds". */
+  reason: string;
+  /** The start of the message, so moderators can see what was caught. */
+  excerpt: string;
+  createdAt: string;
+}
+
+/** Someone who can't post or talk in a server for now. */
+export interface ServerTimeout {
+  user: PublicUser;
+  until: string;
+  reason: string;
+  /** Who set it, or null for automod. */
+  by: PublicUser | null;
+}
+
+export const AUTOMOD_LIMITS = {
+  words: 300,
+  wordLength: 40,
+  domains: 100,
+  timeoutMinutes: 7 * 24 * 60,
+  logSize: 500,
+} as const;
 
 /** Text channels hold messages; voice channels are rooms people drop into to talk (and keep a text chat too). */
 export type ChannelKind = "text" | "voice";
@@ -419,7 +487,9 @@ export type ServerEvent =
   /** Your family changed: linked, unlinked, rules, or (for a kid) whether you can chat now. */
   | { type: "family.updated"; family: FamilyInfo }
   /** A new alert about one of your kids. */
-  | { type: "family.alert"; alert: FamilyAlert };
+  | { type: "family.alert"; alert: FamilyAlert }
+  /** To a server's owner and admins: automod caught something with the alert action on. */
+  | { type: "automod.alert"; event: AutomodEvent };
 
 /** Events a client sends over the gateway. Everything else goes through the HTTP API. */
 export type ClientEvent = { type: "typing"; conversationId: number } | { type: "ping" };

@@ -296,6 +296,41 @@ export const MIGRATIONS: string[] = [
   -- Where a parent's alerts are also posted (ntfy, Apprise, Home Assistant...).
   ALTER TABLE users ADD COLUMN family_webhook TEXT;
   `,
+  `
+  -- Automod: each server's rules (JSON, see AutomodSettings), what it caught, and timeouts.
+  CREATE TABLE server_automod (
+    server_id INTEGER PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,
+    settings TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE automod_events (
+    id INTEGER PRIMARY KEY,
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    channel_id INTEGER,
+    rule TEXT NOT NULL,
+    actions TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    excerpt TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX automod_events_server ON automod_events(server_id, id);
+
+  -- Someone who can't post or talk in a server until a time. set_by is null for automod.
+  CREATE TABLE server_timeouts (
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    until TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    set_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (server_id, user_id)
+  );
+
+  -- Spam checks look back over someone's recent messages.
+  CREATE INDEX messages_author_time ON messages(author_id, created_at);
+  `,
 ];
 
 export function now(): string {

@@ -7,6 +7,7 @@ import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import type { ClientEvent } from "@dendrop/shared";
+import { AutomodService } from "./automod.js";
 import { OidcService } from "./auth/oidc.js";
 import { SESSION_COOKIE, SessionService } from "./auth/sessions.js";
 import type { ServerConfig } from "./config.js";
@@ -40,6 +41,8 @@ export interface Context {
   push: PushService;
   /** Kid accounts, parents, rules and alerts. */
   family: FamilyService;
+  /** Server channel rules: blocked words, spam, links, new accounts; and timeouts. */
+  automod: AutomodService;
   /** Hooks for the gateway, so features can react to events from clients. */
   onClientEvent: ((user: UserRecord, event: ClientEvent) => void)[];
   onPresence: ((userId: number, online: boolean) => void)[];
@@ -75,6 +78,7 @@ export async function buildApp(
     gateway,
     push: new PushService(db, { publicUrl: config.publicUrl, allowHttp: config.pushAllowHttp }, options.pushPost),
     family: new FamilyService(db, users, gateway, { publicUrl: config.publicUrl }, options.webhookPost),
+    automod: new AutomodService(db, users, gateway, { publicUrl: config.publicUrl }),
     onClientEvent: [],
     onPresence: [],
     callRingMs: options.callRingMs,

@@ -244,7 +244,16 @@ export class ServerRepo {
         .map((c) => this.toChannel(c, mod)),
       members: this.members(serverId),
       createdAt: r.created_at,
+      timedOutUntil: this.timedOutUntil(serverId, viewerId),
     };
+  }
+
+  /** When someone's timeout here ends (automod.ts sets them), or null. */
+  timedOutUntil(serverId: number, userId: number): string | null {
+    const r = this.db.prepare("SELECT until FROM server_timeouts WHERE server_id = ? AND user_id = ? AND until > ?").get(serverId, userId, now()) as
+      | { until: string }
+      | undefined;
+    return r?.until ?? null;
   }
 
   /** Servers someone is in, oldest join first. */

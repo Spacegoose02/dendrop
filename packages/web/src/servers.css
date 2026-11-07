@@ -481,3 +481,93 @@ select {
 .ptt-live {
   color: var(--dd-online);
 }
+
+/* Automod: a card per rule, its actions and exemptions, and the mod log. */
+.modal.wide {
+  max-width: 560px;
+}
+.automod-rule {
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius);
+  padding: 10px 12px 2px;
+  margin-bottom: 10px;
+  background: var(--dd-bg-sidebar);
+}
+.automod-rule.on {
+  border-color: var(--dd-accent);
+  background: var(--dd-bg-raised);
+}
+.automod-rule .automod-head {
+  margin-bottom: 8px;
+}
+.automod-body {
+  padding-left: 26px;
+}
+.automod-body label:not(.toggle) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+.automod-body textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+}
+.automod-sub {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--dd-text-muted);
+  margin: 6px 0;
+}
+.automod-line {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 2;
+}
+.automod-number {
+  width: 72px;
+  display: inline-block;
+  padding: 2px 6px;
+}
+.automod-event {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--dd-border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.automod-event:last-of-type {
+  border-bottom: 0;
+}
+.automod-event-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.automod-excerpt {
+  margin: 0;
+  padding: 4px 10px;
+  border-left: 3px solid var(--dd-border);
+  color: var(--dd-text-muted);
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.automod-alerts .badge {
+  margin-left: auto;
+}
+.timeout-select {
+  width: auto;
+  padding: 2px 6px;
+  font-size: 13px;
+}
+@media (max-width: 720px) {
+  .automod-body {
+    padding-left: 0;
+  }
+}

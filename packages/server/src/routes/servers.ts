@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream, mkdirSync, rmSync, statSync } from
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { INLINE_IMAGE_TYPES, LIMITS } from "@dendrop/shared";
+import { AUTOMOD_LIMITS, INLINE_IMAGE_TYPES, LIMITS } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
 import { ConversationRepo } from "../conversations.js";
 import { HttpError } from "../errors.js";
@@ -47,6 +47,11 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
   app.addHook("onClose", async () => voice.closeAll());
   ctx.onPresence.push((userId, online) => {
     if (!online) voice.leave(userId);
+  });
+  // Someone timed out in a server leaves its voice channel.
+  ctx.automod.onTimeout.push((serverId, userId) => {
+    const cid = voice.channelOf(userId);
+    if (cid !== undefined && voice.state(cid)?.serverId === serverId) voice.leave(userId);
   });
   /** Takes people out of voice channels they can't see any more. */
   const pruneVoice = () => voice.prune((channelId) => !!servers.channelById(channelId));
@@ -327,6 +332,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     // Locked channels you weren't picked for don't exist, as far as you can tell.
     if (!c || c.serverId !== sid || !convos.isMember(c.conversationId, me.id)) throw new HttpError(404, "No such channel");
     if (c.kind !== "voice") throw new HttpError(400, "That's a text channel");
+    ctx.automod.assertNotTimedOut(sid, me.id);
     const nick = servers.view(sid, me.id)?.nickname;
     return voice.join({ channelId: c.id, serverId: sid, conversationId: c.conversationId }, { id: me.id, displayName: nick || me.displayName }, livekitUrl(config, req));
   });
@@ -355,6 +361,66 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     removeFiles(removedFiles);
     gateway.send(convos.memberIds(message.conversationId), { type: "message.updated", message });
     return message;
+  });
+
+  // ---- Automod and timeouts ---------------------------------------------------------
+  // Only the owner and admins see or change automod. Channels aren't encrypted, so the server
+  // checks each message before saving it (see automod.ts).
+
+  app.get<{ Params: { id: string } }>("/api/servers/:id/automod", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    moderator(sid, me);
+    return ctx.automod.settings(sid);
+  });
+
+  /** Changes some rules: { words?: {...}, spam?: {...}, links?: {...}, newAccounts?: {...} }. */
+  app.patch<{ Params: { id: string }; Body: unknown }>("/api/servers/:id/automod", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    moderator(sid, me);
+    return ctx.automod.update(sid, req.body);
+  });
+
+  /** What automod caught, newest first. ?before=<id> for older entries. */
+  app.get<{ Params: { id: string }; Querystring: { before?: string } }>("/api/servers/:id/automod/events", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    moderator(sid, me);
+    return ctx.automod.events(sid, req.query.before ? id(req.query.before) : undefined);
+  });
+
+  app.get<{ Params: { id: string } }>("/api/servers/:id/timeouts", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    moderator(sid, me);
+    return ctx.automod.timeouts(sid);
+  });
+
+  /** Times someone out: { minutes, reason? }. Admins can't time out the owner or other admins. */
+  app.put<{ Params: { id: string; userId: string }; Body: { minutes?: unknown; reason?: unknown } }>("/api/servers/:id/timeouts/:userId", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    const myRole = member(sid, me);
+    if (!isModerator(myRole)) throw new HttpError(403, "Only the owner and admins can do that");
+    const target = id(req.params.userId);
+    const theirRole = servers.role(sid, target);
+    if (!theirRole) throw new HttpError(404, "They aren't in this server");
+    if (target === me.id) throw new HttpError(400, "You can't time yourself out");
+    if (theirRole === "owner" || (theirRole === "admin" && myRole !== "owner")) throw new HttpError(403, "Only the owner can time out an admin");
+    const minutes = Number(req.body?.minutes);
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > AUTOMOD_LIMITS.timeoutMinutes) throw new HttpError(400, "Pick a timeout from 1 minute to 7 days");
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+    const until = ctx.automod.timeout(sid, target, minutes, reason, me.id);
+    return { until };
+  });
+
+  app.delete<{ Params: { id: string; userId: string } }>("/api/servers/:id/timeouts/:userId", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    moderator(sid, me);
+    if (!ctx.automod.clearTimeout(sid, id(req.params.userId))) throw new HttpError(404, "They aren't timed out");
+    return { ok: true };
   });
 
   // ---- Invites -------------------------------------------------------------------
