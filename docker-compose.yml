@@ -1,5 +1,6 @@
 # Example deployment. Copy .env.example to .env, adjust it, then:
-#   docker compose up -d --build
+#   docker compose up -d            (uses the published image)
+#   docker compose up -d --build    (builds from this folder instead)
 services:
   dendrop:
     build: .
@@ -8,23 +9,10 @@ services:
     restart: unless-stopped
     ports:
       - "${HOST_PORT:-8080}:8080"
+      # Calls (the built-in LiveKit server). Keep the same numbers on both sides, and forward
+      # them on your router for calls away from home.
+      - "7881:7881"
+      - "7882:7882/udp"
     env_file: .env
     volumes:
       - ${APPDATA_PATH:-/mnt/user/appdata/dendrop}:/data
-
-  # Voice and video calls. Remove this service (and the DENDROP_LIVEKIT_ settings) to run
-  # without calls. Forward 7881/tcp and 50000-50100/udp on your router for calls away from home,
-  # and put 7880 behind your reverse proxy with HTTPS (browsers need wss:// on an https page).
-  livekit:
-    image: livekit/livekit-server:v1.9
-    container_name: dendrop-livekit
-    restart: unless-stopped
-    command: --config /etc/livekit.yaml
-    environment:
-      - LIVEKIT_KEYS=${DENDROP_LIVEKIT_API_KEY}: ${DENDROP_LIVEKIT_API_SECRET}
-    ports:
-      - "7880:7880"
-      - "7881:7881"
-      - "50000-50100:50000-50100/udp"
-    volumes:
-      - ./deploy/livekit.yaml:/etc/livekit.yaml:ro

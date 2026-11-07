@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<!-- Unraid template for Dendrop. Install it with the steps in the README ("Unraid"). -->
+<Container version="2">
+  <Name>dendrop</Name>
+  <Repository>ghcr.io/spacegoose02/dendrop:latest</Repository>
+  <Registry>https://github.com/Spacegoose02/dendrop/pkgs/container/dendrop</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/Spacegoose02/dendrop/issues</Support>
+  <Project>https://github.com/Spacegoose02/dendrop</Project>
+  <Overview>Private, self-hosted chat for family and friends: DMs, group chats, chat servers, end-to-end encryption, and voice and video calls. One container: the web app, the API and the call server are all in it. Sign in with TinyAuth (or any OpenID Connect provider) or a username and password.</Overview>
+  <Category>Social: Network:Messenger</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/Spacegoose02/dendrop/main/deploy/unraid/dendrop.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/Spacegoose02/dendrop/main/packages/desktop/build/icon.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <Config Name="Web UI port" Target="8080" Default="8080" Mode="tcp" Description="The web app and API. Put this behind your reverse proxy with HTTPS (calls need it too, and go through the same address)." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+  <Config Name="Calls TCP port" Target="7881" Default="7881" Mode="tcp" Description="Call audio and video, fallback when UDP is blocked. Host and container port must be the same number. Forward it on your router for calls away from home." Type="Port" Display="always" Required="false" Mask="false">7881</Config>
+  <Config Name="Calls UDP port" Target="7882" Default="7882" Mode="udp" Description="Call audio and video. Host and container port must be the same number. Forward it (UDP) on your router for calls away from home." Type="Port" Display="always" Required="false" Mask="false">7882</Config>
+  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/dendrop" Mode="rw" Description="The database, uploaded files and keys. Back this folder up." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/dendrop</Config>
+  <Config Name="Public address" Target="DENDROP_PUBLIC_URL" Default="" Mode="" Description="The address people use, e.g. https://chat.example.com. Needed for TinyAuth sign-in and secure cookies." Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="TinyAuth issuer" Target="DENDROP_OIDC_ISSUER" Default="" Mode="" Description="Your TinyAuth address, e.g. https://auth.example.com. Leave empty to sign in with usernames and passwords only." Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="TinyAuth client ID" Target="DENDROP_OIDC_CLIENT_ID" Default="" Mode="" Description="From the OIDC client you add in TinyAuth, with redirect URL https://YOUR-ADDRESS/api/auth/oidc/callback" Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="TinyAuth client secret" Target="DENDROP_OIDC_CLIENT_SECRET" Default="" Mode="" Description="From the same TinyAuth OIDC client." Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="TinyAuth admin group" Target="DENDROP_OIDC_ADMIN_GROUP" Default="" Mode="" Description="Members of this group become super admins. Optional." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Calls" Target="DENDROP_CALLS" Default="on" Mode="" Description="on or off. Off hides the call buttons and doesn't start the call server." Type="Variable" Display="advanced" Required="false" Mask="false">on</Config>
+  <Config Name="Calls public IP" Target="DENDROP_CALLS_IP" Default="" Mode="" Description="Leave empty: the call server finds your public IP itself. Set it if that fails, e.g. no internet at start-up." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Username and password sign-in" Target="DENDROP_LOCAL_LOGIN" Default="true" Mode="" Description="true or false. On so the first (admin) account can be made; turn off once everyone uses TinyAuth." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+  <Config Name="Max upload (MB)" Target="DENDROP_MAX_UPLOAD_MB" Default="25" Mode="" Description="Largest file a message can carry." Type="Variable" Display="advanced" Required="false" Mask="false">25</Config>
+  <Config Name="Allow http:// push" Target="DENDROP_PUSH_ALLOW_HTTP" Default="false" Mode="" Description="true only if you run your own ntfy server on the home network over plain http." Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User the server runs as (99 is nobody)." Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group the server runs as (100 is users)." Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+</Container>

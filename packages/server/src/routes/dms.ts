@@ -8,6 +8,7 @@ import { requireUser, type Context } from "../app.js";
 import { CallService } from "../calls.js";
 import { ConversationRepo, type NewAttachment } from "../conversations.js";
 import { HttpError } from "../errors.js";
+import { livekitUrl } from "../livekit.js";
 import { FriendRepo } from "../friends.js";
 
 const keyVersion = (v: unknown): number | null => {
@@ -235,7 +236,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     const cid = id(req.params.id);
     member(cid, me.id);
     const isNew = !calls.get(cid);
-    const join = await calls.join(cid, convos.memberIds(cid), me, req.body?.video === true);
+    const join = await calls.join(cid, convos.memberIds(cid), me, req.body?.video === true, livekitUrl(config, req));
     // A new call rings everyone's phones too, even if a PC is already ringing.
     if (isNew) void ctx.push.notify(join.call.ringing, "call");
     return join;

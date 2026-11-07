@@ -1,6 +1,6 @@
 import { AccessToken } from "livekit-server-sdk";
 import type { Call, CallJoin } from "@dendrop/shared";
-import type { ServerConfig } from "./config.js";
+import { callsEnabled, type ServerConfig } from "./config.js";
 import { now } from "./db.js";
 import { HttpError } from "./errors.js";
 import type { Gateway } from "./gateway.js";
@@ -28,8 +28,7 @@ export class CallService {
   ) {}
 
   get enabled(): boolean {
-    const l = this.config.livekit;
-    return !!(l.url && l.apiKey && l.apiSecret);
+    return callsEnabled(this.config);
   }
 
   get(conversationId: number): Call | undefined {
@@ -45,8 +44,11 @@ export class CallService {
     return `dendrop-conversation-${conversationId}`;
   }
 
-  /** Starts a call, or joins the one already going. Returns what the client needs to connect. */
-  async join(conversationId: number, memberIds: number[], user: { id: number; displayName: string }, video: boolean): Promise<CallJoin> {
+  /**
+   * Starts a call, or joins the one already going. Returns what the client needs to connect;
+   * `url` is the LiveKit address for this client (the built-in one is reached through Dendrop's).
+   */
+  async join(conversationId: number, memberIds: number[], user: { id: number; displayName: string }, video: boolean, url: string): Promise<CallJoin> {
     if (!this.enabled) throw new HttpError(404, "Calls aren't set up on this server");
     let l = this.live.get(conversationId);
     if (!l) {
@@ -67,7 +69,7 @@ export class CallService {
     if (!l.call.joined.includes(user.id)) l.call.joined.push(user.id);
     l.call.ringing = l.call.ringing.filter((m) => m !== user.id);
     this.broadcast(l);
-    return { call: l.call, url: this.config.livekit.url, token: await this.token(conversationId, user) };
+    return { call: l.call, url, token: await this.token(conversationId, user) };
   }
 
   /** Stops ringing this person. In a 1:1 call that ends it. */

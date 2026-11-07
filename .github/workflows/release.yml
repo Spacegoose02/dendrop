@@ -1,4 +1,5 @@
-# Push a tag like v0.2.0 to build the desktop app for Windows and Linux and the Android APK and
+# Push a tag like v0.2.0 to publish the server image to ghcr.io/spacegoose02/dendrop (the one
+# the Unraid template uses), build the desktop app for Windows and Linux and the Android APK and
 # attach them to a GitHub release, with a SHA256SUMS file the app checks updates against (packages/desktop/src/updater.ts).
 name: Release
 
@@ -8,8 +9,38 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+      # Never publish an image that doesn't start: build it locally and run it first.
+      - uses: docker/build-push-action@v6
+        with:
+          load: true
+          tags: dendrop-smoke
+      - run: sh scripts/docker-smoke.sh dendrop-smoke
+      - uses: docker/build-push-action@v6
+        with:
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
   desktop:
     strategy:
       fail-fast: false
@@ -78,9 +109,11 @@ jobs:
     needs: [desktop, android]
     runs-on: ubuntu-latest
     steps:
+      # Skip the docker build record; one folder per artifact so merges do not race.
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: "{desktop-*,android}"
       # A block scalar, because in a plain one the "  #" in the sed below starts a YAML comment.
       - run: |
           find dist -type f -exec sha256sum {} + | sed 's#  .*/#  #' | sort -k2 > SHA256SUMS
