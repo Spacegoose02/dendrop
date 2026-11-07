@@ -12,12 +12,14 @@ import { SESSION_COOKIE, SessionService } from "./auth/sessions.js";
 import type { ServerConfig } from "./config.js";
 import { openDb, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
+import { FamilyService, type WebhookPost } from "./family.js";
 import { Gateway } from "./gateway.js";
 import { builtinLivekit } from "./livekit.js";
 import { PushService } from "./push.js";
 import { pushRoutes } from "./routes/push.js";
 import { authRoutes } from "./routes/auth.js";
 import { dmRoutes } from "./routes/dms.js";
+import { familyRoutes, guardKids } from "./routes/family.js";
 import { guardChannelConversations, serverRoutes } from "./routes/servers.js";
 import { toMe, UserRepo, type UserRecord } from "./users.js";
 
@@ -36,6 +38,8 @@ export interface Context {
   oidc: OidcService;
   gateway: Gateway;
   push: PushService;
+  /** Kid accounts, parents, rules and alerts. */
+  family: FamilyService;
   /** Hooks for the gateway, so features can react to events from clients. */
   onClientEvent: ((user: UserRecord, event: ClientEvent) => void)[];
   onPresence: ((userId: number, online: boolean) => void)[];
@@ -51,18 +55,20 @@ export interface BuiltApp {
 export async function buildApp(
   config: ServerConfig,
   db: Db = openDb(path.join(config.dataDir, "dendrop.db")),
-  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2] } = {},
+  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2]; webhookPost?: WebhookPost } = {},
 ): Promise<BuiltApp> {
   const app = Fastify({ logger: process.env.NODE_ENV === "test" ? false : { level: process.env.DENDROP_LOG_LEVEL ?? "info" }, trustProxy: true });
   const users = new UserRepo(db);
+  const gateway = new Gateway();
   const ctx: Context = {
     config,
     db,
     users,
     sessions: new SessionService(db, users),
     oidc: new OidcService(config, users),
-    gateway: new Gateway(),
+    gateway,
     push: new PushService(db, { publicUrl: config.publicUrl, allowHttp: config.pushAllowHttp }, options.pushPost),
+    family: new FamilyService(db, users, gateway, { publicUrl: config.publicUrl }, options.webhookPost),
     onClientEvent: [],
     onPresence: [],
     callRingMs: options.callRingMs,
@@ -88,6 +94,7 @@ export async function buildApp(
   });
 
   guardChannelConversations(app, ctx);
+  guardKids(app, ctx);
 
   app.get("/api/health", async () => ({ status: "ok" }));
 
@@ -95,6 +102,7 @@ export async function buildApp(
   await app.register(async (api) => dmRoutes(api, ctx));
   await app.register(async (api) => pushRoutes(api, ctx));
   await app.register(async (api) => serverRoutes(api, ctx));
+  await app.register(async (api) => familyRoutes(api, ctx));
   await app.register(async (api) => gatewayRoute(api, ctx));
   builtinLivekit(app, config);
 

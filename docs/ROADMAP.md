@@ -100,7 +100,7 @@ Pulled up right after DMs, because chatting happens mostly from a phone and a PC
 - **Sounds → Sounds for deafen, undeafen, mute, unmute** and other events.
 
 ### Phase 5: Kid-safe chat
-Built on Phase 1 accounts, so it can start earlier if it becomes the priority.
+Built on Phase 1 accounts, so it can start earlier if it becomes the priority. Started: see [KIDS.md](KIDS.md) for how it works with end-to-end encryption.
 - **Link kid accounts with parents** (parent account owns one or more child accounts; can reuse LootDen's kid profiles, see Phase 8).
 - **Parental controls** dashboard: who the kid can DM, which servers they can join, friend request approval.
 - **Time-based controls** (allowed hours, daily limits).
@@ -187,13 +187,13 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Features | Server chat profile / rename | 7 | Done (name, description, per-server nickname) |
 | Features | Server chat banner | 7 | Done (icon and banner) |
 | Integrations | LootDen integration | 8 | Missing |
-| Kid safe chat | Profanity filters | 5 | Missing |
-| Kid safe chat | Kid's deleted messages sent to parent | 5 | Missing |
-| Kid safe chat | Time-based controls | 5 | Missing |
-| Kid safe chat | Parental controls | 5 | Missing |
-| Kid safe chat | Link kid accounts with parents | 5 | Missing |
-| Kid safe chat | Webhook alert notifications | 5 | Missing |
-| Kid safe chat | Parents as ghost admins when alerted | 5 | Missing |
+| Kid safe chat | Profanity filters | 5 | Partial: filter and per-kid words on the server (plain messages); filtering on the kid's device in the app PR |
+| Kid safe chat | Kid's deleted messages sent to parent | 5 | Partial: server keeps copies (still encrypted) until a parent is done; app view to come |
+| Kid safe chat | Time-based controls | 5 | Partial: chat hours and daily minutes enforced by the server; app screens to come |
+| Kid safe chat | Parental controls | 5 | Partial: friend approval and chat server permission on the server; dashboard to come |
+| Kid safe chat | Link kid accounts with parents | 5 | Partial: link codes and super admin links on the server; app screens to come |
+| Kid safe chat | Webhook alert notifications | 5 | Done on the server (content-free, ntfy/Apprise friendly); setting in the app to come |
+| Kid safe chat | Parents as ghost admins when alerted | 5 | Partial: read-only access while an alert is open, audit log for the kid; app view to come |
 | Sounds | Sounds for deafen/mute events | 4 | Missing |
 | Sounds | Incoming call / message notifications | 2 | Missing |
 | Automod | Automod settings | 6 | Missing |

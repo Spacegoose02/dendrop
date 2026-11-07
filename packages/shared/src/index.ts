@@ -18,9 +18,12 @@ export interface Me extends PublicUser {
   readReceipts: boolean;
   /** Can make chat servers: super admins always, everyone else once a super admin approves them. */
   canCreateServers: boolean;
+  /** A kid account: linked to at least one parent, with kid-safe rules. */
+  isKid: boolean;
 }
 
-export type FriendState = "friends" | "incoming" | "outgoing";
+/** "held": both said yes, but a kid's parent still has to approve it before they can chat. */
+export type FriendState = "friends" | "incoming" | "outgoing" | "held";
 
 export interface Friend {
   user: PublicUser;
@@ -47,12 +50,21 @@ export interface Conversation {
   reads: ReadState[];
   /** End-to-end encryption, or null while the conversation has no key yet (messages are plain). */
   e2ee: ConversationE2ee | null;
+  /**
+   * Parents of the kids in this conversation (who aren't in it themselves). Conversation keys
+   * are wrapped for them too, so they can read it while one of their alerts about it is open.
+   * Shown to everyone in the conversation, so nobody is surprised.
+   */
+  guardians: PublicUser[];
 }
 
 export interface ConversationE2ee {
   /** The newest key version. New messages must use it. */
   version: number;
-  /** Members who have no copy of the newest key (they reset their keys), so it needs a new version. */
+  /**
+   * Members and guardians who have no copy of the newest key (they reset their keys, or a
+   * parent was linked since), so it needs a new version.
+   */
   missing: number[];
 }
 
@@ -262,6 +274,102 @@ export interface AdminServer extends ChatServerSummary {
   createdAt: string;
 }
 
+// ---- Kid-safe chat ---------------------------------------------------------------------
+
+/** What a kid account may do. Set by the kid's parents. */
+export interface KidRules {
+  /** Hide swear words in what the kid reads, and stop them sending them. */
+  profanityFilter: boolean;
+  /** Extra words to filter, on top of the built-in list. */
+  blockedWords: string[];
+  /** New friends wait for a parent to say yes. */
+  approveFriends: boolean;
+  /** May join or make chat servers. */
+  canJoinServers: boolean;
+  /** Chatting is allowed from this time until allowedUntil ("HH:MM", kid's time zone). Both null: any time. */
+  allowedFrom: string | null;
+  allowedUntil: string | null;
+  /** Minutes a day the app can be open, or null for no limit. */
+  dailyMinutes: number | null;
+  /** IANA time zone the times and days are counted in, such as "America/Chicago". */
+  timezone: string;
+}
+
+/** Whether a kid can chat right now. */
+export interface KidStatus {
+  minutesToday: number;
+  allowedNow: boolean;
+  /** Why not, in words for the kid. */
+  reason: string | null;
+}
+
+export interface FamilyKid {
+  user: PublicUser;
+  parents: PublicUser[];
+  rules: KidRules;
+  status: KidStatus;
+  linkedAt: string;
+}
+
+export type FamilyAlertType =
+  /** The kid deleted a message; a copy is kept for the parents. */
+  | "deleted"
+  /** The kid's app caught a filtered word (sent or received). Never says which word. */
+  | "profanity"
+  /** A new friend is waiting for approval (or was added, when approval is off). */
+  | "contact"
+  /** The kid used up today's minutes. */
+  | "time_limit"
+  /** The kid asked a parent to look at a chat. */
+  | "help";
+
+export interface FamilyAlert {
+  id: number;
+  kid: PublicUser;
+  type: FamilyAlertType;
+  /** The conversation it's about. While the alert is open, parents can read it (read only). */
+  conversationId: number | null;
+  messageId: number | null;
+  /** For "contact": the new friend. */
+  other: PublicUser | null;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+/** A parent looked at a kid's chat. Kids see these. */
+export interface FamilyAuditEntry {
+  parent: PublicUser;
+  kidId: number;
+  conversationId: number | null;
+  createdAt: string;
+}
+
+/** GET /api/family: your family, as a kid or a parent (or both empty). */
+export interface FamilyInfo {
+  /** Set when you're a kid: who your parents are, your rules, and when they looked at your chats. */
+  parents: PublicUser[];
+  rules: KidRules | null;
+  status: KidStatus | null;
+  audit: FamilyAuditEntry[];
+  /** Your kids, when you're a parent. */
+  kids: FamilyKid[];
+  /** Where your alerts are also sent, as a parent. */
+  webhookUrl: string | null;
+}
+
+export interface FamilyLinkCode {
+  code: string;
+  expiresAt: string;
+}
+
+/** A kid's chat as a parent sees it while an alert is open. */
+export interface FamilyChat {
+  alert: FamilyAlert;
+  conversation: Conversation;
+  /** Newest page, oldest first. Messages the kid deleted come back with their kept copy. */
+  messages: (Message & { deletedByKid?: boolean })[];
+}
+
 /** Pictures the web client shows inline. Everything else is offered as a download. */
 export const INLINE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
@@ -307,10 +415,16 @@ export type ServerEvent =
   /** Your request to make servers was approved or denied; to super admins, a new or decided request. */
   | { type: "server.request"; request: ServerCreatorRequest }
   /** Someone joined, left or changed state in a voice channel you can see (or you were taken out of one). */
-  | { type: "voice.updated"; voice: VoiceChannelState };
+  | { type: "voice.updated"; voice: VoiceChannelState }
+  /** Your family changed: linked, unlinked, rules, or (for a kid) whether you can chat now. */
+  | { type: "family.updated"; family: FamilyInfo }
+  /** A new alert about one of your kids. */
+  | { type: "family.alert"; alert: FamilyAlert };
 
 /** Events a client sends over the gateway. Everything else goes through the HTTP API. */
 export type ClientEvent = { type: "typing"; conversationId: number } | { type: "ping" };
+
+export * from "./profanity.js";
 
 export const isUsername = (s: unknown): s is string =>
   typeof s === "string" && s.length >= 2 && s.length <= LIMITS.usernameLength && /^[\w.-]+$/.test(s);

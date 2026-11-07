@@ -81,6 +81,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     if (other.id === me.id) throw new HttpError(400, "You can't add yourself");
     const f = friends.request(me.id, other.id);
     pushFriend(me.id, other.id);
+    ctx.family.friendsChanged(me.id, other.id);
     return f;
   });
 
@@ -94,6 +95,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
       throw new HttpError(404, (err as Error).message);
     }
     pushFriend(me.id, other);
+    ctx.family.friendsChanged(me.id, other);
     return f;
   });
 
@@ -280,8 +282,19 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
 
   app.delete<{ Params: { id: string } }>("/api/messages/:id", async (req) => {
     const me = requireUser(req);
-    const { message: m, removedFiles } = convos.delete(id(req.params.id), me.id);
-    removeFiles(removedFiles);
+    const mid = id(req.params.id);
+    // A kid's parents get a copy of what they delete, files included, so those stay on disk.
+    const kept = ctx.family.keepBeforeDelete(me.id, mid);
+    let result;
+    try {
+      result = convos.delete(mid, me.id);
+    } catch (err) {
+      ctx.family.afterDelete(me.id, mid, false);
+      throw err;
+    }
+    const { message: m, removedFiles } = result;
+    ctx.family.afterDelete(me.id, mid, true);
+    removeFiles(removedFiles.filter((f) => !kept.has(f)));
     gateway.send(convos.memberIds(m.conversationId), { type: "message.updated", message: m });
     return m;
   });
