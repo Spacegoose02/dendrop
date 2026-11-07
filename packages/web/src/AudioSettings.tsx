@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { comboFromEvent, comboLabel, hasGlobalShortcuts, saveKeybinds, setRecording, useKeybinds, type Combo, type VoiceAction } from "./keybinds.ts";
+import { comboFromEvent, comboLabel, hasBackgroundPtt, hasGlobalShortcuts, saveKeybinds, setRecording, useKeybinds, type Combo, type VoiceAction } from "./keybinds.ts";
 import { applyOutput, canPickOutput, micConstraints, micError, playSound, saveAudio, useAudioPrefs, VoiceGate, type AudioPrefs, type NoiseLevel } from "./audio.ts";
 
 const NOISE: { id: NoiseLevel; label: string; detail: string }[] = [
@@ -306,7 +306,7 @@ function Keybinds() {
       <p className="muted small">
         {k.inputMode === "ptt"
           ? k.binds.pushToTalk
-            ? `Your mic only sends while you hold ${comboLabel(k.binds.pushToTalk)}, with Dendrop in front.`
+            ? `Your mic only sends while you hold ${comboLabel(k.binds.pushToTalk)}${hasBackgroundPtt() && k.backgroundPtt ? ", even in a game" : ", with Dendrop in front"}.`
             : "Pick a push-to-talk key below. Until then your mic stays quiet."
           : "Your mic sends when you talk, using the input sensitivity below."}
       </p>
@@ -330,9 +330,24 @@ function Keybinds() {
         })}
       </div>
       {note && <p className="error">{note}</p>}
+      {hasBackgroundPtt() && (
+        <label className="toggle">
+          <input type="checkbox" checked={k.backgroundPtt} onChange={(e) => saveKeybinds({ ...k, backgroundPtt: e.target.checked })} />
+          <span>
+            <strong>Push to talk in the background</strong>
+            <span className="muted small">
+              Works while you're in a game. To do that, the app watches the keyboard, but only while you're in a call or voice channel with
+              push to talk on. It ignores every other key, and nothing about your typing leaves this PC. Doesn't work on Linux with Wayland,
+              or in games running as administrator.
+            </span>
+          </span>
+        </label>
+      )}
       <p className="muted small">
         {hasGlobalShortcuts()
-          ? "Mute and deafen also work while Dendrop is in the background. Push to talk works with Dendrop in front."
+          ? hasBackgroundPtt() && k.backgroundPtt
+            ? "Mute, deafen and push to talk also work while Dendrop is in the background."
+            : "Mute and deafen also work while Dendrop is in the background. Push to talk works with Dendrop in front."
           : "Keybinds work while this tab is in front. In the PC app, mute and deafen also work in the background."}
       </p>
     </>

@@ -21,10 +21,13 @@ export interface Keybinds {
   /** Voice activity sends when you talk (see input sensitivity); push to talk only while the key is held. */
   inputMode: "voice" | "ptt";
   binds: Record<VoiceAction, Combo | null>;
+  /** PC app: push to talk works while Dendrop is in the background (a keyboard hook, only while you're in voice). */
+  backgroundPtt: boolean;
 }
 
 export const DEFAULT_KEYBINDS: Keybinds = {
   inputMode: "voice",
+  backgroundPtt: true,
   binds: {
     pushToTalk: null,
     mute: { ctrl: true, alt: false, shift: true, meta: false, code: "KeyM" },
@@ -38,7 +41,11 @@ const EVENT = "dendrop-keybinds";
 export function loadKeybinds(): Keybinds {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<Keybinds>;
-    return { inputMode: saved.inputMode === "ptt" ? "ptt" : "voice", binds: { ...DEFAULT_KEYBINDS.binds, ...(saved.binds ?? {}) } };
+    return {
+      inputMode: saved.inputMode === "ptt" ? "ptt" : "voice",
+      binds: { ...DEFAULT_KEYBINDS.binds, ...(saved.binds ?? {}) },
+      backgroundPtt: saved.backgroundPtt !== false,
+    };
   } catch {
     return structuredClone(DEFAULT_KEYBINDS);
   }
@@ -149,10 +156,22 @@ export const pttHeld = () => held;
 interface DesktopShortcuts {
   setShortcuts?: (accelerators: Record<string, string | null>) => Promise<Record<string, boolean>>;
   onShortcut?: (cb: (action: string) => void) => () => void;
+  backgroundPtt?: (combo: Combo | null) => Promise<boolean>;
+  onPtt?: (cb: (held: boolean) => void) => () => void;
 }
 const desktop = (): DesktopShortcuts | undefined => (window as unknown as { dendrop?: DesktopShortcuts }).dendrop;
 /** The desktop app can register shortcuts that work while it's in the background. */
 export const hasGlobalShortcuts = (): boolean => !!desktop()?.setShortcuts;
+/** The desktop app can do push to talk in the background. */
+export const hasBackgroundPtt = (): boolean => !!desktop()?.backgroundPtt;
+
+// Calls and voice panels say when they're connected, so the background keyboard hook only runs then.
+let voiceUsers = 0;
+const voiceActivity = new EventTarget();
+export function setVoiceActive(on: boolean): void {
+  voiceUsers = Math.max(0, voiceUsers + (on ? 1 : -1));
+  voiceActivity.dispatchEvent(new Event("change"));
+}
 
 const editable = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.isContentEditable || t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT");
@@ -209,11 +228,15 @@ export function useVoiceKeybinds(): void {
     // Switching windows mid-press never sends the key up.
     addEventListener("keydown", onDown);
     addEventListener("keyup", onUp);
-    addEventListener("blur", release);
+    // With background push to talk the hook keeps track instead.
+    const onBlur = () => {
+      if (!(hasBackgroundPtt() && k.backgroundPtt)) release();
+    };
+    addEventListener("blur", onBlur);
     return () => {
       removeEventListener("keydown", onDown);
       removeEventListener("keyup", onUp);
-      removeEventListener("blur", release);
+      removeEventListener("blur", onBlur);
       release();
     };
   }, [k, globalOk]);
@@ -228,6 +251,30 @@ export function useVoiceKeybinds(): void {
       .then(setGlobalOk)
       .catch(() => setGlobalOk({}));
   }, [k]);
+
+  // Desktop app: push to talk in the background, only while in voice with push to talk on.
+  const [inVoice, setInVoice] = useState(voiceUsers > 0);
+  useEffect(() => {
+    const update = () => setInVoice(voiceUsers > 0);
+    voiceActivity.addEventListener("change", update);
+    return () => voiceActivity.removeEventListener("change", update);
+  }, []);
+  useEffect(() => {
+    const d = desktop();
+    if (!d?.backgroundPtt) return;
+    const combo = k.inputMode === "ptt" && k.backgroundPtt && inVoice ? k.binds.pushToTalk : null;
+    void d.backgroundPtt(combo).catch(() => {});
+    return () => void d.backgroundPtt?.(null).catch(() => {});
+  }, [k, inVoice]);
+  useEffect(() => {
+    const d = desktop();
+    if (!d?.onPtt) return;
+    return d.onPtt((down) => {
+      if (down === held) return;
+      held = down;
+      sendControl(down ? "ptt-down" : "ptt-up");
+    });
+  }, []);
 
   useEffect(() => {
     const d = desktop();
