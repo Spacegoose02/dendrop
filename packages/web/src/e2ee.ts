@@ -178,12 +178,27 @@ async function wrapKey(priv: CryptoKey, pub: CryptoKey, epk: Uint8Array<ArrayBuf
   );
 }
 
-async function unwrapKey(wrapped: string, me: Identity, aad: string): Promise<CryptoKey> {
+async function unwrapKey(wrapped: string, me: Identity, aad: string): Promise<ConversationKey> {
   const [epk, iv, ct] = wrapped.split(".").map(unb64) as [Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>];
   const them = await crypto.subtle.importKey("raw", epk, ECDH, false, []);
   const kek = await wrapKey(me.privateKey, them, epk);
-  const raw = await crypto.subtle.decrypt({ name: "AES-GCM", iv, additionalData: enc.encode(aad) }, kek, ct);
-  return crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
+  return importConversationKey(await crypto.subtle.decrypt({ name: "AES-GCM", iv, additionalData: enc.encode(aad) }, kek, ct));
+}
+
+/**
+ * A conversation key, imported twice from the same secret: for AES-GCM on messages and files,
+ * and for HKDF to make call keys. Neither can be exported.
+ */
+interface ConversationKey {
+  aes: CryptoKey;
+  hkdf: CryptoKey;
+}
+
+async function importConversationKey(raw: ArrayBuffer | Uint8Array<ArrayBuffer>): Promise<ConversationKey> {
+  return {
+    aes: await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]),
+    hkdf: await crypto.subtle.importKey("raw", raw, "HKDF", false, ["deriveBits"]),
+  };
 }
 
 const wrapAad = (cid: number, version: number) => `dendrop:key:${cid}:${version}`;
@@ -191,7 +206,7 @@ const wrapAad = (cid: number, version: number) => `dendrop:key:${cid}:${version}
 /** Conversation keys this device has opened, by conversation and version. */
 class KeyRing {
   identity: Identity | null = null;
-  private keys = new Map<number, Map<number, CryptoKey>>();
+  private keys = new Map<number, Map<number, ConversationKey>>();
   private loading = new Map<number, Promise<void>>();
 
   clear() {
@@ -206,7 +221,7 @@ class KeyRing {
         const me = this.identity;
         if (!me) return;
         const wrapped = await api<WrappedKey[]>(`/api/conversations/${cid}/keys`);
-        const found = this.keys.get(cid) ?? new Map<number, CryptoKey>();
+        const found = this.keys.get(cid) ?? new Map<number, ConversationKey>();
         for (const w of wrapped) {
           if (found.has(w.version)) continue;
           try {
@@ -223,8 +238,26 @@ class KeyRing {
   }
 
   async key(cid: number, version: number): Promise<CryptoKey | undefined> {
+    return (await this.both(cid, version))?.aes;
+  }
+
+  private async both(cid: number, version: number): Promise<ConversationKey | undefined> {
     if (!this.keys.get(cid)?.has(version)) await this.load(cid);
     return this.keys.get(cid)?.get(version);
+  }
+
+  /**
+   * The media key for one call: HKDF of the conversation key, salted with when the call
+   * started, so each call gets its own key and everyone in it works out the same one.
+   */
+  async callKey(cid: number, version: number, startedAt: string): Promise<ArrayBuffer | undefined> {
+    const k = await this.both(cid, version);
+    if (!k) return undefined;
+    return crypto.subtle.deriveBits(
+      { name: "HKDF", hash: "SHA-256", salt: enc.encode(startedAt), info: enc.encode(`dendrop:call:v1:${cid}:${version}`) },
+      k.hkdf,
+      256,
+    );
   }
 
   /**
@@ -251,8 +284,8 @@ class KeyRing {
     const keys: Record<number, { publicKey: string; wrapped: string }> = {};
     for (const m of members) keys[m.id] = { publicKey: m.publicKey!, wrapped: await wrapKeyFor(raw, m.publicKey!, wrapAad(cid, version)) };
     await api<Conversation>(`/api/conversations/${cid}/keys`, { body: { version, keys } });
-    const found = this.keys.get(cid) ?? new Map<number, CryptoKey>();
-    found.set(version, await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]));
+    const found = this.keys.get(cid) ?? new Map<number, ConversationKey>();
+    found.set(version, await importConversationKey(raw));
     this.keys.set(cid, found);
     return version;
   }

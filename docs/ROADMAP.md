@@ -47,7 +47,7 @@ packages/android  # Capacitor app (APK)
 
 Dendrop exists to replace Discord and take privacy back, so these apply to every phase:
 - **Self-hosted, no third-party dependencies by default.** Everything runs in your own Docker stack. Anything that talks to an outside service (GIF search, FCM push, link previews) is opt-in and off by default.
-- **End-to-end encryption for DMs.** Message content is encrypted on the device so the server only stores ciphertext. Shipped for DMs and group DMs (text and files), see [ENCRYPTION.md](ENCRYPTION.md). Still to come: LiveKit's E2EE for call media, and forward secrecy (a Signal-style or MLS ratchet). Server channels can start unencrypted and adopt it later.
+- **End-to-end encryption for DMs.** Message content is encrypted on the device so the server only stores ciphertext. Shipped for DMs and group DMs (text and files), see [ENCRYPTION.md](ENCRYPTION.md). Calls in encrypted conversations use LiveKit's media E2EE. Still to come: forward secrecy (a Signal-style or MLS ratchet). Server channels can start unencrypted and adopt it later.
 - **Minimal data.** No analytics or tracking, no message scanning on the server for DM content; filtering for kid accounts runs on the client.
 - **Encrypted at rest and backups you control.** Postgres and file storage on encrypted volumes, with documented backup/restore.
 - **Push notifications without content.** Notifications say "new message" and the app fetches the content, so ntfy/FCM never sees it.
@@ -73,7 +73,7 @@ Goal: you and your wife can log in and chat privately, replacing Discord DMs fir
 - **Features → Message read receipts**, **Activity privacy** (hide online status / current activity).
 - **Features → Emojis**, **File uploading**.
 - **1:1 voice and video calls in DMs** (pulled forward from Phase 4, LiveKit with end-to-end encrypted media).
-- End-to-end encryption for DMs and group DMs: done (see [ENCRYPTION.md](ENCRYPTION.md)). Call media E2EE is next.
+- End-to-end encryption for DMs and group DMs, including call audio and video: done (see [ENCRYPTION.md](ENCRYPTION.md)).
 
 ### Phase 2: Phone and PC apps
 Pulled up right after DMs, because chatting happens mostly from a phone and a PC.
