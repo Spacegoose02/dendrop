@@ -373,6 +373,12 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE kid_rules ADD COLUMN chores_first INTEGER NOT NULL DEFAULT 0;
   `,
   `
+  -- Kid time rules that follow LootDen's play limits: its bedtime closes chat, and its game
+  -- time shares the daily time with chat. Off until a parent turns them on.
+  ALTER TABLE kid_rules ADD COLUMN lootden_bedtime INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE kid_rules ADD COLUMN lootden_play_time INTEGER NOT NULL DEFAULT 0;
+  `,
+  `
   -- Voice channels opened while two or more people in a server play the same game (from
   -- LootDen's Playing now). game is the title in lowercase. voice_channel_id is null when a
   -- moderator deleted the channel: it isn't opened again until everyone has stopped.

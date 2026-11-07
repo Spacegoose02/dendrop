@@ -1,6 +1,7 @@
-import type { Activity, ChannelRef, LootdenSettings, LootdenStatus } from "@dendrop/shared";
+import type { Activity, ChannelRef, LootdenKidLimits, LootdenSettings, LootdenStatus } from "@dendrop/shared";
 import type { Db } from "./db.js";
 import { HttpError } from "./errors.js";
+import { isTimeZone, localTime } from "./family.js";
 import type { Gateway } from "./gateway.js";
 import { toPublic, type UserRecord, type UserRepo } from "./users.js";
 
@@ -39,6 +40,24 @@ interface NowPlaying {
   startedAt: string;
 }
 
+/** A profile's play limits and today's allowance, as GET /api/users/:id/limits (admins) gives them. */
+interface LootdenLimits {
+  limits: { weekdayMinutes: number | null; weekendMinutes: number | null; bedtime: { from: string; to: string } | null };
+  allowance: { date: string; timeZone: string; usedSeconds: number; bonusSeconds: number };
+}
+
+/** What's kept of a kid's LootDen limits from the last check that got them. */
+interface KidPlay {
+  weekdayMinutes: number | null;
+  weekendMinutes: number | null;
+  bedtime: { from: string; to: string } | null;
+  timezone: string;
+  /** The day (LootDen's time zone) usedSeconds and bonusSeconds are for. */
+  date: string;
+  usedSeconds: number;
+  bonusSeconds: number;
+}
+
 interface Playing {
   activity: Activity;
   /** The LootDen profile is a kid profile (so its games are kid-safe ones). */
@@ -53,6 +72,26 @@ const SETTINGS_KEY = "lootden";
 const defaultFetch: LootdenFetch = (url, init) => fetch(url, init);
 
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const minutesOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.min(Math.round(v), 1440) : null);
+const seconds = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+
+/** LootDen's answer for one profile's limits, with anything odd dropped; null when it isn't one. */
+function readLimits(x: unknown): KidPlay | null {
+  const r = x as Partial<LootdenLimits> | null;
+  if (!r || typeof r !== "object" || !r.limits || !r.allowance) return null;
+  const b = r.limits.bedtime;
+  const date = str(r.allowance.date, 10);
+  return {
+    weekdayMinutes: minutesOrNull(r.limits.weekdayMinutes),
+    weekendMinutes: minutesOrNull(r.limits.weekendMinutes),
+    bedtime: b && HHMM.test(String(b.from)) && HHMM.test(String(b.to)) && b.from !== b.to ? { from: b.from, to: b.to } : null,
+    timezone: isTimeZone(r.allowance.timeZone) ? r.allowance.timeZone : "UTC",
+    date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "",
+    usedSeconds: seconds(r.allowance.usedSeconds),
+    bonusSeconds: seconds(r.allowance.bonusSeconds),
+  };
+}
 
 /**
  * The link to LootDen, the family's game library. Both sign in through the same TinyAuth, so
@@ -63,6 +102,8 @@ const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim
  */
 export class LootdenLink {
   private playing = new Map<number, Playing>();
+  /** Kid accounts' LootDen play limits, by Dendrop user id. */
+  private kidPlay = new Map<number, KidPlay>();
   private accounts: LootdenStatus["accounts"] = [];
   private lastOk = 0;
   private error: string | null = null;
@@ -202,6 +243,7 @@ export class LootdenLink {
       this.accounts = [];
       this.error = null;
       this.lastOk = 0;
+      this.kidPlay.clear();
       this.replace(new Map());
       return;
     }
@@ -238,6 +280,7 @@ export class LootdenLink {
           activity: { kind: "playing", title: str(np.title, 200) || "a game", device: str(np.device, 100), startedAt, url: href },
         });
       }
+      await this.readKidLimits(matched);
       this.lastOk = this.clock();
       this.error = null;
       this.replace(next);
@@ -247,6 +290,46 @@ export class LootdenLink {
       // LootDen being down for a while means we don't know who's still playing.
       if (this.clock() - this.lastOk > STALE_MS) this.replace(new Map());
     }
+  }
+
+  /**
+   * Play limits for the matched profiles that are Dendrop kid accounts. A kid whose limits
+   * can't be read this time keeps the last ones (they rarely change); one no longer matched
+   * is dropped.
+   */
+  private async readKidLimits(matched: Map<number, { user: UserRecord; kid: boolean }>): Promise<void> {
+    const kids = [...matched].filter(([, m]) => m.user.isKid);
+    const next = new Map<number, KidPlay>();
+    await Promise.all(
+      kids.map(async ([lootdenId, { user }]) => {
+        const read = await this.get<unknown>(`/api/users/${lootdenId}/limits`).then(readLimits, () => null);
+        const play = read ?? this.kidPlay.get(user.id);
+        if (play) next.set(user.id, play);
+      }),
+    );
+    this.kidPlay = next;
+  }
+
+  /** A kid account's LootDen play limits for today, or null when there are none to go by. */
+  kidLimits(userId: number, at: Date = new Date(this.clock())): LootdenKidLimits | null {
+    const k = this.kidPlay.get(userId);
+    if (!k) return null;
+    const { day, minute, weekday } = localTime(k.timezone, at);
+    const sameDay = k.date === day;
+    const daily = weekday === 0 || weekday === 6 ? k.weekendMinutes : k.weekdayMinutes;
+    let played = sameDay ? k.usedSeconds : 0;
+    // LootDen counts a game once it ends; add the one running now, from today's part of it.
+    const running = this.playing.get(userId);
+    if (running) {
+      const since = (at.getTime() - Date.parse(running.activity.startedAt)) / 1000;
+      if (since > 0) played += Math.min(since, minute * 60 + 59);
+    }
+    return {
+      bedtime: k.bedtime,
+      dailyMinutes: daily === null ? null : daily + (sameDay ? Math.floor(k.bonusSeconds / 60) : 0),
+      playedMinutes: Math.floor(played / 60),
+      timezone: k.timezone,
+    };
   }
 
   private async get<T>(path: string): Promise<T> {

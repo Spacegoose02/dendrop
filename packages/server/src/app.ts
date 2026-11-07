@@ -102,6 +102,8 @@ export async function buildApp(
     onPresence: [],
     callRingMs: options.callRingMs,
   };
+  // LootDen's play limits feed kids' time rules, when a parent turns that on.
+  family.playLimits = (kidId, at) => ctx.lootden.kidLimits(kidId, at);
 
   await app.register(cookie);
   await app.register(multipart, { limits: { fileSize: config.maxUploadBytes } });
