@@ -186,7 +186,8 @@ export function CallPanel({
   );
 }
 
-function Tile({ p, isMe, myName }: { p: Participant; isMe: boolean; myName: string }) {
+/** One person in a call or voice channel: their camera or avatar, and their audio. */
+export function Tile({ p, isMe, myName, label, deafened = false }: { p: Participant; isMe: boolean; myName: string; label?: string; deafened?: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const cam = p.getTrackPublication(Track.Source.Camera);
@@ -212,11 +213,11 @@ function Tile({ p, isMe, myName }: { p: Participant; isMe: boolean; myName: stri
     };
   }, [micTrack]);
 
-  const name = isMe ? myName : p.name || p.identity;
+  const name = label ?? (isMe ? myName : p.name || p.identity);
   return (
     <div className={`tile ${p.isSpeaking ? "speaking" : ""}`}>
       {camTrack ? <video ref={videoRef} autoPlay playsInline muted={isMe} className={isMe ? "mirror" : ""} /> : <Avatar name={name} size={64} />}
-      {micTrack && <audio ref={audioRef} autoPlay />}
+      {micTrack && <audio ref={audioRef} autoPlay muted={deafened} />}
       <span className="tile-name">
         {name}
         {isMe ? " (you)" : ""}

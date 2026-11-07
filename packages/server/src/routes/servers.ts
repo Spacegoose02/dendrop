@@ -8,7 +8,9 @@ import { requireUser, type Context } from "../app.js";
 import { ConversationRepo } from "../conversations.js";
 import { HttpError } from "../errors.js";
 import { FriendRepo } from "../friends.js";
+import { livekitUrl } from "../livekit.js";
 import { isModerator, ServerRepo, type ImageKind } from "../servers.js";
+import { VoiceService } from "../voice.js";
 import type { UserRecord } from "../users.js";
 
 const id = (v: unknown): number => {
@@ -41,12 +43,21 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     for (const f of ids) if (f) rmSync(path.join(uploads, f), { force: true });
   };
 
+  const voice = new VoiceService(config, gateway, (cid) => convos.memberIds(cid));
+  app.addHook("onClose", async () => voice.closeAll());
+  ctx.onPresence.push((userId, online) => {
+    if (!online) voice.leave(userId);
+  });
+  /** Takes people out of voice channels they can't see any more. */
+  const pruneVoice = () => voice.prune((channelId) => !!servers.channelById(channelId));
+
   /** Sends each member their own view (locked channels differ per person). */
   const push = (serverId: number) => {
     for (const uid of servers.memberIds(serverId)) {
       const view = servers.view(serverId, uid);
       if (view) gateway.send([uid], { type: "server.updated", server: view });
     }
+    pruneVoice();
   };
   const superAdmins = () => (db.prepare("SELECT id FROM users WHERE is_super_admin = 1").all() as { id: number }[]).map((r) => r.id);
 
@@ -112,6 +123,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     const memberIds = servers.memberIds(sid);
     removeFiles(servers.delete(sid));
     gateway.send(memberIds, { type: "server.removed", serverId: sid });
+    pruneVoice();
     return { ok: true };
   });
 
@@ -258,7 +270,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
   // ---- Channels ------------------------------------------------------------------
   // Messages in a channel go through /api/conversations/:conversationId/messages like DMs.
 
-  app.post<{ Params: { id: string }; Body: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown } }>(
+  app.post<{ Params: { id: string }; Body: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown; kind?: unknown } }>(
     "/api/servers/:id/channels",
     async (req) => {
       const me = requireUser(req);
@@ -297,6 +309,38 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     moderator(sid, me);
     removeFiles(servers.deleteChannel(sid, id(req.params.channelId)));
     push(sid);
+    return { ok: true };
+  });
+
+  // ---- Voice channels -------------------------------------------------------------
+  // Drop-in rooms: no ringing. Media goes through LiveKit, one room per channel.
+
+  /** Voice channels with people in them, in every server you're in (only ones you can see). */
+  app.get("/api/voice", async (req) => voice.forUser(requireUser(req).id));
+
+  /** Joins a voice channel (leaving any other one). Returns a LiveKit token for its room. */
+  app.post<{ Params: { id: string; channelId: string } }>("/api/servers/:id/channels/:channelId/voice", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    member(sid, me);
+    const c = servers.channelById(id(req.params.channelId));
+    // Locked channels you weren't picked for don't exist, as far as you can tell.
+    if (!c || c.serverId !== sid || !convos.isMember(c.conversationId, me.id)) throw new HttpError(404, "No such channel");
+    if (c.kind !== "voice") throw new HttpError(400, "That's a text channel");
+    const nick = servers.view(sid, me.id)?.nickname;
+    return voice.join({ channelId: c.id, serverId: sid, conversationId: c.conversationId }, { id: me.id, displayName: nick || me.displayName }, livekitUrl(config, req));
+  });
+
+  /** Mute, deafen, camera and screen, so the others see it in the channel list. */
+  app.post<{ Body: { muted?: unknown; deafened?: unknown; video?: unknown; screen?: unknown } }>("/api/voice/state", async (req) => {
+    const me = requireUser(req);
+    const b = req.body ?? {};
+    const bool = (v: unknown) => (typeof v === "boolean" ? v : undefined);
+    return voice.setState(me.id, { muted: bool(b.muted), deafened: bool(b.deafened), video: bool(b.video), screen: bool(b.screen) });
+  });
+
+  app.post("/api/voice/leave", async (req) => {
+    voice.leave(requireUser(req).id);
     return { ok: true };
   });
 

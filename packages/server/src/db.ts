@@ -208,6 +208,10 @@ export const MIGRATIONS: string[] = [
     decided_by INTEGER REFERENCES users(id) ON DELETE SET NULL
   );
   `,
+  `
+  -- Voice channels. Who is in one is kept in memory, like calls.
+  ALTER TABLE server_channels ADD COLUMN kind TEXT NOT NULL DEFAULT 'text';
+  `,
 ];
 
 export function now(): string {

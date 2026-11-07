@@ -110,6 +110,78 @@
 .channel-edit:focus-visible {
   display: block;
 }
+/* Voice channels: who is in, and who is talking. */
+.nav-item.channel.in-voice .channel-mark {
+  color: var(--dd-online);
+}
+.channel-lock {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.7;
+}
+.voice-members {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0 0 0 30px;
+}
+.voice-member {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border-radius: var(--dd-radius-sm);
+  color: var(--dd-text-muted);
+  font-size: 13px;
+}
+.voice-member .avatar {
+  flex: none;
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+  transition: outline-color 0.15s;
+}
+.voice-member.speaking {
+  color: var(--dd-text);
+}
+.voice-member.speaking .avatar {
+  outline-color: var(--dd-online);
+}
+.voice-icons {
+  margin-left: auto;
+  font-size: 11px;
+  letter-spacing: 2px;
+}
+.kind-picker {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.kind-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius);
+  background: var(--dd-bg-input);
+  color: var(--dd-text);
+  cursor: pointer;
+}
+.kind-option.picked {
+  border-color: var(--dd-accent);
+  box-shadow: 0 0 0 1px var(--dd-accent);
+}
+.kind-option input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.kind-option > span:last-child {
+  display: flex;
+  flex-direction: column;
+}
+
 .server-member {
   display: flex;
   align-items: center;
@@ -296,4 +368,8 @@ select {
   .member-row {
     flex-wrap: wrap;
   }
+}
+.kind-option:focus-within {
+  outline: 2px solid var(--dd-ring);
+  outline-offset: 2px;
 }

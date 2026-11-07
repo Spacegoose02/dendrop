@@ -21,6 +21,8 @@ export interface ChannelInfo {
   topic: string;
   /** The owner and admins can delete anyone's message. */
   canModerate: boolean;
+  /** Set for a voice channel: its text chat shows here, with a button to drop into the voice. */
+  voice?: { count: number; inIt: boolean; enabled: boolean; onJoin: () => void };
 }
 
 export function Chat({
@@ -295,7 +297,7 @@ export function Chat({
         </button>
         {channel ? (
           <span className="channel-hash" aria-hidden>
-            #
+            {channel.voice ? "🔊" : "#"}
           </span>
         ) : !conversation.isGroup && others[0] ? (
           <Avatar name={others[0].displayName} online={online.has(others[0].id)} size={28} />
@@ -312,6 +314,13 @@ export function Chat({
           channel.topic && <span className="muted small ellipsis channel-topic">{channel.topic}</span>
         ) : (
           conversation.isGroup && <span className="muted small">{conversation.members.length} members</span>
+        )}
+        {channel?.voice?.enabled && !channel.voice.inIt && (
+          <span className="header-actions">
+            <button className="accept small-button" onClick={channel.voice.onJoin}>
+              {channel.voice.count > 0 ? `Join voice (${channel.voice.count})` : "Join voice"}
+            </button>
+          </span>
         )}
         {callsEnabled && !inThisCall && (
           <span className="header-actions">
