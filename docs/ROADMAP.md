@@ -156,7 +156,7 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Systems | Noise suppression with levels | 4 | Partial: off, standard and strong (browser suppression and voice isolation); RNNoise still to come |
 | Systems | Advanced audio switches | 4 | Partial: echo cancellation, automatic gain control, no-mic warnings; ducking and quality-of-service still to come |
 | Systems | Automatically open when PC starts | 2 | Missing |
-| Systems | Keybinds | 2 | Done: push-to-talk, mute and deafen keys; mute and deafen also work in the background in the PC app |
+| Systems | Keybinds | 2 | Done: push-to-talk, mute and deafen keys; in the PC app all three also work in the background (push to talk through a keyboard hook that only runs while you're in voice) |
 | Systems | Server: Docker / Unraid hosting | 0 | Done (Unraid template still to do) |
 | Backbone | Ability for chat servers | 3 | Done |
 | Backbone | Users / TinyAuth for SSO | 1 | Done |

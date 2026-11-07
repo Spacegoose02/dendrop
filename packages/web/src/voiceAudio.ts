@@ -2,7 +2,7 @@
 import { useEffect, useRef } from "react";
 import { RoomEvent, Track, type LocalAudioTrack, type Room, type RoomOptions } from "livekit-client";
 import { micConstraints, VoiceGate, type AudioPrefs } from "./audio.ts";
-import { loadKeybinds, pttHeld, voiceControls } from "./keybinds.ts";
+import { loadKeybinds, pttHeld, setVoiceActive, voiceControls } from "./keybinds.ts";
 
 /** Room options from the settings, for new Room(...). */
 export function roomAudioOptions(p: AudioPrefs): Pick<RoomOptions, "audioCaptureDefaults" | "audioOutput"> {
@@ -34,6 +34,13 @@ export function useRoomAudio(room: Room | null, prefs: AudioPrefs, onGate?: (ope
     const track = micTrack(room);
     if (track) void track.restartTrack(micConstraints(prefs)).catch(() => {});
   }, [room, prefs]);
+
+  // While a call or voice channel is open, the PC app may watch for push to talk in the background.
+  useEffect(() => {
+    if (!room) return;
+    setVoiceActive(true);
+    return () => setVoiceActive(false);
+  }, [room]);
 
   // The voice gate follows the mic track, which changes when it's restarted or republished.
   useEffect(() => {
