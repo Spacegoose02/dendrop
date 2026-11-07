@@ -170,6 +170,50 @@ export interface CallJoin {
 
 export type ServerRole = "owner" | "admin" | "member";
 
+/**
+ * What a custom role can let its members do. The owner and admins can always do all of it.
+ * Custom roles add up: someone with two roles can do what either allows.
+ */
+export type ServerPermission =
+  | "manageServer"
+  | "manageChannels"
+  | "manageRoles"
+  | "manageAutomod"
+  | "kickMembers"
+  | "timeoutMembers"
+  | "deleteMessages"
+  | "createInvites";
+
+export const SERVER_PERMISSIONS: ServerPermission[] = [
+  "manageServer",
+  "manageChannels",
+  "manageRoles",
+  "manageAutomod",
+  "kickMembers",
+  "timeoutMembers",
+  "deleteMessages",
+  "createInvites",
+];
+
+/** Permissions that let someone moderate other people. Kid accounts can't hold them (or be admins). */
+export const MODERATION_PERMISSIONS: ServerPermission[] = SERVER_PERMISSIONS.filter((p) => p !== "createInvites");
+
+/**
+ * A role a server's moderators made, like "Cousins" or "Game night crew". Roles are ranked
+ * (position 0 is the highest, under the owner and admins). Someone with Manage roles can only
+ * change roles ranked below their own highest role, and can only hand out permissions they have.
+ */
+export interface CustomRole {
+  id: number;
+  serverId: number;
+  name: string;
+  /** #rrggbb, or null for no color. Members' names show in their highest colored role's color. */
+  color: string | null;
+  position: number;
+  permissions: ServerPermission[];
+  memberCount: number;
+}
+
 /** What anyone may see of a public server (in the directory or an invite), and members of a private one. */
 export interface ChatServerSummary {
   id: number;
@@ -186,6 +230,10 @@ export interface ChatServerSummary {
 export interface ChatServer extends ChatServerSummary {
   ownerId: number;
   myRole: ServerRole;
+  /** What you can do here, from your built-in role and your custom roles. */
+  myPermissions: ServerPermission[];
+  /** Custom roles, highest first. */
+  roles: CustomRole[];
   /** Your nickname here, or null to use your display name. */
   nickname: string | null;
   /** Whether everyone can make invites, or only the owner and admins. */
@@ -218,6 +266,8 @@ export interface AutomodRuleBase {
   timeoutMinutes: number;
   /** Roles the rule leaves alone. The owner and admins are exempt by default. */
   exemptRoles: ServerRole[];
+  /** Custom roles the rule leaves alone. */
+  exemptRoleIds: number[];
   /** Channels the rule leaves alone. */
   exemptChannelIds: number[];
 }
@@ -282,8 +332,10 @@ export interface Channel {
   position: number;
   /** Locked channels are seen only by the people picked for them, plus the owner and admins. */
   locked: boolean;
-  /** For locked channels, who was picked (owners and admins see this; others get []). */
+  /** For locked channels, who was picked (people who can manage channels see this; others get []). */
   memberIds: number[];
+  /** For locked channels, custom roles whose members can see it too (same visibility as memberIds). */
+  roleIds: number[];
 }
 
 /** Someone in a voice channel, and what they show the others. */
@@ -315,6 +367,13 @@ export interface VoiceJoin {
 export interface ServerMember {
   user: PublicUser;
   role: ServerRole;
+  /** Custom roles, highest first. */
+  roleIds: number[];
+  /**
+   * Their highest colored custom role's color, or null. In a server this wins over the person's
+   * own name color, so everyone can tell who holds which role.
+   */
+  color: string | null;
   nickname: string | null;
   joinedAt: string;
 }
@@ -737,6 +796,8 @@ export const LIMITS = {
   channelName: 32,
   channelTopic: 200,
   channelsPerServer: 100,
+  rolesPerServer: 50,
+  roleName: 32,
   serversPerUser: 100,
   serverImageBytes: 5 * 1024 * 1024,
   /** Ciphertext of a full-length message, with room for file names. */

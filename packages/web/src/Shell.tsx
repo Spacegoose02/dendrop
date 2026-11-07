@@ -37,7 +37,8 @@ import { AdminDialog } from "./Admin.tsx";
 import { ActivityContext, ActivityLine, ChoresContext } from "./activity.tsx";
 import { LootdenUrlContext } from "./GameLink.tsx";
 import { FamilyDialog } from "./Family.tsx";
-import { ChannelDialog, CreateServer, Directory, InviteDialog, InviteLinkDialog, isMod, ServerIcon, ServerSettings, ServerSidebar, type SettingsTab } from "./Servers.tsx";
+import { ChannelDialog, CreateServer, Directory, InviteDialog, InviteLinkDialog, ServerIcon, ServerSettings, ServerSidebar, type SettingsTab } from "./Servers.tsx";
+import { can } from "./roles.ts";
 
 // The call code (LiveKit) is big, so it only loads when a call starts.
 const CallPanel = lazy(() => import("./CallPanel.tsx").then((m) => ({ default: m.CallPanel })));
@@ -465,7 +466,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       id: currentChannel.conversationId,
       isGroup: true,
       name: currentChannel.kind === "voice" ? currentChannel.name : `#${currentChannel.name}`,
-      members: currentServer.members.map((m) => ({ ...m.user, displayName: m.nickname ?? m.user.displayName })),
+      // A role color wins over someone's own name color in a server.
+      members: currentServer.members.map((m) => ({ ...m.user, displayName: m.nickname ?? m.user.displayName, nameColor: m.color ?? m.user.nameColor })),
       lastMessageAt: null,
       createdAt: currentServer.createdAt,
       reads: [],
@@ -473,6 +475,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       guardians: [],
     };
   }, [currentServer, currentChannel]);
+  /** You, as Chat shows your own messages in the open server: in your highest role's color, if it has one. */
+  const myRoleColor = currentServer?.members.find((m) => m.user.id === me.id)?.color ?? null;
+  const meInServer = useMemo(() => (myRoleColor ? { ...me, nameColor: myRoleColor } : me), [me, myRoleColor]);
   const serverUnread = (sv: ChatServer) => sv.channels.some((c) => unread.has(c.conversationId));
   const dialogServer = serverDialog && "serverId" in serverDialog ? servers.find((x) => x.id === serverDialog.serverId) : undefined;
   const incoming = friends.filter((f) => f.state === "incoming").length;
@@ -661,7 +666,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         {currentServer && currentChannel && channelConversation && (
           <Chat
             key={channelConversation.id}
-            me={me}
+            me={meInServer}
             conversation={channelConversation}
             online={online}
             history={histories[channelConversation.id]}
@@ -679,7 +684,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             channel={{
               serverId: currentServer.id,
               topic: currentChannel.topic,
-              canModerate: isMod(currentServer),
+              canModerate: can(currentServer, "deleteMessages"),
               timedOutUntil: currentServer.timedOutUntil,
               voice:
                 currentChannel.kind === "voice"

@@ -393,6 +393,36 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE servers ADD COLUMN play_together INTEGER NOT NULL DEFAULT 1;
   `,
   `
+  -- Custom server roles: ranked (position 0 highest, below the owner and admins), with an
+  -- optional color and a JSON list of permissions. Members can hold any number of them.
+  CREATE TABLE server_roles (
+    id INTEGER PRIMARY KEY,
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    color TEXT,
+    position INTEGER NOT NULL,
+    permissions TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX server_roles_server ON server_roles(server_id, position);
+
+  CREATE TABLE server_member_roles (
+    server_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    role_id INTEGER NOT NULL REFERENCES server_roles(id) ON DELETE CASCADE,
+    PRIMARY KEY (server_id, user_id, role_id),
+    FOREIGN KEY (server_id, user_id) REFERENCES server_members(server_id, user_id) ON DELETE CASCADE
+  );
+  CREATE INDEX server_member_roles_role ON server_member_roles(role_id);
+
+  -- Roles whose members can see a locked channel, alongside the people picked in channel_access.
+  CREATE TABLE channel_role_access (
+    channel_id INTEGER NOT NULL REFERENCES server_channels(id) ON DELETE CASCADE,
+    role_id INTEGER NOT NULL REFERENCES server_roles(id) ON DELETE CASCADE,
+    PRIMARY KEY (channel_id, role_id)
+  );
+  `,
+  `
   -- Bots: accounts with no password that post through the bot API (/api/bot/v1) with a token.
   -- Only a hash of the token is kept. A deleted bot keeps its users row (is_bot = 1, no bots
   -- row) so its old messages still show its name.

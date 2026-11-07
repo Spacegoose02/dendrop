@@ -4,6 +4,7 @@ import WebSocket from "ws";
 import type { Bot, ChatServer, Message, NewBotToken, ServerEvent, ServerInvite } from "@dendrop/shared";
 import { signEvent } from "../src/bots.js";
 import { now } from "../src/db.js";
+import { ServerRepo } from "../src/servers.js";
 import { account, listen, startServer, type TestServer } from "./helpers.js";
 
 type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
@@ -133,6 +134,14 @@ describe("bots", () => {
     const seen = (await asBot("GET", "/servers")).body as ChatServer[];
     assert.deepEqual(seen[0]!.channels.map((c) => c.id), [general.id]);
     assert.equal((await asBot("POST", `/channels/${secret.id}/messages`, { content: "hi" })).status, 404);
+    // A role can open a locked channel to it, but never gives it moderator permissions.
+    const role = (await call(owner, "POST", `/api/servers/${serverId}/roles`, { name: "Helpers", permissions: ["kickMembers", "deleteMessages"] })).body as { id: number };
+    await call(owner, "PATCH", `/api/servers/${serverId}/channels/${secret.id}`, { roleIds: [role.id] });
+    assert.equal((await call(owner, "PUT", `/api/servers/${serverId}/members/${bot.id}/roles`, { roleIds: [role.id] })).status, 200);
+    assert.deepEqual(new ServerRepo(s.ctx.db, s.ctx.users).permissions(serverId, bot.id), []);
+    const withRole = (await asBot("GET", "/servers")).body as ChatServer[];
+    assert.deepEqual(withRole[0]!.channels.map((c) => c.id).sort(), [general.id, secret.id].sort());
+    await call(owner, "PUT", `/api/servers/${serverId}/members/${bot.id}/roles`, { roleIds: [] });
   });
 
   it("posts messages with buttons, and checks them", async () => {
