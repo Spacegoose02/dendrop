@@ -14,6 +14,7 @@ import {
 } from "@dendrop/shared";
 import { api, apiForm, ApiError } from "./api.ts";
 import { EMOJI } from "./emoji.ts";
+import { ActivityLine } from "./activity.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { decryptFile, encryptFile, encryptMessage, keyring, reveal, type ChatMessage, type FileMeta } from "./e2ee.ts";
 import { EncryptionInfo } from "./EncryptionInfo.tsx";
@@ -25,7 +26,7 @@ const day = (iso: string) => new Date(iso).toLocaleDateString([], { weekday: "lo
 
 /** Messages from the same person within 5 minutes share one header. */
 const continues = (prev: ChatMessage | undefined, m: ChatMessage) =>
-  !!prev && prev.authorId === m.authorId && new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60_000 && day(prev.createdAt) === day(m.createdAt);
+  !!prev && prev.authorId === m.authorId && prev.webhook?.name === m.webhook?.name && new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60_000 && day(prev.createdAt) === day(m.createdAt);
 
 /** What Chat needs to know when it shows a server channel instead of a DM. */
 export interface ChannelInfo {
@@ -269,7 +270,7 @@ export function Chat({
       e.preventDefault();
       void send();
     } else if (e.key === "ArrowUp" && !draft) {
-      const mine = [...(history?.messages ?? [])].reverse().find((m) => m.authorId === me.id && !m.deleted && !m.locked);
+      const mine = [...(history?.messages ?? [])].reverse().find((m) => m.authorId === me.id && !m.webhook && !m.deleted && !m.locked);
       if (mine) {
         e.preventDefault();
         setEditing({ id: mine.id, text: mine.text });
@@ -317,7 +318,7 @@ export function Chat({
     if (!confirm(kid ? "Delete this message? Your parents get a copy of deleted messages." : "Delete this message? It can't be brought back.")) return;
     try {
       // Moderators remove other people's channel messages through the server's own route.
-      const url = channel && m.authorId !== me.id ? `/api/servers/${channel.serverId}/messages/${m.id}` : `/api/messages/${m.id}`;
+      const url = channel && (m.authorId !== me.id || m.webhook) ? `/api/servers/${channel.serverId}/messages/${m.id}` : `/api/messages/${m.id}`;
       await api<Message>(url, { method: "DELETE" });
     } catch (err) {
       setError((err as Error).message);
@@ -326,7 +327,7 @@ export function Chat({
 
   const messages = history?.messages ?? [];
   // "Seen" goes under my newest message that someone else has read.
-  const myLast = [...messages].reverse().find((m) => m.authorId === me.id);
+  const myLast = [...messages].reverse().find((m) => m.authorId === me.id && !m.webhook);
   const seenBy = myLast
     ? conversation.reads.filter((r) => r.userId !== me.id && r.messageId !== null && r.messageId >= myLast.id).map((r) => members.get(r.userId)?.displayName ?? "Someone")
     : [];
@@ -355,8 +356,10 @@ export function Chat({
         )}
         {channel ? (
           channel.topic && <span className="muted small ellipsis channel-topic">{channel.topic}</span>
+        ) : conversation.isGroup ? (
+          <span className="muted small">{conversation.members.length} members</span>
         ) : (
-          conversation.isGroup && <span className="muted small">{conversation.members.length} members</span>
+          others[0] && <ActivityLine userId={others[0].id} />
         )}
         {channel?.voice?.enabled && !channel.voice.inIt && (
           <span className="header-actions">
@@ -419,8 +422,9 @@ export function Chat({
           const prev = messages[i - 1];
           const newDay = !prev || day(prev.createdAt) !== day(m.createdAt);
           const grouped = !newDay && continues(prev, m);
-          const author = members.get(m.authorId);
-          const mine = m.authorId === me.id;
+          const author = m.webhook ? undefined : members.get(m.authorId);
+          const authorName = m.webhook ? m.webhook.name : (author?.displayName ?? "Someone who left");
+          const mine = m.authorId === me.id && !m.webhook;
           const shown = filter && m.text ? maskBlockedWords(m.text, filter) : m.text;
           if (shown !== m.text && !mine && !reported.current.has(m.id)) {
             reported.current.add(m.id);
@@ -433,12 +437,17 @@ export function Chat({
                 {grouped ? (
                   <span className="msg-time-gutter">{time(m.createdAt)}</span>
                 ) : (
-                  <Avatar name={author?.displayName ?? "?"} size={36} />
+                  <Avatar name={m.webhook ? m.webhook.name : (author?.displayName ?? "?")} size={36} />
                 )}
                 <div className="msg-content">
                   {!grouped && (
                     <div className="msg-head">
-                      <strong>{author?.displayName ?? "Someone who left"}</strong>
+                      <strong>{authorName}</strong>
+                      {m.webhook && (
+                        <span className="bot-tag" title="Posted by a webhook">
+                          app
+                        </span>
+                      )}
                       <span className="muted small">{time(m.createdAt)}</span>
                     </div>
                   )}

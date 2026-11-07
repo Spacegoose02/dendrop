@@ -331,6 +331,25 @@ export const MIGRATIONS: string[] = [
   -- Spam checks look back over someone's recent messages.
   CREATE INDEX messages_author_time ON messages(author_id, created_at);
   `,
+  `
+  -- Incoming webhooks: a secret address that posts into a server text channel. Only a hash of
+  -- the secret is kept. Messages they post keep the webhook's name even after it's deleted.
+  CREATE TABLE webhooks (
+    id INTEGER PRIMARY KEY,
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    channel_id INTEGER NOT NULL REFERENCES server_channels(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT
+  );
+  CREATE INDEX webhooks_channel ON webhooks(channel_id);
+  ALTER TABLE messages ADD COLUMN webhook_id INTEGER;
+  ALTER TABLE messages ADD COLUMN webhook_name TEXT;
+  -- Show friends and server-mates what you're playing (LootDen).
+  ALTER TABLE users ADD COLUMN share_activity INTEGER NOT NULL DEFAULT 1;
+  `,
 ];
 
 export function now(): string {

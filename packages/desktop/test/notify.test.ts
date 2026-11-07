@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { Conversation, Message, ServerEvent } from "@dendrop/shared";
 import { GatewayWatcher, notificationFor, Throttle, type SocketLike } from "../src/notify.js";
 
-const msg = (over: Partial<Message> = {}): Message => ({ id: 1, conversationId: 7, authorId: 2, body: "meet at 6, love you", createdAt: "", editedAt: null, deleted: false, attachments: [], keyVersion: null, ...over });
+const msg = (over: Partial<Message> = {}): Message => ({ id: 1, conversationId: 7, authorId: 2, body: "meet at 6, love you", createdAt: "", editedAt: null, deleted: false, attachments: [], keyVersion: null, webhook: null, ...over });
 const dm: Conversation = { id: 7, isGroup: false, name: null, members: [{ id: 1, username: "me", displayName: "Me", publicKey: null }, { id: 2, username: "sam", displayName: "Sam", publicKey: null }], lastMessageAt: null, createdAt: "", reads: [], e2ee: null, guardians: [] };
 const opts = (notifySender = false) => ({ meId: 1, notifySender, conversation: (id: number) => (id === 7 ? dm : undefined) });
 
@@ -20,6 +20,11 @@ test("sender is named only when asked", () => {
   assert.equal(notificationFor({ type: "message.created", message: msg() }, opts(true))?.body, "New message from Sam");
   // Unknown conversation: falls back to the plain text.
   assert.equal(notificationFor({ type: "message.created", message: msg({ conversationId: 9 }) }, opts(true))?.body, "New message");
+});
+
+test("webhook posts notify their maker too, under the webhook's name", () => {
+  const n = notificationFor({ type: "message.created", message: msg({ authorId: 1, webhook: { id: 3, name: "LootDen" } }) }, opts(true));
+  assert.equal(n?.body, "New message from LootDen");
 });
 
 test("group names show with the sender", () => {

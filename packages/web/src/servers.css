@@ -571,3 +571,55 @@ select {
     padding-left: 0;
   }
 }
+
+/* Server settings, Webhooks. */
+.webhook-new {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.webhook-new input {
+  flex: 1 1 160px;
+}
+.webhook-fresh {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  margin: 12px 0;
+  border: 1px solid var(--dd-accent);
+  border-radius: var(--dd-radius);
+  background: var(--dd-bg-raised);
+}
+.webhook-fresh code {
+  font-family: var(--dd-font-mono);
+  word-break: break-all;
+}
+.webhook-url {
+  display: flex;
+  gap: 8px;
+}
+.webhook-url input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--dd-font-mono);
+}
+.lootden-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lootden-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.server-member-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.webhook-fresh > button {
+  align-self: flex-start;
+}

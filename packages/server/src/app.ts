@@ -16,12 +16,15 @@ import { HttpError } from "./errors.js";
 import { FamilyService, type WebhookPost } from "./family.js";
 import { Gateway } from "./gateway.js";
 import { builtinLivekit } from "./livekit.js";
+import { LootdenLink, type LootdenFetch } from "./lootden.js";
 import { PushService } from "./push.js";
 import { pushRoutes } from "./routes/push.js";
 import { authRoutes } from "./routes/auth.js";
 import { dmRoutes } from "./routes/dms.js";
 import { familyRoutes, guardKids } from "./routes/family.js";
+import { lootdenRoutes } from "./routes/lootden.js";
 import { guardChannelConversations, serverRoutes } from "./routes/servers.js";
+import { webhookRoutes } from "./routes/webhooks.js";
 import { toMe, UserRepo, type UserRecord } from "./users.js";
 
 declare module "fastify" {
@@ -43,6 +46,8 @@ export interface Context {
   family: FamilyService;
   /** Server channel rules: blocked words, spam, links, new accounts; and timeouts. */
   automod: AutomodService;
+  /** The link to LootDen: who's playing what. */
+  lootden: LootdenLink;
   /** Hooks for the gateway, so features can react to events from clients. */
   onClientEvent: ((user: UserRecord, event: ClientEvent) => void)[];
   onPresence: ((userId: number, online: boolean) => void)[];
@@ -58,7 +63,7 @@ export interface BuiltApp {
 export async function buildApp(
   config: ServerConfig,
   db: Db = openDb(path.join(config.dataDir, "dendrop.db")),
-  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2]; webhookPost?: WebhookPost } = {},
+  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2]; webhookPost?: WebhookPost; lootdenFetch?: LootdenFetch } = {},
 ): Promise<BuiltApp> {
   const logger = process.env.NODE_ENV === "test" ? false : { level: process.env.DENDROP_LOG_LEVEL ?? "info" };
   // Built-in HTTPS (config.tls) is the same app on an https server; the types are the plain one's.
@@ -79,6 +84,7 @@ export async function buildApp(
     push: new PushService(db, { publicUrl: config.publicUrl, allowHttp: config.pushAllowHttp }, options.pushPost),
     family: new FamilyService(db, users, gateway, { publicUrl: config.publicUrl }, options.webhookPost),
     automod: new AutomodService(db, users, gateway, { publicUrl: config.publicUrl }),
+    lootden: new LootdenLink(db, users, gateway, options.lootdenFetch),
     onClientEvent: [],
     onPresence: [],
     callRingMs: options.callRingMs,
@@ -113,6 +119,8 @@ export async function buildApp(
   await app.register(async (api) => pushRoutes(api, ctx));
   await app.register(async (api) => serverRoutes(api, ctx));
   await app.register(async (api) => familyRoutes(api, ctx));
+  await app.register(async (api) => webhookRoutes(api, ctx));
+  await app.register(async (api) => lootdenRoutes(api, ctx));
   await app.register(async (api) => gatewayRoute(api, ctx));
   builtinLivekit(app, config);
 

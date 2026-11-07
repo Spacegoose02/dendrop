@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  Activity,
   Call,
   CallJoin,
   Channel,
@@ -29,6 +30,7 @@ import { useVoiceKeybinds } from "./keybinds.ts";
 import { keyring, loadIdentity, reveal, type Identity } from "./e2ee.ts";
 import { conversationTitle, upsert, type History } from "./util.ts";
 import { AdminDialog } from "./Admin.tsx";
+import { ActivityContext, ActivityLine } from "./activity.tsx";
 import { FamilyDialog } from "./Family.tsx";
 import { ChannelDialog, CreateServer, Directory, InviteDialog, InviteLinkDialog, isMod, ServerIcon, ServerSettings, ServerSidebar, type SettingsTab } from "./Servers.tsx";
 
@@ -80,6 +82,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   /** On phones only one column shows: the DM list, or what's open. */
   const [showMain, setShowMain] = useState(false);
   const [friends, setFriends] = useState<Friend[]>([]);
+  /** What people are playing, from LootDen. */
+  const [activities, setActivities] = useState<Record<number, Activity>>({});
+  const loadActivities = useCallback(() => void api<Record<number, Activity>>("/api/activities").then(setActivities, () => {}), []);
   const [online, setOnline] = useState<Set<number>>(new Set());
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [histories, setHistories] = useState<Record<number, History>>({});
@@ -160,6 +165,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     setOnline(new Set(f.filter((x) => x.online).map((x) => x.user.id)));
     setConversations(c);
     void loadFamily().catch(() => {});
+    loadActivities();
     // Anything open may have missed messages while disconnected; reload it on demand.
     setHistories({});
   }, []);
@@ -184,6 +190,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           break;
         case "friend.updated":
           setFriends((fs) => [...fs.filter((f) => f.user.id !== e.friend.user.id), e.friend]);
+          if (e.friend.state === "friends") loadActivities();
           if (e.friend.online !== undefined) {
             const { id } = e.friend.user;
             const isOn = e.friend.online;
@@ -197,6 +204,15 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           break;
         case "friend.removed":
           setFriends((fs) => fs.filter((f) => f.user.id !== e.userId));
+          loadActivities();
+          break;
+        case "activity":
+          setActivities((all) => {
+            const n = { ...all };
+            if (e.activity) n[e.userId] = e.activity;
+            else delete n[e.userId];
+            return n;
+          });
           break;
         case "presence":
           setOnline((s) => {
@@ -236,7 +252,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             return { ...t, [m.conversationId]: forConv };
           });
           const v = viewRef.current;
-          if (m.authorId !== me.id && !(viewConversation(v, serversRef.current) === m.conversationId && document.hasFocus())) {
+          if ((m.authorId !== me.id || m.webhook) && !(viewConversation(v, serversRef.current) === m.conversationId && document.hasFocus())) {
             setUnread((u) => new Set(u).add(m.conversationId));
           }
           break;
@@ -289,9 +305,11 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             list.some((x) => x.id === e.server.id) ? list.map((x) => (x.id === e.server.id ? e.server : x)) : [...list, e.server],
           );
           setInvites((list) => list.filter((i) => i.server.id !== e.server.id));
+          loadActivities();
           break;
         case "server.removed":
           setServers((list) => list.filter((x) => x.id !== e.serverId));
+          loadActivities();
           setView((v) => (v.kind === "channel" && v.serverId === e.serverId ? { kind: "friends" } : v));
           setServerDialog((d) => (d && "serverId" in d && d.serverId === e.serverId ? null : d));
           break;
@@ -307,7 +325,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           break;
       }
     },
-    [me.id, refresh],
+    [me.id, refresh, loadActivities],
   );
 
   const sendRef = useRef<(data: object) => void>(() => {});
@@ -433,7 +451,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const dialogServer = serverDialog && "serverId" in serverDialog ? servers.find((x) => x.id === serverDialog.serverId) : undefined;
   const incoming = friends.filter((f) => f.state === "incoming").length;
 
-  return (
+  const shell = (
     <div className={`shell ${showMain ? "show-main" : ""}`}>
       <nav className="rail" aria-label="Servers">
         <button
@@ -520,6 +538,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
                 <span className="nav-text">
                   <span className="ellipsis">{conversationTitle(c, me.id)}</span>
                   {c.isGroup && <span className="muted small">{c.members.length} members</span>}
+                  {solo && <ActivityLine userId={solo.id} />}
                 </span>
                 {unread.has(c.id) && <span className="dot" aria-label="Unread" />}
               </button>
@@ -762,4 +781,5 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       )}
     </div>
   );
+  return <ActivityContext.Provider value={activities}>{shell}</ActivityContext.Provider>;
 }
