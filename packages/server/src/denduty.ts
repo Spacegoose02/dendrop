@@ -31,6 +31,15 @@ interface GamingKid {
   id: string;
   name: string;
   chores: ChoresToday | null;
+  /** Time-outs on now that pause chat: "all" the whole time, "chores" until today's chores are done. Older Den Duty leaves it out. */
+  chatLocks?: ChatLock[];
+}
+
+/** A Den Duty time-out that pauses a kid's chat. */
+export interface ChatLock {
+  what: string;
+  chat: "all" | "chores";
+  endsAt: string;
 }
 
 interface Gaming {
@@ -141,14 +150,37 @@ export function eventText(e: DendutyEvent, words: PointsWords): { to: "family" |
 }
 
 /**
+ * Why Den Duty pauses a kid's chat right now, in kind words for the kid, or null when it doesn't.
+ * A time-out that pauses chat wins; then a time-out or the kid's "chores first" rule with chores
+ * still to do. Without chores today (or with Den Duty out of touch) a chores pause lets them chat.
+ */
+export function chatPauseText(locks: ChatLock[], chores: ChoresToday | null, choresFirst: boolean, timezone: string, at: number): string | null {
+  const live = locks.filter((l) => Date.parse(l.endsAt) > at);
+  const all = live.filter((l) => l.chat === "all").sort((a, b) => Date.parse(b.endsAt) - Date.parse(a.endsAt))[0];
+  if (all) {
+    const until = when(all.endsAt, timezone);
+    return `Chat is taking a break for your Den Duty time-out (${all.what || "time-out"})${until ? ` until ${until}` : ""}. You've got this! 💛`;
+  }
+  if ((choresFirst || live.some((l) => l.chat === "chores")) && chores && chores.left > 0) {
+    return `Chat opens once today's chores are done: ${chores.left} to go in Den Duty. You can do it! 🧹`;
+  }
+  return null;
+}
+
+/**
  * The link to Den Duty, the family's chore tracker. With its address, home id and a read
  * token, Dendrop asks Den Duty every half minute for each kid's chores today and anything
  * new that happened. Chores show under the kid's name for the kid and their parents, and
  * events are posted as "Den Duty": the cheerful ones in a family channel, the grown-up ones
- * in a parents channel that no kid account can read.
+ * in a parents channel that no kid account can read. Time-outs that pause chat, and a kid's
+ * "chores first" rule, keep that kid from chatting until they're over (see chatPauseText).
  */
 export class DendutyLink {
   private chores = new Map<number, ChoresToday>();
+  /** Time-outs that pause chat, by Dendrop kid account. */
+  private chatLocks = new Map<number, ChatLock[]>();
+  /** The Den Duty home's time zone, for "until Sat 6:00 PM". */
+  private timezone = "";
   private kids: DendutyStatus["kids"] = [];
   private lastOk = 0;
   private error: string | null = null;
@@ -168,6 +200,12 @@ export class DendutyLink {
   ) {
     this.servers = new ServerRepo(db, users);
     this.convos = new ConversationRepo(db, users, new FriendRepo(db, users));
+    family.setChatPause((kidId, choresFirst, timezone) => this.chatPaused(kidId, choresFirst, timezone));
+  }
+
+  /** Why Den Duty pauses this kid's chat now, or null. */
+  chatPaused(kidId: number, choresFirst: boolean, timezone?: string): string | null {
+    return chatPauseText(this.chatLocks.get(kidId) ?? [], this.chores.get(kidId) ?? null, choresFirst, this.timezone || timezone || "UTC", this.clock());
   }
 
   start(): void {
@@ -291,7 +329,7 @@ export class DendutyLink {
       this.kids = [];
       this.error = null;
       this.lastOk = 0;
-      this.replace(new Map());
+      this.replace(new Map(), new Map());
       return;
     }
     try {
@@ -300,24 +338,31 @@ export class DendutyLink {
       if (!gaming || !Array.isArray(gaming.kids)) throw new Error("Den Duty answered with something unexpected; is that Den Duty's address?");
       const kidAccounts = this.kidAccounts();
       const next = new Map<number, ChoresToday>();
+      const locks = new Map<number, ChatLock[]>();
       this.kids = gaming.kids.map((k) => {
         const id = str(k.id, 100);
         const name = str(k.name, 64);
         const { user, matchedBy } = this.match(id, name, s.kids, kidAccounts);
         const chores = k.chores && typeof k.chores === "object" ? { due: num(k.chores.due) ?? 0, done: num(k.chores.done) ?? 0, left: num(k.chores.left) ?? 0 } : null;
         if (user && chores && chores.due > 0) next.set(user.id, chores);
-        return { denduty: { id, name }, user: user ? toPublic(user) : null, matchedBy, chores };
+        const chatLocks = (Array.isArray(k.chatLocks) ? k.chatLocks : [])
+          .filter((l) => l && (l.chat === "all" || l.chat === "chores") && !Number.isNaN(Date.parse(l.endsAt)))
+          .map((l) => ({ what: str(l.what, 80), chat: l.chat, endsAt: l.endsAt }));
+        if (user && chatLocks.length) locks.set(user.id, chatLocks);
+        return { denduty: { id, name }, user: user ? toPublic(user) : null, matchedBy, chores, chatPaused: null };
       });
       const words: PointsWords = { icon: str(gaming.pointsIcon, 16), name: str(gaming.pointsName, 32), timezone: str(gaming.timezone, 64) };
       const events = await this.get<DendutyEvent[]>(`${home}/events?after=${s.lastEvent ?? 0}`);
       if (!Array.isArray(events)) throw new Error("Den Duty answered with something unexpected for events");
       this.postEvents(events, words);
+      this.timezone = words.timezone;
       this.lastOk = this.clock();
       this.error = null;
-      this.replace(next);
+      this.replace(next, locks);
     } catch (err) {
       this.error = (err as Error).message;
-      if (this.clock() - this.lastOk > STALE_MS) this.replace(new Map());
+      // Out of date: chores lines go, and chat isn't held back on old news.
+      if (this.clock() - this.lastOk > STALE_MS) this.replace(new Map(), new Map());
     }
   }
 
@@ -401,15 +446,28 @@ export class DendutyLink {
     return [userId, ...this.family.parentsOf(userId)];
   }
 
-  private replace(next: Map<number, ChoresToday>): void {
+  private replace(next: Map<number, ChoresToday>, locks: Map<number, ChatLock[]>): void {
+    const kids = new Set([...this.chores.keys(), ...next.keys(), ...this.chatLocks.keys(), ...locks.keys()]);
+    const before = new Map([...kids].map((id) => [id, this.pauseFor(id)]));
     const changed = new Set<number>();
     for (const [id, c] of next) if (JSON.stringify(this.chores.get(id)) !== JSON.stringify(c)) changed.add(id);
     for (const id of this.chores.keys()) if (!next.has(id)) changed.add(id);
     this.chores = next;
+    this.chatLocks = locks;
     for (const id of changed) {
       const to = this.audience(id).filter((u) => this.gateway.isOnline(u));
       if (to.length) this.gateway.send(to, { type: "chores", userId: id, chores: next.get(id) ?? null });
     }
+    // Chat paused or opened again: the kid's app (and their parents') hear it now, not at the next minute.
+    const flipped = [...kids].filter((id) => before.get(id) !== this.pauseFor(id));
+    if (flipped.length) this.family.pushFamily(flipped);
+    for (const k of this.kids) k.chatPaused = k.user ? this.pauseFor(k.user.id) : null;
+  }
+
+  /** The pause as the kid sees it, with their own rules. */
+  private pauseFor(kidId: number): string | null {
+    if (!this.users.byId(kidId)?.isKid) return null;
+    return this.chatPaused(kidId, this.family.rules(kidId).choresFirst, this.family.rules(kidId).timezone);
   }
 
   /** The chores lines `viewer` can see, by user id: their own, and their kids'. */

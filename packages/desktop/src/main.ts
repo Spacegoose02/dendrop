@@ -7,6 +7,7 @@ import WebSocket from "ws";
 import type { Conversation, ServerEvent } from "@dendrop/shared";
 import { isExternalLink, isFile, onOrigin, permissionAllowed } from "./links.js";
 import { GatewayWatcher, notificationFor, Throttle, type SocketLike } from "./notify.js";
+import { cleanCombo, setBackgroundPtt, stopBackgroundPtt } from "./ptt.js";
 import { normalizeServerUrl, originOf } from "./serverUrl.js";
 import { SettingsStore, type DesktopSettings } from "./settings.js";
 import { downloadUpdate, installKind, launchUpdate, pickUpdate, verifyUpdate, type AvailableUpdate } from "./updater.js";
@@ -147,6 +148,11 @@ async function createWindow(): Promise<void> {
     event.preventDefault();
     openExternal(url);
   });
+  // A reload or a new page never asked for background push to talk: stop the keyboard hook.
+  win.webContents.on("did-start-navigation", (details) => {
+    if (details.isMainFrame && !details.isSameDocument) stopBackgroundPtt();
+  });
+  win.webContents.on("render-process-gone", () => stopBackgroundPtt());
   win.webContents.on("did-fail-load", (_e, code, _desc, url, isMainFrame) => {
     // -3 is a load replaced by another navigation, not a failure.
     if (isMainFrame && code !== -3 && onOrigin(url, origin())) showOffline();
@@ -453,6 +459,15 @@ function setShortcuts(wanted: Record<string, unknown>): Record<string, boolean> 
 }
 
 function registerIpc(): void {
+  // Push to talk in the background (see ptt.ts): the page turns it on while you're in voice with
+  // push to talk, and off again; only "held" and "let go" come back.
+  ipcMain.handle("dd:backgroundPtt", (e, combo: unknown) => {
+    fromServer(e);
+    const sender = e.sender;
+    return setBackgroundPtt(cleanCombo(combo), (held) => {
+      if (!sender.isDestroyed()) sender.send("dd:ptt", held);
+    });
+  });
   ipcMain.handle("dd:setShortcuts", (e, wanted: unknown) => {
     fromServer(e);
     return setShortcuts(wanted && typeof wanted === "object" ? (wanted as Record<string, unknown>) : {});
@@ -518,7 +533,10 @@ function registerIpc(): void {
 
 app.on("second-instance", () => showWindow());
 app.on("before-quit", () => (quitting = true));
-app.on("will-quit", () => globalShortcut.unregisterAll());
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
+  stopBackgroundPtt();
+});
 app.on("window-all-closed", () => {
   if (quitting || !tray || !settings.get().closeToTray) app.quit();
 });

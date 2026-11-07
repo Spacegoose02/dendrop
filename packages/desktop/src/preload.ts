@@ -16,6 +16,13 @@ contextBridge.exposeInMainWorld("dendrop", {
   pickScreen: (id: string | null, audio: boolean) => ipcRenderer.invoke("dd:pickScreen", id, audio),
   /** Mute and deafen shortcuts that work while the app is in the background; says which took. */
   setShortcuts: (accelerators: Record<string, string | null>) => ipcRenderer.invoke("dd:setShortcuts", accelerators),
+  /** Push to talk while the app is in the background: a combo turns it on, null off. Says whether it runs. */
+  backgroundPtt: (combo: object | null) => ipcRenderer.invoke("dd:backgroundPtt", combo),
+  onPtt: (cb: (held: boolean) => void) => {
+    const listener = (_e: unknown, held: boolean) => cb(held === true);
+    ipcRenderer.on("dd:ptt", listener);
+    return () => void ipcRenderer.off("dd:ptt", listener);
+  },
   onShortcut: (cb: (action: string) => void) => {
     const listener = (_e: unknown, action: string) => cb(action);
     ipcRenderer.on("dd:shortcut", listener);

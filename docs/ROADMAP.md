@@ -127,7 +127,7 @@ Built on Phase 1 accounts, so it can start earlier if it becomes the priority. S
   - **Family wall:** Ctrl+Shift+S screenshots can be shared to a Dendrop channel, kid-safe filtering kept.
   - **Kid accounts:** LootDen's kid profiles and parent links can seed Dendrop's kid-safe accounts (Phase 5), so a parent sets things up once.
   - **Game links:** pasting a LootDen game link shows a card with cover art and a "Send to PC" button.
-- **Integrations → Den Duty integration.** [Den Duty](https://github.com/Spacegoose02/den-duty) is the family's chore tracker. Done: kids' chores today under their name for them and their parents, and its events posted into a family channel and a grown-ups-only channel ([DENDUTY.md](DENDUTY.md)). Next: time-outs that pause chat (needs a Den Duty change), then a bot to approve chores from chat.
+- **Integrations → Den Duty integration.** [Den Duty](https://github.com/Spacegoose02/den-duty) is the family's chore tracker. Done: kids' chores today under their name for them and their parents, its events posted into a family channel and a grown-ups-only channel, and time-outs that pause chat or hold it until chores are done, plus a "chores first" rule ([DENDUTY.md](DENDUTY.md)). Next: a bot to approve chores from chat.
 - A general bot / webhook API, which the LootDen integration and the kid-safe alert webhooks both use. Incoming webhooks are done (Server settings → Webhooks); bots that read and answer are still to come.
 
 ---
@@ -156,7 +156,7 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Systems | Noise suppression with levels | 4 | Partial: off, standard and strong (browser suppression and voice isolation); RNNoise still to come |
 | Systems | Advanced audio switches | 4 | Partial: echo cancellation, automatic gain control, no-mic warnings; ducking and quality-of-service still to come |
 | Systems | Automatically open when PC starts | 2 | Missing |
-| Systems | Keybinds | 2 | Done: push-to-talk, mute and deafen keys; mute and deafen also work in the background in the PC app |
+| Systems | Keybinds | 2 | Done: push-to-talk, mute and deafen keys; in the PC app all three also work in the background (push to talk through a keyboard hook that only runs while you're in voice) |
 | Systems | Server: Docker / Unraid hosting | 0 | Done (Unraid template still to do) |
 | Backbone | Ability for chat servers | 3 | Done |
 | Backbone | Users / TinyAuth for SSO | 1 | Done |
@@ -188,7 +188,7 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Features | Server chat profile / rename | 7 | Done (name, description, per-server nickname) |
 | Features | Server chat banner | 7 | Done (icon and banner) |
 | Integrations | LootDen integration | 8 | Done: playing now, alerts through webhooks, game-link cards with Send to PC, game nights with a voice channel, family wall screenshots (kid-safe) and kid accounts from LootDen's kid profiles, LootDen bedtime and game time in kids' time rules, and "Surprise us" picks shared through a webhook (with LootDen's Share to chat button) ([LOOTDEN.md](LOOTDEN.md)) |
-| Integrations | Den Duty integration | 8 | Partial: chores line and events in channels ([DENDUTY.md](DENDUTY.md)); chat time-outs and a bot still to come |
+| Integrations | Den Duty integration | 8 | Partial: chores line, events in channels and chat pauses from time-outs and chores ([DENDUTY.md](DENDUTY.md)); a bot still to come |
 | Kid safe chat | Profanity filters | 5 | Done for kid accounts: hidden in what they read and blocked when they send (on their device, and on the server for plain messages), extra words per kid |
 | Kid safe chat | Kid's deleted messages sent to parent | 5 | Done: kept (still encrypted, files too) until a parent has looked and marks it done |
 | Kid safe chat | Time-based controls | 5 | Done: chat hours and daily minutes, enforced by the server; can follow LootDen's bedtime and share the daily time with games |

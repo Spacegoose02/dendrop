@@ -43,9 +43,16 @@ const DEFAULT_RULES: KidRules = {
   allowedUntil: null,
   dailyMinutes: null,
   timezone: "UTC",
+  choresFirst: false,
   lootdenBedtime: false,
   lootdenPlayTime: false,
 };
+
+/**
+ * Asked for why Den Duty pauses a kid's chat right now (a time-out, or chores first), in words
+ * for the kid; null when it doesn't. Set by the Den Duty link.
+ */
+export type ChatPause = (kidId: number, choresFirst: boolean, timezone: string) => string | null;
 
 const MAX_PARENTS = 4;
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -98,6 +105,7 @@ interface RulesRow {
   allowed_until: string | null;
   daily_minutes: number | null;
   timezone: string;
+  chores_first: number;
   lootden_bedtime: number;
   lootden_play_time: number;
 }
@@ -157,6 +165,7 @@ export class FamilyService {
   /** The kid's LootDen play limits, when LootDen is linked (set by the LootDen link). */
   playLimits: (kidId: number, at: Date) => LootdenKidLimits | null = () => null;
   private timer: ReturnType<typeof setInterval> | undefined;
+  private chatPause: ChatPause = () => null;
 
   constructor(
     private readonly db: Db,
@@ -269,6 +278,11 @@ export class FamilyService {
 
   // ---- Rules and time ------------------------------------------------------------------
 
+  /** The Den Duty link plugs in here, so its time-outs and chores can pause a kid's chat. */
+  setChatPause(fn: ChatPause): void {
+    this.chatPause = fn;
+  }
+
   rules(kidId: number): KidRules {
     const r = this.db.prepare("SELECT * FROM kid_rules WHERE kid_id = ?").get(kidId) as RulesRow | undefined;
     if (!r) return { ...DEFAULT_RULES };
@@ -287,6 +301,7 @@ export class FamilyService {
       allowedUntil: r.allowed_until,
       dailyMinutes: r.daily_minutes,
       timezone: r.timezone,
+      choresFirst: !!r.chores_first,
       lootdenBedtime: !!r.lootden_bedtime,
       lootdenPlayTime: !!r.lootden_play_time,
     };
@@ -294,7 +309,7 @@ export class FamilyService {
 
   setRules(kidId: number, patch: Partial<Record<keyof KidRules, unknown>>): KidRules {
     const next = { ...this.rules(kidId) };
-    const bool = (k: "profanityFilter" | "approveFriends" | "canJoinServers" | "lootdenBedtime" | "lootdenPlayTime") => {
+    const bool = (k: "profanityFilter" | "approveFriends" | "canJoinServers" | "choresFirst" | "lootdenBedtime" | "lootdenPlayTime") => {
       if (patch[k] === undefined) return;
       if (typeof patch[k] !== "boolean") throw new HttpError(400, `${k} is true or false`);
       next[k] = patch[k];
@@ -302,6 +317,7 @@ export class FamilyService {
     bool("profanityFilter");
     bool("approveFriends");
     bool("canJoinServers");
+    bool("choresFirst");
     bool("lootdenBedtime");
     bool("lootdenPlayTime");
     if (patch.blockedWords !== undefined) {
@@ -338,7 +354,7 @@ export class FamilyService {
     this.db
       .prepare(
         `UPDATE kid_rules SET profanity_filter = ?, blocked_words = ?, approve_friends = ?, can_join_servers = ?,
-         allowed_from = ?, allowed_until = ?, daily_minutes = ?, timezone = ?, lootden_bedtime = ?, lootden_play_time = ? WHERE kid_id = ?`,
+         allowed_from = ?, allowed_until = ?, daily_minutes = ?, timezone = ?, chores_first = ?, lootden_bedtime = ?, lootden_play_time = ? WHERE kid_id = ?`,
       )
       .run(
         next.profanityFilter ? 1 : 0,
@@ -349,6 +365,7 @@ export class FamilyService {
         next.allowedUntil,
         next.dailyMinutes,
         next.timezone,
+        next.choresFirst ? 1 : 0,
         next.lootdenBedtime ? 1 : 0,
         next.lootdenPlayTime ? 1 : 0,
         kidId,
@@ -361,18 +378,21 @@ export class FamilyService {
   }
 
   /** The kid's status, and which rule stops them chatting, if one does. */
-  private evaluate(kidId: number, at: Date): { status: KidStatus; stoppedBy: "hours" | "bedtime" | "daily" | null } {
+  private evaluate(kidId: number, at: Date): { status: KidStatus; stoppedBy: "paused" | "hours" | "bedtime" | "daily" | null } {
     const rules = this.rules(kidId);
     const { day, minute } = localTime(rules.timezone, at);
     const used = this.db.prepare("SELECT minutes FROM kid_usage WHERE kid_id = ? AND day = ?").get(kidId, day) as { minutes: number } | undefined;
     const minutesToday = used?.minutes ?? 0;
+    // Den Duty first: a time-out that pauses chat, or chores still to do.
+    const paused = this.chatPause(kidId, rules.choresFirst, rules.timezone);
     const lootden = this.playLimits(kidId, at);
     // Chat and games share one budget: the kid's own daily time, else LootDen's.
     const shared = rules.lootdenPlayTime && lootden !== null;
     const gameMinutesToday = shared ? lootden.playedMinutes : 0;
     const limitMinutes = rules.dailyMinutes ?? (shared ? lootden.dailyMinutes : null);
     const base = { minutesToday, gameMinutesToday, limitMinutes, lootden };
-    const stop = (stoppedBy: "hours" | "bedtime" | "daily", reason: string) => ({ status: { ...base, allowedNow: false, reason }, stoppedBy });
+    const stop = (stoppedBy: "paused" | "hours" | "bedtime" | "daily", reason: string) => ({ status: { ...base, allowedNow: false, reason }, stoppedBy });
+    if (paused) return stop("paused", paused);
     if (rules.allowedFrom && rules.allowedUntil && !inSpan(rules.allowedFrom, rules.allowedUntil, minute)) {
       return stop("hours", `Chat time is ${rules.allowedFrom} to ${rules.allowedUntil}.`);
     }
