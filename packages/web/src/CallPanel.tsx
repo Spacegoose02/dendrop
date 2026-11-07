@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Room, RoomEvent, Track, type Participant } from "livekit-client";
+import { ExternalE2EEKeyProvider, isE2EESupported, Room, RoomEvent, Track, type Participant } from "livekit-client";
+import E2EEWorker from "livekit-client/e2ee-worker?worker";
 import type { CallJoin, Conversation, Me } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { Avatar } from "./Avatar.tsx";
+import { keyring } from "./e2ee.ts";
 import { conversationTitle } from "./util.ts";
 
 /**
@@ -28,8 +30,11 @@ export function CallPanel({
   const [, setVersion] = useState(0);
   const [status, setStatus] = useState<"connecting" | "connected" | "failed">("connecting");
   const [error, setError] = useState<string | null>(null);
+  const [encrypted, setEncrypted] = useState(false);
   const left = useRef(false);
   const cid = join.call.conversationId;
+  // Calls in an encrypted conversation are encrypted too, with a key only its members can make.
+  const keyVersion = conversation?.e2ee?.version ?? null;
 
   const leave = () => {
     if (left.current) return;
@@ -40,7 +45,9 @@ export function CallPanel({
   };
 
   useEffect(() => {
-    const room = new Room({ adaptiveStream: true, dynacast: true });
+    const keyProvider = keyVersion ? new ExternalE2EEKeyProvider() : null;
+    const worker = keyProvider && isE2EESupported() ? new E2EEWorker() : null;
+    const room = new Room({ adaptiveStream: true, dynacast: true, ...(keyProvider && worker ? { encryption: { keyProvider, worker } } : {}) });
     setRoom(room);
     const bump = () => setVersion((v) => v + 1);
     const events = [
@@ -63,8 +70,23 @@ export function CallPanel({
       if (!cancelled && connected && !left.current) leave();
     };
     room.on(RoomEvent.Disconnected, onDisconnected);
+    const onEncryptionError = (err: Error) => setError(`Encryption: ${err.message}`);
+    room.on(RoomEvent.EncryptionError, onEncryptionError);
+    let keyReady = false;
     (async () => {
       try {
+        if (keyVersion && keyProvider) {
+          // Never fall back to an unencrypted call in an encrypted conversation.
+          if (!worker) throw new Error("this browser can't do encrypted calls; try an up-to-date Chrome, Edge, Safari or Firefox");
+          if (!keyring.identity) throw new Error("unlock encryption on this device to join encrypted calls");
+          const key = await keyring.callKey(cid, keyVersion, join.call.startedAt);
+          if (!key) throw new Error("this device doesn't have the conversation key");
+          await keyProvider.setKey(key);
+          await room.setE2EEEnabled(true);
+          keyReady = true;
+          if (cancelled) return;
+          setEncrypted(true);
+        }
         await room.connect(join.url, join.token);
         if (cancelled) return;
         connected = true;
@@ -77,7 +99,8 @@ export function CallPanel({
       } catch (err) {
         if (!cancelled) {
           setStatus("failed");
-          setError(`Couldn't reach the call server: ${(err as Error).message}`);
+          const msg = (err as Error).message;
+          setError(keyVersion && !keyReady ? `Can't start an encrypted call: ${msg}` : `Couldn't reach the call server: ${msg}`);
         }
       }
     })();
@@ -85,7 +108,9 @@ export function CallPanel({
       cancelled = true;
       for (const e of events) room.off(e, bump);
       room.off(RoomEvent.Disconnected, onDisconnected);
+      room.off(RoomEvent.EncryptionError, onEncryptionError);
       void room.disconnect();
+      worker?.terminate();
     };
     // The room is made once per call.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -134,7 +159,7 @@ export function CallPanel({
       <div className="call-bar">
         <span className="call-live" aria-hidden />
         <button className="link ellipsis" onClick={onOpen}>
-          In a call with {title}
+          {encrypted ? "🔒 " : ""}In a call with {title}
         </button>
         {controls}
       </div>
@@ -149,6 +174,9 @@ export function CallPanel({
         ))}
       </div>
       <div className="call-status small muted">
+        {status !== "failed" && (
+          <span className={encrypted ? "call-lock" : ""}>{encrypted ? "🔒 End-to-end encrypted" : keyVersion ? "" : "Not end-to-end encrypted"} </span>
+        )}
         {status === "connecting" && "Connecting…"}
         {waiting && "Ringing…"}
         {error && <span className="error">{error}</span>}
