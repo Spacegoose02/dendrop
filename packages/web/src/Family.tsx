@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Conversation, FamilyAlert, FamilyChat, FamilyInfo, FamilyKid, FamilyLinkCode, Friend, KidRules, Me, PublicUser } from "@dendrop/shared";
+import type { Conversation, FamilyAlert, FamilyChat, FamilyInfo, FamilyKid, FamilyLinkCode, Friend, KidRules, LootdenKidLimits, Me, PublicUser } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { Avatar } from "./Avatar.tsx";
 import { AttachmentView, EncryptedAttachment } from "./Chat.tsx";
@@ -116,9 +116,15 @@ function KidView({ me, family, conversations }: { me: Me; family: FamilyInfo; co
               Chat hours: {rules.allowedFrom} to {rules.allowedUntil}
             </li>
           )}
-          {rules.dailyMinutes !== null && (
+          {rules.lootdenBedtime && status.lootden?.bedtime && (
             <li>
-              Today: {status.minutesToday} of {rules.dailyMinutes} minutes
+              Bedtime (same as LootDen): {status.lootden.bedtime.from} to {status.lootden.bedtime.to}
+            </li>
+          )}
+          {status.limitMinutes !== null && (
+            <li>
+              Today: {status.minutesToday + status.gameMinutesToday} of {status.limitMinutes} minutes
+              {status.gameMinutesToday > 0 && ` (${status.minutesToday} chatting, ${status.gameMinutesToday} playing games)`}
             </li>
           )}
           <li>Word filter: {rules.profanityFilter ? "on" : "off"}</li>
@@ -325,6 +331,7 @@ function KidCard({ kid, onChanged }: { kid: FamilyKid; onChanged: () => void }) 
           <span className="muted small">
             {" "}
             · <span title={kid.status.reason ?? undefined}>{kid.status.allowedNow ? "can chat now" : "can't chat right now"}</span> · {kid.status.minutesToday} min today
+            {kid.status.gameMinutesToday > 0 && ` + ${kid.status.gameMinutesToday} min games`}
             {kid.parents.length > 1 && ` · with ${kid.parents.map((p) => p.displayName).join(", ")}`}
           </span>
         </span>
@@ -391,6 +398,7 @@ function KidCard({ kid, onChanged }: { kid: FamilyKid; onChanged: () => void }) 
           <span className="muted small">minutes</span>
         </div>
       )}
+      {(kid.status.lootden || rules.lootdenBedtime || rules.lootdenPlayTime) && <LootdenTime lootden={kid.status.lootden} rules={rules} set={set} />}
       {(hours || rules.dailyMinutes !== null) && (
         <label className="family-field">
           Time zone
@@ -557,5 +565,36 @@ function ParentChat({ alert, onBack, onDone }: { alert: FamilyAlert; onBack: () 
         </button>
       </div>
     </Modal>
+  );
+}
+
+/** Time rules that follow LootDen's play limits, for a kid whose LootDen profile is matched. */
+function LootdenTime({ lootden, rules, set }: { lootden: LootdenKidLimits | null; rules: KidRules; set: (patch: Partial<KidRules>) => void }) {
+  const daily = rules.dailyMinutes !== null ? `the ${rules.dailyMinutes} minutes above` : lootden?.dailyMinutes != null ? `LootDen's ${lootden.dailyMinutes} minutes today` : "LootDen's daily play time (none set today)";
+  return (
+    <>
+      <label className="toggle">
+        <input type="checkbox" checked={rules.lootdenBedtime} onChange={(e) => set({ lootdenBedtime: e.target.checked })} />
+        <span>
+          <strong>LootDen bedtime</strong>
+          <span className="muted small">
+            {lootden?.bedtime
+              ? `Chat closes at LootDen's bedtime too: ${lootden.bedtime.from} to ${lootden.bedtime.to} (${lootden.timezone}).`
+              : "Chat closes at LootDen's bedtime too. Their LootDen profile has no bedtime yet."}
+          </span>
+        </span>
+      </label>
+      <label className="toggle">
+        <input type="checkbox" checked={rules.lootdenPlayTime} onChange={(e) => set({ lootdenPlayTime: e.target.checked })} />
+        <span>
+          <strong>Games count as screen time</strong>
+          <span className="muted small">
+            Time playing in LootDen counts toward {daily}, so chat and games share one budget
+            {lootden ? ` (${lootden.playedMinutes} min played today)` : ""}.
+          </span>
+        </span>
+      </label>
+      {!lootden && <p className="muted small">LootDen isn't linked, or their LootDen profile isn't matched, so these do nothing until it is.</p>}
+    </>
   );
 }

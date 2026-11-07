@@ -16,8 +16,9 @@ told what their parents can see, and so is everyone they chat with.
   a normal account again and its rules, alerts and kept copies are deleted.
 - Kid accounts can't be parents, and super admins can't be kids.
 
-LootDen's kid profiles can feed this later (both apps sign in through TinyAuth, so accounts
-line up by OIDC subject); that's part of the LootDen integration.
+LootDen's kid profiles can be made kid accounts from the LootDen admin page, and a kid's
+LootDen bedtime and game time can count in their chat time rules (see
+[LOOTDEN.md](LOOTDEN.md#play-limits-for-kids)).
 
 ## How parents see a chat when it's end-to-end encrypted
 

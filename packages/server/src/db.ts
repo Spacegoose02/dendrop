@@ -372,6 +372,12 @@ export const MIGRATIONS: string[] = [
   -- Chores first: a kid can't chat until today's Den Duty chores are done.
   ALTER TABLE kid_rules ADD COLUMN chores_first INTEGER NOT NULL DEFAULT 0;
   `,
+  `
+  -- Kid time rules that follow LootDen's play limits: its bedtime closes chat, and its game
+  -- time shares the daily time with chat. Off until a parent turns them on.
+  ALTER TABLE kid_rules ADD COLUMN lootden_bedtime INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE kid_rules ADD COLUMN lootden_play_time INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export function now(): string {
