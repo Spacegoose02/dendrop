@@ -350,6 +350,12 @@ export const MIGRATIONS: string[] = [
   -- Show friends and server-mates what you're playing (LootDen).
   ALTER TABLE users ADD COLUMN share_activity INTEGER NOT NULL DEFAULT 1;
   `,
+  `
+  -- Custom colors for your name and your messages (#rrggbb). Null uses the theme's colors;
+  -- clients nudge a color that's hard to read on the current theme until it reads well.
+  ALTER TABLE users ADD COLUMN name_color TEXT;
+  ALTER TABLE users ADD COLUMN text_color TEXT;
+  `,
 ];
 
 export function now(): string {

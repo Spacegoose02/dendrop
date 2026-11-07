@@ -17,6 +17,7 @@ import {
 import { LIMITS, type Me } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { AudioSettings } from "./AudioSettings.tsx";
+import { useColors } from "./colors.ts";
 import { securityCode } from "./e2ee.ts";
 import { HTTPS_GUIDE, isSecure } from "./secure.ts";
 import type { EncryptionMode } from "./EncryptionDialog.tsx";
@@ -174,19 +175,69 @@ function SettingsPane({
   );
 }
 
+/** Quick picks for name and text colors. Any color works; these are just a start. */
+const COLOR_PICKS = ["#9b59ff", "#4d6bff", "#3fb6ff", "#2bd9a0", "#7ed957", "#ffd23f", "#ff9f43", "#ff4d4d", "#ff4fa3", "#c9a7ff"];
+
+/** One color setting: swatches, a free picker, and "Theme default" to clear it. */
+function ColorPicker({ label, value, onChange }: { label: string; value: string | null; onChange: (c: string | null) => void }) {
+  return (
+    <div className="color-setting">
+      <span className="color-setting-label">{label}</span>
+      <div className="color-swatches" role="radiogroup" aria-label={label}>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={value === null}
+          className={`swatch swatch-default ${value === null ? "on" : ""}`}
+          onClick={() => onChange(null)}
+          title="Theme default"
+        >
+          Aa
+        </button>
+        {COLOR_PICKS.map((c) => (
+          <button
+            key={c}
+            type="button"
+            role="radio"
+            aria-checked={value === c}
+            aria-label={c}
+            className={`swatch ${value === c ? "on" : ""}`}
+            style={{ background: c }}
+            onClick={() => onChange(c)}
+          />
+        ))}
+        <label className={`swatch swatch-custom ${value && !COLOR_PICKS.includes(value) ? "on" : ""}`} title="Pick any color">
+          <input type="color" value={value ?? "#9b59ff"} onChange={(e) => onChange(e.target.value.toLowerCase())} aria-label={`${label}: any color`} />
+          <span aria-hidden="true">+</span>
+        </label>
+      </div>
+    </div>
+  );
+}
+
 /** Display name, read receipts and sharing what you play. These are saved to your account, so they follow you to every device. */
 function AccountSection({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
   const [displayName, setDisplayName] = useState(me.displayName);
   const [readReceipts, setReadReceipts] = useState(me.readReceipts);
   const [shareActivity, setShareActivity] = useState(me.shareActivity);
+  const [nameColor, setNameColor] = useState(me.nameColor);
+  const [textColor, setTextColor] = useState(me.textColor);
+  const colorsOf = useColors();
+  const preview = colorsOf({ nameColor, textColor });
+  const adjusted = (!!nameColor && preview.name?.color !== nameColor) || (!!textColor && preview.text?.color !== textColor);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const changed = displayName.trim() !== me.displayName || readReceipts !== me.readReceipts || shareActivity !== me.shareActivity;
+  const changed =
+    displayName.trim() !== me.displayName ||
+    readReceipts !== me.readReceipts ||
+    shareActivity !== me.shareActivity ||
+    nameColor !== me.nameColor ||
+    textColor !== me.textColor;
 
   const save = async () => {
     setError(null);
     try {
-      onSaved(await api<Me>("/api/me", { method: "PATCH", body: { displayName, readReceipts, shareActivity } }));
+      onSaved(await api<Me>("/api/me", { method: "PATCH", body: { displayName, readReceipts, shareActivity, nameColor, textColor } }));
       setStatus("Saved");
     } catch (err) {
       setError((err as Error).message);
@@ -207,6 +258,30 @@ function AccountSection({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) 
           maxLength={LIMITS.displayNameLength}
         />
       </label>
+      <h3>Colors</h3>
+      <p className="muted small">Everyone sees your name and messages in these colors. On themes where a color would be hard to read, it's lightened or darkened just enough.</p>
+      <ColorPicker
+        label="Name color"
+        value={nameColor}
+        onChange={(c) => {
+          setNameColor(c);
+          setStatus(null);
+        }}
+      />
+      <ColorPicker
+        label="Text color"
+        value={textColor}
+        onChange={(c) => {
+          setTextColor(c);
+          setStatus(null);
+        }}
+      />
+      <div className="color-preview" aria-label="Preview">
+        <strong style={preview.name}>{displayName.trim() || me.displayName}</strong>
+        <span className="muted small"> Today at 7:44 PM</span>
+        <p style={preview.text}>This is how your messages look in this theme.</p>
+      </div>
+      {adjusted && <p className="muted small">Adjusted a little so it reads well on this theme.</p>}
       <h3>Privacy</h3>
       <label className="toggle">
         <input

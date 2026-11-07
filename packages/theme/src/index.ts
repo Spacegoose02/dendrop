@@ -3,9 +3,17 @@ import { DEFAULT_THEME, getTheme, themeVars, type Theme } from "./themes.ts";
 
 export * from "./themes.ts";
 export * from "./icons.ts";
-export { contrast, mix } from "./color.ts";
+export { contrast, mix, personColors, readableColor } from "./color.ts";
 
 export type ThemeId = string;
+
+/** Fired on window whenever applyTheme() runs. */
+export const THEME_EVENT = "dendrop:theme";
+
+/** The theme on the page now. */
+export function currentTheme(root: HTMLElement = document.documentElement): Theme {
+  return getTheme(root.dataset.theme);
+}
 
 /**
  * Applies a theme to the page. tokens.css holds the Den defaults; this sets every token on
@@ -17,6 +25,8 @@ export function applyTheme(id: ThemeId, root: HTMLElement = document.documentEle
   root.style.colorScheme = theme.scheme;
   for (const [name, value] of Object.entries(themeVars(theme))) root.style.setProperty(name, value);
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme.tokens["bg-rail"]);
+  // Name and text colors are made readable per theme in code, so tell the app it changed.
+  window.dispatchEvent(new CustomEvent(THEME_EVENT, { detail: theme.id }));
   return theme;
 }
 

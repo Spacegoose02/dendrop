@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contrast } from "../src/color.ts";
+import { contrast, personColors, readableColor } from "../src/color.ts";
 import { APP_ICONS, appIconSvg, PIXEL_ART, THEME_ICON } from "../src/icons.ts";
 import { FAMILIES, getTheme, THEMES, TOKEN_NAMES } from "../src/themes.ts";
 
@@ -40,4 +40,25 @@ test("app icons render, including the theme-matched one", () => {
   for (const id of [...APP_ICONS.map((i) => i.id), THEME_ICON]) {
     for (const t of THEMES) assert.match(appIconSvg(id, t), /^<svg [^>]+>.+<\/svg>$/);
   }
+});
+
+test("custom name and text colors stay readable in every theme", () => {
+  const picks = ["#000000", "#ffffff", "#9b59ff", "#3b3bff", "#ff2e88", "#ffe600", "#14110c", "#808080", "#1b2030", "#f6f1ea"];
+  for (const t of THEMES) {
+    const k = t.tokens;
+    for (const pick of [...picks, k["bg-main"], k["bg-sidebar"], k.accent]) {
+      const { name, text } = personColors(k, { nameColor: pick, textColor: pick });
+      for (const bg of ["bg-main", "bg-hover", "bg-sidebar"] as const) {
+        assert.ok(contrast(name!, k[bg]) >= 4.5, `${t.id}: name ${pick} on ${bg} became ${name}`);
+        assert.ok(contrast(text!, k[bg]) >= 4.5, `${t.id}: text ${pick} on ${bg} became ${text}`);
+      }
+    }
+  }
+});
+
+test("a readable color is kept as picked; no color means the theme's own", () => {
+  assert.equal(readableColor("#9B59FF", ["#0b0b0c"], "#eeeeee"), "#9b59ff");
+  assert.notEqual(readableColor("#3b0a6b", ["#0b0b0c"], "#eeeeee"), "#eeeeee", "a dark purple is lightened, not dropped");
+  assert.equal(readableColor("not a color", ["#0b0b0c"], "#eeeeee"), "#eeeeee");
+  assert.deepEqual(personColors(THEMES[0]!.tokens, { nameColor: null, textColor: null }), { name: undefined, text: undefined });
 });

@@ -18,6 +18,7 @@ import { ActivityLine } from "./activity.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { decryptFile, encryptFile, encryptMessage, keyring, reveal, type ChatMessage, type FileMeta } from "./e2ee.ts";
 import { EncryptionInfo } from "./EncryptionInfo.tsx";
+import { useColors } from "./colors.ts";
 import { conversationTitle, upsert, type History } from "./util.ts";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -110,6 +111,7 @@ export function Chat({
     api(`/api/family/alerts`, { body: { type, conversationId: conversation.id } }).catch(() => {});
 
   const members = new Map(conversation.members.map((m) => [m.id, m]));
+  const colorsOf = useColors();
   const others = conversation.members.filter((m) => m.id !== me.id);
   const title = conversationTitle(conversation, me.id);
 
@@ -425,6 +427,8 @@ export function Chat({
           const author = m.webhook ? undefined : members.get(m.authorId);
           const authorName = m.webhook ? m.webhook.name : (author?.displayName ?? "Someone who left");
           const mine = m.authorId === me.id && !m.webhook;
+          // Your own colors come from your account, so a change shows here straight away.
+          const colors = m.webhook ? {} : colorsOf(mine ? me : author);
           const shown = filter && m.text ? maskBlockedWords(m.text, filter) : m.text;
           if (shown !== m.text && !mine && !reported.current.has(m.id)) {
             reported.current.add(m.id);
@@ -442,7 +446,7 @@ export function Chat({
                 <div className="msg-content">
                   {!grouped && (
                     <div className="msg-head">
-                      <strong>{authorName}</strong>
+                      <strong style={colors.name}>{authorName}</strong>
                       {m.webhook && (
                         <span className="bot-tag" title="Posted by a webhook">
                           app
@@ -474,7 +478,7 @@ export function Chat({
                   ) : (
                     <>
                       {m.text && (
-                        <p className="msg-body">
+                        <p className="msg-body" style={colors.text}>
                           {shown}
                           {m.editedAt && <span className="muted small"> (edited)</span>}
                         </p>

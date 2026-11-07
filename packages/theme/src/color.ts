@@ -45,3 +45,36 @@ export function alpha(hex: string, a: number): string {
   const [r, g, b] = parse(hex);
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
+
+/**
+ * A person's chosen color, made readable on a theme. If it already reaches `min` contrast on
+ * every background it's returned as is; otherwise it's mixed toward black or white (whichever
+ * reads on the first background) just far enough, so a dark purple turns a lighter purple on a
+ * dark theme instead of disappearing. Anything that isn't #rrggbb gives `fallback`.
+ */
+export function readableColor(color: string | null | undefined, backgrounds: string[], fallback: string, min = 4.5): string {
+  if (!color || !/^#[0-9a-f]{6}$/i.test(color) || backgrounds.length === 0) return fallback;
+  const ok = (c: string) => backgrounds.every((bg) => contrast(c, bg) >= min);
+  if (ok(color)) return color.toLowerCase();
+  const target = readableOn(backgrounds[0]!, "#000000", "#ffffff");
+  for (let step = 1; step <= 20; step++) {
+    const c = mix(color, target, step / 20);
+    if (ok(c)) return c;
+  }
+  return fallback;
+}
+
+/**
+ * How a theme shows a person's name and message colors: on the main pane, a hovered message,
+ * and the sidebar member lists. Null colors (and unreadable leftovers) use the theme's text.
+ */
+export function personColors(
+  tokens: { "bg-main": string; "bg-hover": string; "bg-sidebar": string; text: string },
+  user: { nameColor?: string | null; textColor?: string | null },
+): { name: string | undefined; text: string | undefined } {
+  const bgs = [tokens["bg-main"], tokens["bg-hover"], tokens["bg-sidebar"]];
+  return {
+    name: user.nameColor ? readableColor(user.nameColor, bgs, tokens.text) : undefined,
+    text: user.textColor ? readableColor(user.textColor, bgs, tokens.text) : undefined,
+  };
+}

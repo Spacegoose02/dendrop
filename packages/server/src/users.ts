@@ -14,6 +14,8 @@ export interface UserRecord {
   publicKey: string | null;
   keyBackup: string | null;
   canCreateServers: boolean;
+  nameColor: string | null;
+  textColor: string | null;
   /** Linked to at least one parent. */
   isKid: boolean;
   createdAt: string;
@@ -32,6 +34,8 @@ interface Row {
   public_key: string | null;
   key_backup: string | null;
   can_create_servers: number;
+  name_color: string | null;
+  text_color: string | null;
   is_kid: number;
   created_at: string;
 }
@@ -49,6 +53,8 @@ const fromRow = (r: Row): UserRecord => ({
   publicKey: r.public_key,
   keyBackup: r.key_backup,
   canCreateServers: !!r.can_create_servers,
+  nameColor: r.name_color,
+  textColor: r.text_color,
   isKid: !!r.is_kid,
   createdAt: r.created_at,
 });
@@ -58,6 +64,8 @@ export const toPublic = (u: UserRecord): PublicUser => ({
   username: u.username,
   displayName: u.displayName,
   publicKey: u.publicKey,
+  nameColor: u.nameColor,
+  textColor: u.textColor,
 });
 export const toMe = (u: UserRecord): Me => ({
   ...toPublic(u),
@@ -129,8 +137,20 @@ export class UserRepo {
 
   update(
     id: number,
-    patch: { displayName?: string; oidcSubject?: string; isSuperAdmin?: boolean; passwordHash?: string; readReceipts?: boolean; shareActivity?: boolean },
+    patch: {
+      displayName?: string;
+      oidcSubject?: string;
+      isSuperAdmin?: boolean;
+      passwordHash?: string;
+      readReceipts?: boolean;
+      shareActivity?: boolean;
+      /** null clears it back to the theme's color. */
+      nameColor?: string | null;
+      textColor?: string | null;
+    },
   ): UserRecord {
+    if (patch.nameColor !== undefined) this.db.prepare("UPDATE users SET name_color = ? WHERE id = ?").run(patch.nameColor && patch.nameColor.toLowerCase(), id);
+    if (patch.textColor !== undefined) this.db.prepare("UPDATE users SET text_color = ? WHERE id = ?").run(patch.textColor && patch.textColor.toLowerCase(), id);
     if (patch.readReceipts !== undefined) this.db.prepare("UPDATE users SET read_receipts = ? WHERE id = ?").run(patch.readReceipts ? 1 : 0, id);
     if (patch.shareActivity !== undefined) this.db.prepare("UPDATE users SET share_activity = ? WHERE id = ?").run(patch.shareActivity ? 1 : 0, id);
     if (patch.displayName !== undefined) this.db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run(patch.displayName, id);
