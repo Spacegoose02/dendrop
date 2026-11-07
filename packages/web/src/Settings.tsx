@@ -179,7 +179,7 @@ function SettingsPane({
 const COLOR_PICKS = ["#9b59ff", "#4d6bff", "#3fb6ff", "#2bd9a0", "#7ed957", "#ffd23f", "#ff9f43", "#ff4d4d", "#ff4fa3", "#c9a7ff"];
 
 /** One color setting: swatches, a free picker, and "Theme default" to clear it. */
-function ColorPicker({ label, value, onChange }: { label: string; value: string | null; onChange: (c: string | null) => void }) {
+export function ColorPicker({ label, value, onChange }: { label: string; value: string | null; onChange: (c: string | null) => void }) {
   return (
     <div className="color-setting">
       <span className="color-setting-label">{label}</span>

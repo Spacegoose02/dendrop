@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { AutomodAction, AutomodEvent, AutomodRuleBase, AutomodRuleKind, AutomodSettings, ChatServer, ServerRole, ServerTimeout } from "@dendrop/shared";
 import { api } from "./api.ts";
+import { RoleChip } from "./Roles.tsx";
 
 const RULE_INFO: Record<AutomodRuleKind, { title: string; icon: string; about: string }> = {
   words: { title: "Blocked words", icon: "🤐", about: "Catches swears and any words you add, even disguised (f*ck, sh1t, fuuuck). Same filter as kid-safe chat." },
@@ -173,6 +174,16 @@ export function AutomodTab({ server }: { server: ChatServer }) {
                   {(["owner", "admin", "member"] as const).map((r) => (
                     <button key={r} className={`chip ${rule.exemptRoles.includes(r) ? "on" : ""}`} aria-pressed={rule.exemptRoles.includes(r)} onClick={() => set(k, { exemptRoles: toggleIn(rule.exemptRoles, r) } as never)}>
                       {ROLE_LABEL[r]}
+                    </button>
+                  ))}
+                  {server.roles.map((r) => (
+                    <button
+                      key={`role-${r.id}`}
+                      className={`chip ${rule.exemptRoleIds.includes(r.id) ? "on" : ""}`}
+                      aria-pressed={rule.exemptRoleIds.includes(r.id)}
+                      onClick={() => set(k, { exemptRoleIds: toggleIn(rule.exemptRoleIds, r.id) } as never)}
+                    >
+                      <RoleChip role={r} plain />
                     </button>
                   ))}
                   {textChannels.map((c) => (

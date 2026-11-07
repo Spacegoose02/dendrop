@@ -3,13 +3,13 @@ import { createReadStream, createWriteStream, mkdirSync, rmSync, statSync } from
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { AUTOMOD_LIMITS, INLINE_IMAGE_TYPES, LIMITS } from "@dendrop/shared";
+import { AUTOMOD_LIMITS, INLINE_IMAGE_TYPES, LIMITS, type ServerPermission } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
 import { ConversationRepo } from "../conversations.js";
 import { HttpError } from "../errors.js";
 import { FriendRepo } from "../friends.js";
 import { livekitUrl } from "../livekit.js";
-import { isModerator, ServerRepo, type ImageKind } from "../servers.js";
+import { ServerRepo, type ImageKind } from "../servers.js";
 import { VoiceService } from "../voice.js";
 import type { UserRecord } from "../users.js";
 
@@ -74,8 +74,21 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     if (!role) throw new HttpError(404, "No such server");
     return role;
   };
-  const moderator = (serverId: number, user: UserRecord) => {
-    if (!isModerator(member(serverId, user))) throw new HttpError(403, "Only the owner and admins can do that");
+  const PERMISSION_NAMES: Record<ServerPermission, string> = {
+    manageServer: "Manage server",
+    manageChannels: "Manage channels",
+    manageRoles: "Manage roles",
+    manageAutomod: "Manage automod",
+    kickMembers: "Remove and ban",
+    timeoutMembers: "Time out",
+    deleteMessages: "Delete messages",
+    createInvites: "Make invites",
+  };
+  /** A 404 if they aren't in the server, a 403 if none of their roles allow any of `perms`. */
+  const allowed = (serverId: number, user: UserRecord, ...perms: ServerPermission[]) => {
+    const role = member(serverId, user);
+    if (!perms.some((p) => servers.can(serverId, user.id, p, role))) throw new HttpError(403, `You need ${PERMISSION_NAMES[perms[0]!]} to do that`);
+    return role;
   };
   const owner = (serverId: number, user: UserRecord) => {
     if (member(serverId, user) !== "owner") throw new HttpError(403, "Only the owner can do that");
@@ -115,7 +128,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     async (req) => {
       const me = requireUser(req);
       const sid = id(req.params.id);
-      moderator(sid, me);
+      allowed(sid, me, "manageServer");
       servers.update(sid, req.body ?? {});
       push(sid);
       return servers.view(sid, me.id);
@@ -139,7 +152,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     const me = requireUser(req);
     const sid = id(req.params.id);
     const kind = imageKind(req.params.kind);
-    moderator(sid, me);
+    allowed(sid, me, "manageServer");
     if (!req.isMultipart()) throw new HttpError(400, "Send the picture as multipart form data");
     const part = await req.file({ limits: { fileSize: LIMITS.serverImageBytes, files: 1 } });
     if (!part) throw new HttpError(400, "Send a picture");
@@ -169,7 +182,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     const me = requireUser(req);
     const sid = id(req.params.id);
     const kind = imageKind(req.params.kind);
-    moderator(sid, me);
+    allowed(sid, me, "manageServer");
     removeFiles([servers.setImage(sid, kind, null, null)]);
     push(sid);
     return servers.view(sid, me.id);
@@ -242,17 +255,19 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     return servers.view(sid, me.id);
   });
 
-  /** Removes someone, and with ?ban=true keeps them out. Admins can't remove the owner or other admins. */
+  /**
+   * Removes someone, and with ?ban=true keeps them out. Needs Remove and ban, and only works on
+   * people ranked below you (admins can't remove the owner or other admins).
+   */
   app.delete<{ Params: { id: string; userId: string }; Querystring: { ban?: string } }>("/api/servers/:id/members/:userId", async (req) => {
     const me = requireUser(req);
     const sid = id(req.params.id);
-    const myRole = member(sid, me);
+    allowed(sid, me, "kickMembers");
     const target = id(req.params.userId);
     const theirRole = servers.role(sid, target);
-    if (!isModerator(myRole)) throw new HttpError(403, "Only the owner and admins can do that");
     if (!theirRole) throw new HttpError(404, "They aren't in this server");
     if (target === me.id) throw new HttpError(400, "Leave the server instead");
-    if (theirRole === "owner" || (theirRole === "admin" && myRole !== "owner")) throw new HttpError(403, "Only the owner can remove an admin");
+    if (!servers.outranks(sid, me.id, target)) throw new HttpError(403, theirRole === "admin" ? "Only the owner can remove an admin" : "You can only remove people ranked below you");
     servers.removeMember(sid, target, req.query.ban === "true" ? { by: me.id } : null);
     gateway.send([target], { type: "server.removed", serverId: sid });
     push(sid);
@@ -262,27 +277,79 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
   app.get<{ Params: { id: string } }>("/api/servers/:id/bans", async (req) => {
     const me = requireUser(req);
     const sid = id(req.params.id);
-    moderator(sid, me);
+    allowed(sid, me, "kickMembers");
     return servers.bans(sid);
   });
 
   app.delete<{ Params: { id: string; userId: string } }>("/api/servers/:id/bans/:userId", async (req) => {
     const me = requireUser(req);
     const sid = id(req.params.id);
-    moderator(sid, me);
+    allowed(sid, me, "kickMembers");
     if (!servers.unban(sid, id(req.params.userId))) throw new HttpError(404, "They aren't banned");
     return { ok: true };
+  });
+
+  // ---- Custom roles ----------------------------------------------------------------
+  // Everyone in the server sees the roles (they come with the server). Changing them needs
+  // Manage roles, and only roles ranked below your own (see ServerRepo).
+
+  /** Makes a role: { name, color?: "#rrggbb" | null, permissions?: [...] }. New roles rank lowest. */
+  app.post<{ Params: { id: string }; Body: { name?: unknown; color?: unknown; permissions?: unknown } }>("/api/servers/:id/roles", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    member(sid, me);
+    const role = servers.createRole(sid, me.id, req.body ?? {});
+    push(sid);
+    return role;
+  });
+
+  /** Puts the roles in a new order, highest first: { ids: [...] }. */
+  app.put<{ Params: { id: string }; Body: { ids?: unknown } }>("/api/servers/:id/roles/order", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    member(sid, me);
+    servers.reorderRoles(sid, me.id, req.body?.ids);
+    push(sid);
+    return servers.view(sid, me.id);
+  });
+
+  app.patch<{ Params: { id: string; roleId: string }; Body: { name?: unknown; color?: unknown; permissions?: unknown } }>("/api/servers/:id/roles/:roleId", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    member(sid, me);
+    servers.updateRole(sid, me.id, id(req.params.roleId), req.body ?? {});
+    push(sid);
+    return servers.view(sid, me.id);
+  });
+
+  app.delete<{ Params: { id: string; roleId: string } }>("/api/servers/:id/roles/:roleId", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    member(sid, me);
+    servers.deleteRole(sid, me.id, id(req.params.roleId));
+    push(sid);
+    return servers.view(sid, me.id);
+  });
+
+  /** Sets someone's custom roles: { roleIds: [...] }. */
+  app.put<{ Params: { id: string; userId: string }; Body: { roleIds?: unknown } }>("/api/servers/:id/members/:userId/roles", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    member(sid, me);
+    servers.setMemberRoles(sid, me.id, id(req.params.userId), req.body?.roleIds);
+    push(sid);
+    return servers.view(sid, me.id);
   });
 
   // ---- Channels ------------------------------------------------------------------
   // Messages in a channel go through /api/conversations/:conversationId/messages like DMs.
 
-  app.post<{ Params: { id: string }; Body: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown; kind?: unknown } }>(
+  app.post<{ Params: { id: string }; Body: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown; roleIds?: unknown; kind?: unknown } }>(
     "/api/servers/:id/channels",
     async (req) => {
       const me = requireUser(req);
       const sid = id(req.params.id);
-      moderator(sid, me);
+      allowed(sid, me, "manageChannels");
       const channel = servers.createChannel(sid, req.body ?? {});
       push(sid);
       return channel;
@@ -292,18 +359,18 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
   app.put<{ Params: { id: string }; Body: { ids?: unknown } }>("/api/servers/:id/channels/order", async (req) => {
     const me = requireUser(req);
     const sid = id(req.params.id);
-    moderator(sid, me);
+    allowed(sid, me, "manageChannels");
     servers.reorderChannels(sid, req.body?.ids);
     push(sid);
     return servers.view(sid, me.id);
   });
 
-  app.patch<{ Params: { id: string; channelId: string }; Body: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown } }>(
+  app.patch<{ Params: { id: string; channelId: string }; Body: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown; roleIds?: unknown } }>(
     "/api/servers/:id/channels/:channelId",
     async (req) => {
       const me = requireUser(req);
       const sid = id(req.params.id);
-      moderator(sid, me);
+      allowed(sid, me, "manageChannels");
       servers.updateChannel(sid, id(req.params.channelId), req.body ?? {});
       push(sid);
       return servers.view(sid, me.id);
@@ -313,7 +380,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
   app.delete<{ Params: { id: string; channelId: string } }>("/api/servers/:id/channels/:channelId", async (req) => {
     const me = requireUser(req);
     const sid = id(req.params.id);
-    moderator(sid, me);
+    allowed(sid, me, "manageChannels");
     removeFiles(servers.deleteChannel(sid, id(req.params.channelId)));
     push(sid);
     return { ok: true };
@@ -352,11 +419,11 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     return { ok: true };
   });
 
-  /** The owner and admins can delete anyone's message in their server's channels. */
+  /** People with Delete messages (and the owner and admins) can delete anyone's message in the server's channels. */
   app.delete<{ Params: { id: string; messageId: string } }>("/api/servers/:id/messages/:messageId", async (req) => {
     const me = requireUser(req);
     const sid = id(req.params.id);
-    moderator(sid, me);
+    allowed(sid, me, "deleteMessages");
     const mid = id(req.params.messageId);
     if (servers.serverOfMessage(mid) !== sid) throw new HttpError(404, "No such message");
     const { message, removedFiles } = convos.delete(mid, me.id, true);
@@ -366,13 +433,13 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
   });
 
   // ---- Automod and timeouts ---------------------------------------------------------
-  // Only the owner and admins see or change automod. Channels aren't encrypted, so the server
+  // Only people with Manage automod (and the owner and admins) see or change automod. Channels aren't encrypted, so the server
   // checks each message before saving it (see automod.ts).
 
   app.get<{ Params: { id: string } }>("/api/servers/:id/automod", async (req) => {
     const me = requireUser(req);
     const sid = id(req.params.id);
-    moderator(sid, me);
+    allowed(sid, me, "manageAutomod");
     return ctx.automod.settings(sid);
   });
 
@@ -380,7 +447,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
   app.patch<{ Params: { id: string }; Body: unknown }>("/api/servers/:id/automod", async (req) => {
     const me = requireUser(req);
     const sid = id(req.params.id);
-    moderator(sid, me);
+    allowed(sid, me, "manageAutomod");
     return ctx.automod.update(sid, req.body);
   });
 
@@ -388,28 +455,27 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
   app.get<{ Params: { id: string }; Querystring: { before?: string } }>("/api/servers/:id/automod/events", async (req) => {
     const me = requireUser(req);
     const sid = id(req.params.id);
-    moderator(sid, me);
+    allowed(sid, me, "manageAutomod");
     return ctx.automod.events(sid, req.query.before ? id(req.query.before) : undefined);
   });
 
   app.get<{ Params: { id: string } }>("/api/servers/:id/timeouts", async (req) => {
     const me = requireUser(req);
     const sid = id(req.params.id);
-    moderator(sid, me);
+    allowed(sid, me, "timeoutMembers", "manageAutomod");
     return ctx.automod.timeouts(sid);
   });
 
-  /** Times someone out: { minutes, reason? }. Admins can't time out the owner or other admins. */
+  /** Times someone out: { minutes, reason? }. Needs Time out, and only works on people ranked below you. */
   app.put<{ Params: { id: string; userId: string }; Body: { minutes?: unknown; reason?: unknown } }>("/api/servers/:id/timeouts/:userId", async (req) => {
     const me = requireUser(req);
     const sid = id(req.params.id);
-    const myRole = member(sid, me);
-    if (!isModerator(myRole)) throw new HttpError(403, "Only the owner and admins can do that");
+    allowed(sid, me, "timeoutMembers");
     const target = id(req.params.userId);
     const theirRole = servers.role(sid, target);
     if (!theirRole) throw new HttpError(404, "They aren't in this server");
     if (target === me.id) throw new HttpError(400, "You can't time yourself out");
-    if (theirRole === "owner" || (theirRole === "admin" && myRole !== "owner")) throw new HttpError(403, "Only the owner can time out an admin");
+    if (!servers.outranks(sid, me.id, target)) throw new HttpError(403, theirRole === "admin" ? "Only the owner can time out an admin" : "You can only time out people ranked below you");
     const minutes = Number(req.body?.minutes);
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > AUTOMOD_LIMITS.timeoutMinutes) throw new HttpError(400, "Pick a timeout from 1 minute to 7 days");
     const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
@@ -420,7 +486,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
   app.delete<{ Params: { id: string; userId: string } }>("/api/servers/:id/timeouts/:userId", async (req) => {
     const me = requireUser(req);
     const sid = id(req.params.id);
-    moderator(sid, me);
+    allowed(sid, me, "timeoutMembers");
     if (!ctx.automod.clearTimeout(sid, id(req.params.userId))) throw new HttpError(404, "They aren't timed out");
     return { ok: true };
   });
@@ -439,7 +505,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     const me = requireUser(req);
     const sid = id(req.params.id);
     member(sid, me);
-    if (!servers.canInvite(sid, me.id)) throw new HttpError(403, "Only the owner and admins can make invites here");
+    if (!servers.canInvite(sid, me.id)) throw new HttpError(403, "You need Make invites to invite people here");
     return servers.createInvite(sid, me.id, req.body ?? {});
   });
 
@@ -448,7 +514,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     const me = requireUser(req);
     const sid = id(req.params.id);
     member(sid, me);
-    if (!servers.canInvite(sid, me.id)) throw new HttpError(403, "Only the owner and admins can make invites here");
+    if (!servers.canInvite(sid, me.id)) throw new HttpError(403, "You need Make invites to invite people here");
     const friendId = id(req.body?.userId);
     if (!friends.areFriends(me.id, friendId)) throw new HttpError(403, "You can only invite friends");
     const { invite, isNew } = servers.inviteFriend(sid, me.id, friendId);

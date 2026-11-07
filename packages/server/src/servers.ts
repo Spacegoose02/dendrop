@@ -1,14 +1,20 @@
 import { randomBytes } from "node:crypto";
 import {
+  findBlockedWords,
+  isHexColor,
   LIMITS,
+  MODERATION_PERMISSIONS,
+  SERVER_PERMISSIONS,
   type AdminServer,
   type Channel,
   type ChatServer,
   type ChatServerSummary,
+  type CustomRole,
   type InvitePreview,
   type ServerCreatorRequest,
   type ServerInvite,
   type ServerMember,
+  type ServerPermission,
   type ServerRole,
 } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
@@ -38,6 +44,16 @@ interface ChannelRow {
   topic: string;
   position: number;
   locked: number;
+  created_at: string;
+}
+
+interface RoleRow {
+  id: number;
+  server_id: number;
+  name: string;
+  color: string | null;
+  position: number;
+  permissions: string;
   created_at: string;
 }
 
@@ -177,11 +193,25 @@ export class ServerRepo {
     );
   }
 
-  /** Whether someone can see a channel: any member for an open one; picked people and moderators for a locked one. */
+  private roleAccess(channelId: number): number[] {
+    return (
+      this.db
+        .prepare("SELECT a.role_id FROM channel_role_access a JOIN server_roles r ON r.id = a.role_id WHERE a.channel_id = ? ORDER BY r.position, r.id")
+        .all(channelId) as { role_id: number }[]
+    ).map((r) => r.role_id);
+  }
+
+  /**
+   * Whether someone can see a channel: any member for an open one. A locked one: the people
+   * picked for it, members of the roles picked for it, and anyone who can manage channels.
+   */
   private canSee(c: ChannelRow, userId: number, role = this.role(c.server_id, userId)): boolean {
     if (!role) return false;
-    if (!c.locked || isModerator(role)) return true;
-    return !!this.db.prepare("SELECT 1 FROM channel_access WHERE channel_id = ? AND user_id = ?").get(c.id, userId);
+    if (!c.locked || this.can(c.server_id, userId, "manageChannels", role)) return true;
+    if (this.db.prepare("SELECT 1 FROM channel_access WHERE channel_id = ? AND user_id = ?").get(c.id, userId)) return true;
+    return !!this.db
+      .prepare("SELECT 1 FROM channel_role_access a JOIN server_member_roles m ON m.role_id = a.role_id WHERE a.channel_id = ? AND m.user_id = ? AND m.server_id = ?")
+      .get(c.id, userId, c.server_id);
   }
 
   private toChannel(c: ChannelRow, showAccess: boolean): Channel {
@@ -195,6 +225,7 @@ export class ServerRepo {
       position: c.position,
       locked: !!c.locked,
       memberIds: c.locked && showAccess ? this.access(c.id) : [],
+      roleIds: c.locked && showAccess ? this.roleAccess(c.id) : [],
     };
   }
 
@@ -218,9 +249,14 @@ export class ServerRepo {
     const rows = this.db
       .prepare("SELECT user_id, role, nickname, joined_at FROM server_members WHERE server_id = ? ORDER BY joined_at, user_id")
       .all(serverId) as { user_id: number; role: ServerRole; nickname: string | null; joined_at: string }[];
+    const roles = this.roleRows(serverId);
+    const held = this.heldRoles(serverId);
     return rows.flatMap((r) => {
       const u = this.users.byId(r.user_id);
-      return u ? [{ user: toPublic(u), role: r.role, nickname: r.nickname, joinedAt: r.joined_at }] : [];
+      if (!u) return [];
+      const mine = roles.filter((x) => held.get(r.user_id)?.has(x.id));
+      const color = mine.find((x) => x.color)?.color ?? null;
+      return [{ user: toPublic(u), role: r.role, roleIds: mine.map((x) => x.id), color, nickname: r.nickname, joinedAt: r.joined_at }];
     });
   }
 
@@ -232,11 +268,14 @@ export class ServerRepo {
     const me = this.db.prepare("SELECT nickname FROM server_members WHERE server_id = ? AND user_id = ?").get(serverId, viewerId) as {
       nickname: string | null;
     };
-    const mod = isModerator(role);
+    const perms = this.permissions(serverId, viewerId, role);
+    const mod = perms.includes("manageChannels");
     return {
       ...this.summaryOf(r),
       ownerId: r.owner_id,
       myRole: role,
+      myPermissions: perms,
+      roles: this.roles(serverId),
       nickname: me.nickname,
       memberInvites: !!r.member_invites,
       channels: this.channelRows(serverId)
@@ -417,6 +456,7 @@ export class ServerRepo {
     const current = this.role(serverId, userId);
     if (!current) throw new HttpError(404, "They aren't in this server");
     if (current === "owner") throw new HttpError(400, "Transfer ownership instead");
+    if (role === "admin" && this.users.byId(userId)?.isKid) throw new HttpError(400, "Kid accounts can't be admins. Give them a role without moderator permissions instead");
     this.atomic(() => {
       this.db.prepare("UPDATE server_members SET role = ? WHERE server_id = ? AND user_id = ?").run(role, serverId, userId);
       this.syncServer(serverId);
@@ -451,7 +491,30 @@ export class ServerRepo {
     return out;
   }
 
-  private insertChannel(serverId: number, name: string, topic: string, locked: boolean, access: number[], kind: "text" | "voice" = "text"): number {
+  private cleanRoleAccess(serverId: number, ids: unknown): number[] {
+    if (ids === undefined) return [];
+    if (!Array.isArray(ids)) throw new HttpError(400, "roleIds is a list of role ids");
+    const roles = new Set(this.roleRows(serverId).map((r) => r.id));
+    const out = [...new Set(ids.map(Number))];
+    for (const id of out) if (!roles.has(id)) throw new HttpError(400, "Only this server's roles can be picked for a channel");
+    return out;
+  }
+
+  private setRoleAccess(channelId: number, roleIds: number[]): void {
+    this.db.prepare("DELETE FROM channel_role_access WHERE channel_id = ?").run(channelId);
+    const add = this.db.prepare("INSERT INTO channel_role_access (channel_id, role_id) VALUES (?, ?)");
+    for (const r of roleIds) add.run(channelId, r);
+  }
+
+  private insertChannel(
+    serverId: number,
+    name: string,
+    topic: string,
+    locked: boolean,
+    access: number[],
+    kind: "text" | "voice" = "text",
+    roleAccess: number[] = [],
+  ): number {
     const t = now();
     const conv = this.db.prepare("INSERT INTO conversations (is_group, kind, name, created_at) VALUES (1, 'channel', ?, ?)").run(name, t);
     const pos = this.db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM server_channels WHERE server_id = ?").get(serverId) as { p: number };
@@ -461,11 +524,12 @@ export class ServerRepo {
     const id = Number(res.lastInsertRowid);
     const add = this.db.prepare("INSERT INTO channel_access (channel_id, user_id) VALUES (?, ?)");
     for (const u of access) add.run(id, u);
+    this.setRoleAccess(id, roleAccess);
     this.syncChannel(id);
     return id;
   }
 
-  createChannel(serverId: number, input: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown; kind?: unknown }): Channel {
+  createChannel(serverId: number, input: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown; roleIds?: unknown; kind?: unknown }): Channel {
     if (this.channelRows(serverId).length >= LIMITS.channelsPerServer) {
       throw new HttpError(400, `A server can have up to ${LIMITS.channelsPerServer} channels`);
     }
@@ -473,7 +537,8 @@ export class ServerRepo {
     const topic = input.topic === undefined ? "" : cleanText(input.topic, LIMITS.channelTopic, "The topic", true);
     if (input.kind !== undefined && input.kind !== "text" && input.kind !== "voice") throw new HttpError(400, "A channel is text or voice");
     const access = this.cleanAccess(serverId, input.memberIds);
-    const id = this.atomic(() => this.insertChannel(serverId, name, topic, input.locked === true, access, input.kind === "voice" ? "voice" : "text"));
+    const roleAccess = this.cleanRoleAccess(serverId, input.roleIds);
+    const id = this.atomic(() => this.insertChannel(serverId, name, topic, input.locked === true, access, input.kind === "voice" ? "voice" : "text", roleAccess));
     return this.toChannel(this.channelRow(id)!, true);
   }
 
@@ -484,12 +549,13 @@ export class ServerRepo {
     return c;
   }
 
-  updateChannel(serverId: number, channelId: number, patch: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown }): void {
+  updateChannel(serverId: number, channelId: number, patch: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown; roleIds?: unknown }): void {
     const c = this.channel(serverId, channelId);
     const name = patch.name === undefined ? c.name : cleanChannelName(patch.name);
     const topic = patch.topic === undefined ? c.topic : cleanText(patch.topic, LIMITS.channelTopic, "The topic", true);
     const locked = typeof patch.locked === "boolean" ? patch.locked : !!c.locked;
     const access = patch.memberIds === undefined ? undefined : this.cleanAccess(serverId, patch.memberIds);
+    const roleAccess = patch.roleIds === undefined ? undefined : this.cleanRoleAccess(serverId, patch.roleIds);
     this.atomic(() => {
       this.db.prepare("UPDATE server_channels SET name = ?, topic = ?, locked = ? WHERE id = ?").run(name, topic, locked ? 1 : 0, channelId);
       this.db.prepare("UPDATE conversations SET name = ? WHERE id = ?").run(name, c.conversation_id);
@@ -498,6 +564,7 @@ export class ServerRepo {
         const add = this.db.prepare("INSERT INTO channel_access (channel_id, user_id) VALUES (?, ?)");
         for (const u of access) add.run(channelId, u);
       }
+      if (roleAccess) this.setRoleAccess(channelId, roleAccess);
       this.syncChannel(channelId);
     });
   }
@@ -575,7 +642,7 @@ export class ServerRepo {
   /** Whether someone may make invites to this server. */
   canInvite(serverId: number, userId: number): boolean {
     const role = this.role(serverId, userId);
-    return isModerator(role) || (!!role && !!this.row(serverId)?.member_invites);
+    return this.can(serverId, userId, "createInvites", role) || (!!role && !!this.row(serverId)?.member_invites);
   }
 
   createInvite(serverId: number, by: number, input: { maxUses?: unknown; expiresInHours?: unknown }, forUserId: number | null = null): ServerInvite {
@@ -605,7 +672,7 @@ export class ServerRepo {
   /** A server's invites: all of them for moderators, your own for everyone else. Friend invites aren't links, so they're left out. */
   invites(serverId: number, viewerId: number): ServerInvite[] {
     this.pruneInvites();
-    const mod = isModerator(this.role(serverId, viewerId));
+    const mod = this.can(serverId, viewerId, "manageServer");
     const rows = (
       mod
         ? this.db.prepare("SELECT * FROM server_invites WHERE server_id = ? AND for_user_id IS NULL ORDER BY created_at").all(serverId)
@@ -660,10 +727,241 @@ export class ServerRepo {
   deleteInvite(code: string, userId: number): number {
     const r = this.inviteRow(code);
     if (!r) throw new HttpError(404, "No such invite");
-    const allowed = r.created_by === userId || r.for_user_id === userId || isModerator(this.role(r.server_id, userId));
+    const allowed = r.created_by === userId || r.for_user_id === userId || this.can(r.server_id, userId, "manageServer");
     if (!allowed) throw new HttpError(404, "No such invite");
     this.db.prepare("DELETE FROM server_invites WHERE code = ?").run(code);
     return r.server_id;
+  }
+
+  // ---- Custom roles and permissions --------------------------------------------------
+
+  private roleRows(serverId: number): RoleRow[] {
+    return this.db.prepare("SELECT * FROM server_roles WHERE server_id = ? ORDER BY position, id").all(serverId) as unknown as RoleRow[];
+  }
+
+  /** A role of this server, or a 404. */
+  private roleOf(serverId: number, roleId: number): RoleRow {
+    const r = this.db.prepare("SELECT * FROM server_roles WHERE id = ?").get(roleId) as RoleRow | undefined;
+    if (!r || r.server_id !== serverId) throw new HttpError(404, "No such role");
+    return r;
+  }
+
+  private permsOf(r: RoleRow): ServerPermission[] {
+    const saved = JSON.parse(r.permissions) as unknown[];
+    return SERVER_PERMISSIONS.filter((p) => saved.includes(p));
+  }
+
+  /** Who holds which roles here, by user id. */
+  private heldRoles(serverId: number): Map<number, Set<number>> {
+    const out = new Map<number, Set<number>>();
+    for (const r of this.db.prepare("SELECT user_id, role_id FROM server_member_roles WHERE server_id = ?").all(serverId) as { user_id: number; role_id: number }[]) {
+      if (!out.has(r.user_id)) out.set(r.user_id, new Set());
+      out.get(r.user_id)!.add(r.role_id);
+    }
+    return out;
+  }
+
+  /** Someone's custom roles here, highest first. */
+  private rolesOfMember(serverId: number, userId: number): RoleRow[] {
+    return this.db
+      .prepare("SELECT r.* FROM server_roles r JOIN server_member_roles m ON m.role_id = r.id WHERE m.server_id = ? AND m.user_id = ? ORDER BY r.position, r.id")
+      .all(serverId, userId) as unknown as RoleRow[];
+  }
+
+  /** A server's custom roles, highest first. */
+  roles(serverId: number): CustomRole[] {
+    const counts = new Map(
+      (this.db.prepare("SELECT role_id, COUNT(*) AS n FROM server_member_roles WHERE server_id = ? GROUP BY role_id").all(serverId) as { role_id: number; n: number }[]).map(
+        (r) => [r.role_id, Number(r.n)],
+      ),
+    );
+    return this.roleRows(serverId).map((r) => ({
+      id: r.id,
+      serverId: r.server_id,
+      name: r.name,
+      color: r.color,
+      position: r.position,
+      permissions: this.permsOf(r),
+      memberCount: counts.get(r.id) ?? 0,
+    }));
+  }
+
+  /**
+   * What someone can do here: everything for the owner and admins, otherwise what their custom
+   * roles allow together. A kid account never gets moderator permissions, even from a role it
+   * held before it was linked to a parent.
+   */
+  permissions(serverId: number, userId: number, role = this.role(serverId, userId)): ServerPermission[] {
+    if (!role) return [];
+    if (isModerator(role)) return [...SERVER_PERMISSIONS];
+    const have = new Set(this.rolesOfMember(serverId, userId).flatMap((r) => this.permsOf(r)));
+    const kid = !!this.users.byId(userId)?.isKid;
+    return SERVER_PERMISSIONS.filter((p) => have.has(p) && !(kid && MODERATION_PERMISSIONS.includes(p)));
+  }
+
+  can(serverId: number, userId: number, perm: ServerPermission, role = this.role(serverId, userId)): boolean {
+    if (!role) return false;
+    if (isModerator(role)) return true;
+    return this.permissions(serverId, userId, role).includes(perm);
+  }
+
+  /** How high someone ranks: the owner, then admins, then by their highest custom role. Smaller is higher. */
+  rank(serverId: number, userId: number): number {
+    const role = this.role(serverId, userId);
+    if (role === "owner") return -2;
+    if (role === "admin") return -1;
+    return this.rolesOfMember(serverId, userId)[0]?.position ?? Infinity;
+  }
+
+  /**
+   * Whether `actor` may act on `target` (remove, ban, time out, change roles): the owner over
+   * everyone, admins over everyone but the owner and other admins, and everyone else only over
+   * people whose highest role ranks below theirs.
+   */
+  outranks(serverId: number, actor: number, target: number): boolean {
+    if (actor === target) return false;
+    const a = this.role(serverId, actor);
+    const t = this.role(serverId, target);
+    if (!a || !t || t === "owner") return false;
+    if (a === "owner") return true;
+    if (t === "admin") return false;
+    if (a === "admin") return true;
+    return this.rank(serverId, actor) < this.rank(serverId, target);
+  }
+
+  /** Whether someone may change a role: owners and admins any, others only roles below their highest. */
+  private canManageRole(serverId: number, actor: number, r: RoleRow): boolean {
+    if (!this.can(serverId, actor, "manageRoles")) return false;
+    return this.rank(serverId, actor) < r.position;
+  }
+
+  private cleanRoleName(v: unknown): string {
+    const name = cleanText(v, LIMITS.roleName, "The role name", false);
+    // Role names show to everyone in the server, kids included.
+    if (findBlockedWords(name, [], { builtin: true }).length) throw new HttpError(400, "Pick a role name without rude words");
+    return name;
+  }
+
+  private cleanRoleColor(v: unknown): string | null {
+    if (v === null || v === "") return null;
+    if (!isHexColor(v)) throw new HttpError(400, "A role color is #rrggbb, or null for none");
+    return v.toLowerCase();
+  }
+
+  private cleanPermissions(v: unknown): ServerPermission[] {
+    if (!Array.isArray(v)) throw new HttpError(400, "permissions is a list");
+    for (const p of v) if (!SERVER_PERMISSIONS.includes(p as ServerPermission)) throw new HttpError(400, `There's no permission called ${String(p)}`);
+    return SERVER_PERMISSIONS.filter((p) => v.includes(p));
+  }
+
+  /** Stops a role gaining moderator permissions while a kid holds it, or a kid getting such a role. */
+  private checkKids(serverId: number, roleName: string, perms: ServerPermission[], userIds: number[]): void {
+    if (!perms.some((p) => MODERATION_PERMISSIONS.includes(p))) return;
+    const kid = userIds.map((id) => this.users.byId(id)).find((u) => u?.isKid);
+    if (kid) throw new HttpError(400, `${kid.displayName} has a kid account, so they can't have "${roleName}": it lets people moderate. Kids can hold roles that only have colors or invites`);
+  }
+
+  private holders(roleId: number): number[] {
+    return (this.db.prepare("SELECT user_id FROM server_member_roles WHERE role_id = ?").all(roleId) as { user_id: number }[]).map((r) => r.user_id);
+  }
+
+  /** Makes a role, ranked lowest. You can only give it permissions you have. */
+  createRole(serverId: number, actor: number, input: { name?: unknown; color?: unknown; permissions?: unknown }): CustomRole {
+    if (!this.can(serverId, actor, "manageRoles")) throw new HttpError(403, "You need Manage roles to do that");
+    if (this.roleRows(serverId).length >= LIMITS.rolesPerServer) throw new HttpError(400, `A server can have up to ${LIMITS.rolesPerServer} roles`);
+    const name = this.cleanRoleName(input.name);
+    const color = input.color === undefined ? null : this.cleanRoleColor(input.color);
+    const perms = input.permissions === undefined ? [] : this.cleanPermissions(input.permissions);
+    const mine = this.permissions(serverId, actor);
+    const extra = perms.filter((p) => !mine.includes(p));
+    if (extra.length) throw new HttpError(403, "You can only give a role permissions you have yourself");
+    const id = this.atomic(() => {
+      const pos = this.db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM server_roles WHERE server_id = ?").get(serverId) as { p: number };
+      const res = this.db
+        .prepare("INSERT INTO server_roles (server_id, name, color, position, permissions, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(serverId, name, color, pos.p, JSON.stringify(perms), now());
+      return Number(res.lastInsertRowid);
+    });
+    return this.roles(serverId).find((r) => r.id === id)!;
+  }
+
+  /** Renames, recolors, or changes a role's permissions: { name?, color?, permissions? }. */
+  updateRole(serverId: number, actor: number, roleId: number, patch: { name?: unknown; color?: unknown; permissions?: unknown }): void {
+    const r = this.roleOf(serverId, roleId);
+    if (!this.canManageRole(serverId, actor, r)) throw new HttpError(403, "You can only change roles ranked below your own");
+    const name = patch.name === undefined ? r.name : this.cleanRoleName(patch.name);
+    const color = patch.color === undefined ? r.color : this.cleanRoleColor(patch.color);
+    const old = this.permsOf(r);
+    const perms = patch.permissions === undefined ? old : this.cleanPermissions(patch.permissions);
+    const mine = this.permissions(serverId, actor);
+    const changed = SERVER_PERMISSIONS.filter((p) => old.includes(p) !== perms.includes(p));
+    if (changed.some((p) => !mine.includes(p))) throw new HttpError(403, "You can only turn on or off permissions you have yourself");
+    this.checkKids(serverId, name, perms, this.holders(roleId));
+    this.atomic(() => {
+      this.db.prepare("UPDATE server_roles SET name = ?, color = ?, permissions = ? WHERE id = ?").run(name, color, JSON.stringify(perms), roleId);
+      if (changed.length) this.syncServer(serverId);
+    });
+  }
+
+  deleteRole(serverId: number, actor: number, roleId: number): void {
+    const r = this.roleOf(serverId, roleId);
+    if (!this.canManageRole(serverId, actor, r)) throw new HttpError(403, "You can only delete roles ranked below your own");
+    this.atomic(() => {
+      this.db.prepare("DELETE FROM server_roles WHERE id = ?").run(roleId);
+      this.renumberRoles(serverId, this.roleRows(serverId).map((x) => x.id));
+      this.syncServer(serverId);
+    });
+  }
+
+  private renumberRoles(serverId: number, ids: number[]): void {
+    const set = this.db.prepare("UPDATE server_roles SET position = ? WHERE id = ? AND server_id = ?");
+    ids.forEach((id, i) => set.run(i, id, serverId));
+  }
+
+  /** Puts the roles in this order, highest first. Roles at or above your own highest role have to stay where they are. */
+  reorderRoles(serverId: number, actor: number, ids: unknown): void {
+    if (!this.can(serverId, actor, "manageRoles")) throw new HttpError(403, "You need Manage roles to do that");
+    const current = this.roleRows(serverId).map((r) => r.id);
+    if (!Array.isArray(ids) || ids.length !== current.length || new Set(ids.map(Number)).size !== current.length || !ids.every((i) => current.includes(Number(i)))) {
+      throw new HttpError(400, "List every role once, in the new order");
+    }
+    const order = ids.map(Number);
+    const myRank = this.rank(serverId, actor);
+    for (let i = 0; i < current.length && i <= myRank; i++) {
+      if (order[i] !== current[i]) throw new HttpError(403, "You can only move roles ranked below your own");
+    }
+    this.atomic(() => this.renumberRoles(serverId, order));
+  }
+
+  /**
+   * Sets someone's custom roles. Each role added or taken away has to rank below your own (the
+   * owner and admins can hand out any), and the person has to rank below you unless it's you.
+   */
+  setMemberRoles(serverId: number, actor: number, userId: number, roleIds: unknown): void {
+    if (!this.can(serverId, actor, "manageRoles")) throw new HttpError(403, "You need Manage roles to do that");
+    if (!this.role(serverId, userId)) throw new HttpError(404, "They aren't in this server");
+    if (!Array.isArray(roleIds)) throw new HttpError(400, "roleIds is a list of role ids");
+    const want = [...new Set(roleIds.map(Number))];
+    const all = new Map(this.roleRows(serverId).map((r) => [r.id, r]));
+    for (const id of want) if (!all.has(id)) throw new HttpError(400, "Only this server's roles can be given");
+    const have = new Set(this.rolesOfMember(serverId, userId).map((r) => r.id));
+    const added = want.filter((id) => !have.has(id));
+    const removed = [...have].filter((id) => !want.includes(id));
+    if (!added.length && !removed.length) return;
+    if (!isModerator(this.role(serverId, actor)) && actor !== userId && !this.outranks(serverId, actor, userId)) {
+      throw new HttpError(403, "You can only change roles for people ranked below you");
+    }
+    for (const id of [...added, ...removed]) {
+      if (!this.canManageRole(serverId, actor, all.get(id)!)) throw new HttpError(403, `You can only give or take away roles ranked below your own ("${all.get(id)!.name}" isn't)`);
+    }
+    for (const id of added) this.checkKids(serverId, all.get(id)!.name, this.permsOf(all.get(id)!), [userId]);
+    this.atomic(() => {
+      const del = this.db.prepare("DELETE FROM server_member_roles WHERE server_id = ? AND user_id = ? AND role_id = ?");
+      const add = this.db.prepare("INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES (?, ?, ?)");
+      for (const id of removed) del.run(serverId, userId, id);
+      for (const id of added) add.run(serverId, userId, id);
+      this.syncServer(serverId);
+    });
   }
 
   // ---- Permission to make servers ---------------------------------------------------

@@ -653,3 +653,117 @@ select {
 .member-row .make-kid {
   flex-basis: 100%;
 }
+
+/* Custom roles */
+.role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 1px 8px 1px 6px;
+  border-radius: 999px;
+  background: var(--dd-bg-raised);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.role-chip.plain {
+  background: none;
+  padding: 0;
+  font-weight: inherit;
+  color: inherit;
+  font-size: inherit;
+}
+.role-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  box-shadow: 0 0 0 1px var(--dd-border);
+}
+.role-chip-x {
+  padding: 0 2px;
+  margin-left: 2px;
+  line-height: 1;
+  font-size: 14px;
+  color: inherit;
+}
+.server-member .role-chip {
+  font-size: 11px;
+  flex-shrink: 1;
+  min-width: 0;
+}
+.member-roles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.member-row:has(.member-roles) {
+  flex-wrap: wrap;
+}
+.member-row .member-roles {
+  flex-basis: 100%;
+}
+.member-roles .add-role {
+  width: auto;
+  font-size: 12px;
+  padding: 1px 6px;
+  margin: 0;
+  border-radius: 999px;
+}
+.roles-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.role-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.role-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--dd-radius-sm);
+}
+.role-row.on {
+  background: var(--dd-bg-hover);
+}
+.role-pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  text-align: left;
+}
+.role-list > .wide {
+  margin-top: 8px;
+}
+.role-editor .color-setting {
+  margin-bottom: 8px;
+}
+.role-preview {
+  margin: 4px 0 12px;
+}
+.perm-list .toggle {
+  margin-bottom: 4px;
+}
+.role-editor .row {
+  align-items: center;
+  margin-bottom: 8px;
+}
+.role-editor .spacer {
+  flex: 1;
+}
+@media (max-width: 720px) {
+  .roles-layout {
+    grid-template-columns: 1fr;
+  }
+}

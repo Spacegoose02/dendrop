@@ -26,6 +26,7 @@ const base = (actions: AutomodAction[]): AutomodRuleBase => ({
   actions,
   timeoutMinutes: 10,
   exemptRoles: ["owner", "admin"],
+  exemptRoleIds: [],
   exemptChannelIds: [],
 });
 
@@ -152,15 +153,21 @@ export class AutomodService {
     return new Set((this.db.prepare("SELECT id FROM server_channels WHERE server_id = ?").all(serverId) as { id: number }[]).map((r) => r.id));
   }
 
-  /** A server's rules. Channels deleted since they were saved are left out. */
+  private roleIds(serverId: number): Set<number> {
+    return new Set((this.db.prepare("SELECT id FROM server_roles WHERE server_id = ?").all(serverId) as { id: number }[]).map((r) => r.id));
+  }
+
+  /** A server's rules. Channels and custom roles deleted since they were saved are left out. */
   settings(serverId: number): AutomodSettings {
     const row = this.db.prepare("SELECT settings FROM server_automod WHERE server_id = ?").get(serverId) as { settings: string } | undefined;
     const saved = row ? (JSON.parse(row.settings) as Partial<AutomodSettings>) : {};
     const out = defaultAutomod();
     const channels = this.channelIds(serverId);
+    const roles = this.roleIds(serverId);
     for (const k of RULES) {
       const rule = { ...out[k], ...(saved[k] ?? {}) } as AutomodRuleBase;
       rule.exemptChannelIds = rule.exemptChannelIds.filter((id) => channels.has(id));
+      rule.exemptRoleIds = (rule.exemptRoleIds ?? []).filter((id) => roles.has(id));
       (out as unknown as Record<string, AutomodRuleBase>)[k] = rule;
     }
     return out;
@@ -172,6 +179,7 @@ export class AutomodService {
     const patch = input as Record<string, unknown>;
     const current = this.settings(serverId);
     const channels = this.channelIds(serverId);
+    const roleIds = this.roleIds(serverId);
     for (const key of Object.keys(patch)) if (!RULES.includes(key as AutomodRuleKind)) throw new HttpError(400, `There's no automod rule called ${key}`);
 
     for (const k of RULES) {
@@ -193,6 +201,11 @@ export class AutomodService {
         const roles = list<ServerRole>(p.exemptRoles, "exemptRoles");
         if (!roles.every((x) => ROLES.includes(x))) throw new HttpError(400, "Roles are owner, admin and member");
         r.exemptRoles = ROLES.filter((x) => roles.includes(x));
+      }
+      if (p.exemptRoleIds !== undefined) {
+        const ids = [...new Set(list<unknown>(p.exemptRoleIds, "exemptRoleIds").map(Number))];
+        if (!ids.every((id) => roleIds.has(id))) throw new HttpError(400, "Only this server's roles can be exempt");
+        r.exemptRoleIds = ids;
       }
       if (p.exemptChannelIds !== undefined) {
         const ids = [...new Set(list<unknown>(p.exemptChannelIds, "exemptChannelIds").map(Number))];
@@ -359,7 +372,11 @@ export class AutomodService {
 
     const text = typeof body === "string" ? body : "";
     const settings = this.settings(serverId);
-    const applies = (r: AutomodRuleBase) => r.enabled && !r.exemptRoles.includes(role) && !r.exemptChannelIds.includes(channel.id);
+    const mine = new Set(
+      (this.db.prepare("SELECT role_id FROM server_member_roles WHERE server_id = ? AND user_id = ?").all(serverId, user.id) as { role_id: number }[]).map((r) => r.role_id),
+    );
+    const applies = (r: AutomodRuleBase) =>
+      r.enabled && !r.exemptRoles.includes(role) && !r.exemptRoleIds.some((id) => mine.has(id)) && !r.exemptChannelIds.includes(channel.id);
 
     const hits: Hit[] = [];
     if (applies(settings.newAccounts) && !edit) {
@@ -383,7 +400,8 @@ export class AutomodService {
 
     let stop: string | null = null;
     let timedOut = false;
-    const mods = this.servers.members(serverId).filter((m) => isModerator(m.role)).map((m) => m.user.id);
+    // Alerts go to everyone who can manage automod: the owner, admins, and custom roles with it.
+    const mods = this.servers.memberIds(serverId).filter((id) => this.servers.can(serverId, id, "manageAutomod"));
     for (const hit of hits) {
       const rule = settings[hit.rule];
       // Automod never times out the owner or admins, even when they aren't exempt.

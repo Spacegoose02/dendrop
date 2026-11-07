@@ -20,6 +20,8 @@ import { Modal } from "./Modal.tsx";
 import { WebhooksTab } from "./Webhooks.tsx";
 import { ActivityLine } from "./activity.tsx";
 import { useColors } from "./colors.ts";
+import { MemberRoles, RoleChip, RolesTab } from "./Roles.tsx";
+import { byRank, can, memberColors, outranks, rolesOf } from "./roles.ts";
 import "./servers.css";
 
 /** A server's picture, or its initials on a rounded square. */
@@ -42,7 +44,7 @@ export function ServerIcon({ server, size = 48 }: { server: Pick<ChatServerSumma
 }
 
 export const isMod = (s: ChatServer) => s.myRole === "owner" || s.myRole === "admin";
-export const canInvite = (s: ChatServer) => isMod(s) || s.memberInvites;
+export const canInvite = (s: ChatServer) => can(s, "createInvites") || s.memberInvites;
 export const inviteUrl = (code: string) => `${location.origin}/invite/${code}`;
 
 /** Reads an invite code from a pasted link or a bare code. */
@@ -85,7 +87,7 @@ export function ServerSidebar({
   onModLog?: () => void;
 }) {
   const colorsOf = useColors();
-  const mod = isMod(server);
+  const mod = can(server, "manageChannels");
   return (
     <>
       <header className={`server-header ${server.bannerUrl ? "with-banner" : ""}`}>
@@ -98,7 +100,7 @@ export function ServerSidebar({
         </div>
       </header>
       <div className="sidebar-body">
-        {mod && automodAlerts > 0 && onModLog && (
+        {can(server, "manageAutomod") && automodAlerts > 0 && onModLog && (
           <button className="nav-item automod-alerts" onClick={onModLog}>
             <span className="nav-icon" aria-hidden>
               🛡
@@ -168,7 +170,7 @@ export function ServerSidebar({
                         return (
                           <li key={v.userId} className={`voice-member ${talking ? "speaking" : ""}`}>
                             <Avatar name={name} size={22} />
-                            <span className="ellipsis" style={colorsOf(m?.user).name}>
+                            <span className="ellipsis" style={colorsOf(memberColors(m)).name}>
                               {name}
                             </span>
                             <span className="voice-icons" aria-label={[v.screen && "sharing screen", v.video && "camera on", v.deafened ? "deafened" : v.muted && "muted"].filter(Boolean).join(", ")}>
@@ -187,17 +189,20 @@ export function ServerSidebar({
           );
         })}
         <div className="section-label">Members · {server.memberCount}</div>
-        {server.members.map((m) => (
-          <div key={m.user.id} className="server-member">
-            <span className="server-member-name">
-              <span className="ellipsis" style={colorsOf(m.user).name}>
-                {m.nickname ?? m.user.displayName}
+        {byRank(server).map((m) => {
+          const top = rolesOf(server, m)[0];
+          return (
+            <div key={m.user.id} className="server-member">
+              <span className="server-member-name">
+                <span className="ellipsis" style={colorsOf(memberColors(m)).name}>
+                  {m.nickname ?? m.user.displayName}
+                </span>
+                <ActivityLine userId={m.user.id} />
               </span>
-              <ActivityLine userId={m.user.id} />
-            </span>
-            {m.role !== "member" && <span className={`role-tag ${m.role}`}>{m.role}</span>}
-          </div>
-        ))}
+              {m.role !== "member" ? <span className={`role-tag ${m.role}`}>{m.role}</span> : top && <RoleChip role={top} />}
+            </div>
+          );
+        })}
       </div>
     </>
   );
@@ -595,13 +600,14 @@ export function ChannelDialog({
   const [topic, setTopic] = useState(channel?.topic ?? "");
   const [locked, setLocked] = useState(channel?.locked ?? false);
   const [picked, setPicked] = useState<Set<number>>(new Set(channel?.memberIds ?? []));
+  const [pickedRoles, setPickedRoles] = useState<Set<number>>(new Set(channel?.roleIds ?? []));
   const [error, setError] = useState<string | null>(null);
   // Owners and admins always see locked channels, so only members are picked.
   const pickable = server.members.filter((m) => m.role === "member");
 
   const save = async () => {
     setError(null);
-    const body = { name, topic, locked, memberIds: [...picked] };
+    const body = { name, topic, locked, memberIds: [...picked], roleIds: [...pickedRoles] };
     try {
       if (channel) {
         await api(`/api/servers/${server.id}/channels/${channel.id}`, { method: "PATCH", body });
@@ -658,12 +664,37 @@ export function ChannelDialog({
         <input type="checkbox" checked={locked} onChange={(e) => setLocked(e.target.checked)} />
         <span>
           <strong>Lock this channel</strong>
-          <span className="muted small">Only the people you pick, plus the owner and admins, can see it. Everyone else won't know it's there.</span>
+          <span className="muted small">Only the roles and people you pick, plus the owner, admins and people who can manage channels, can see it. Everyone else won't know it's there.</span>
         </span>
       </label>
+      {locked && server.roles.length > 0 && (
+        <>
+          <div className="section-label">Roles that can see it · {pickedRoles.size}</div>
+          <div className="chips">
+            {server.roles.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                className={`chip ${pickedRoles.has(r.id) ? "on" : ""}`}
+                aria-pressed={pickedRoles.has(r.id)}
+                onClick={() =>
+                  setPickedRoles((p) => {
+                    const n = new Set(p);
+                    if (n.has(r.id)) n.delete(r.id);
+                    else n.add(r.id);
+                    return n;
+                  })
+                }
+              >
+                <RoleChip role={r} plain />
+              </button>
+            ))}
+          </div>
+        </>
+      )}
       {locked && (
         <>
-          <div className="section-label">Who can see it · {picked.size}</div>
+          <div className="section-label">People who can see it · {picked.size}</div>
           <div className="pick-list">
             {pickable.length === 0 && <p className="muted small">Everyone here is an owner or admin, so they can all see it.</p>}
             {pickable.map((m) => (
@@ -700,7 +731,7 @@ export function ChannelDialog({
   );
 }
 
-export type SettingsTab = "profile" | "members" | "invites" | "bans" | "automod" | "modlog" | "webhooks";
+export type SettingsTab = "profile" | "members" | "roles" | "invites" | "bans" | "automod" | "modlog" | "webhooks";
 
 /** Server settings: profile and pictures, members and roles, invites, bans, automod, and leaving. */
 export function ServerSettings({
@@ -716,21 +747,21 @@ export function ServerSettings({
   onClose: () => void;
   onGone: () => void;
 }) {
-  const mod = isMod(server);
-  const [tab, setTab] = useState<SettingsTab>(initialTab && (mod || initialTab === "profile" || initialTab === "members") ? initialTab : "profile");
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "profile", label: "Profile" },
     { id: "members", label: "Members" },
+    ...(can(server, "manageRoles") || server.roles.length ? [{ id: "roles" as const, label: "Roles" }] : []),
     ...(canInvite(server) ? [{ id: "invites" as const, label: "Invites" }] : []),
-    ...(mod
+    ...(can(server, "kickMembers") ? [{ id: "bans" as const, label: "Bans" }] : []),
+    ...(can(server, "manageAutomod")
       ? [
-          { id: "bans" as const, label: "Bans" },
           { id: "automod" as const, label: "Automod" },
           { id: "modlog" as const, label: "Mod log" },
-          { id: "webhooks" as const, label: "Webhooks" },
         ]
       : []),
+    ...(isMod(server) ? [{ id: "webhooks" as const, label: "Webhooks" }] : []),
   ];
+  const [tab, setTab] = useState<SettingsTab>(initialTab && tabs.some((t) => t.id === initialTab) ? initialTab : "profile");
   return (
     <Modal title={server.name} onClose={onClose} wide>
       <div className="chips server-tabs" role="tablist">
@@ -742,6 +773,7 @@ export function ServerSettings({
       </div>
       {tab === "profile" && <ProfileTab me={me} server={server} onGone={onGone} />}
       {tab === "members" && <MembersTab me={me} server={server} />}
+      {tab === "roles" && <RolesTab me={me} server={server} />}
       {tab === "invites" && <InvitesTab server={server} />}
       {tab === "bans" && <BansTab server={server} />}
       {tab === "automod" && <AutomodTab server={server} />}
@@ -752,7 +784,7 @@ export function ServerSettings({
 }
 
 function ProfileTab({ me, server, onGone }: { me: Me; server: ChatServer; onGone: () => void }) {
-  const mod = isMod(server);
+  const mod = can(server, "manageServer");
   const [name, setName] = useState(server.name);
   const [description, setDescription] = useState(server.description);
   const [isPublic, setIsPublic] = useState(server.isPublic);
@@ -897,7 +929,8 @@ const TIMEOUTS: [number, string][] = [
 function MembersTab({ me, server }: { me: Me; server: ChatServer }) {
   const [error, setError] = useState<string | null>(null);
   const owner = server.myRole === "owner";
-  const mod = isMod(server);
+  const mod = can(server, "timeoutMembers") || can(server, "manageAutomod");
+  const colorsOf = useColors();
   const [timeouts, setTimeouts] = useState<Map<number, string>>(new Map());
   const loadTimeouts = () =>
     mod
@@ -912,89 +945,98 @@ function MembersTab({ me, server }: { me: Me; server: ChatServer }) {
       setError((err as Error).message);
     }
   };
-  const canRemove = (role: string) => (owner ? role !== "owner" : server.myRole === "admin" && role === "member");
   return (
     <div className="server-settings">
       {error && <p className="error">{error}</p>}
-      {server.members.map((m) => (
-        <div key={m.user.id} className="member-row">
-          <span className="nav-text">
-            <span className="ellipsis">
-              {m.nickname ?? m.user.displayName}
-              {m.user.id === me.id ? " (you)" : ""}
+      {byRank(server).map((m) => {
+        const below = outranks(server, me.id, m);
+        const canTimeout = below && can(server, "timeoutMembers");
+        const canKick = below && can(server, "kickMembers");
+        return (
+          <div key={m.user.id} className="member-row">
+            <span className="nav-text">
+              <span className="ellipsis" style={colorsOf(memberColors(m)).name}>
+                {m.nickname ?? m.user.displayName}
+                {m.user.id === me.id ? " (you)" : ""}
+              </span>
+              <span className="muted small">
+                @{m.user.username}
+                {timeouts.has(m.user.id) && ` · ⏳ timed out until ${new Date(timeouts.get(m.user.id)!).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}`}
+              </span>
+              <ActivityLine userId={m.user.id} />
             </span>
-            <span className="muted small">
-              @{m.user.username}
-              {timeouts.has(m.user.id) && ` · ⏳ timed out until ${new Date(timeouts.get(m.user.id)!).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}`}
-            </span>
-            <ActivityLine userId={m.user.id} />
-          </span>
-          {owner && m.role !== "owner" ? (
-            <select
-              value={m.role}
-              aria-label={`Role for ${m.user.displayName}`}
-              onChange={(e) => void run(() => api(`/api/servers/${server.id}/members/${m.user.id}`, { method: "PATCH", body: { role: e.target.value } }))}
-            >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-            </select>
-          ) : (
-            <span className={`role-tag ${m.role}`}>{m.role}</span>
-          )}
-          {m.user.id !== me.id && canRemove(m.role) && (
-            <span className="member-actions">
-              {timeouts.has(m.user.id) ? (
-                <button className="ghost small" onClick={() => void run(() => api(`/api/servers/${server.id}/timeouts/${m.user.id}`, { method: "DELETE" }).then(loadTimeouts))}>
-                  End timeout
-                </button>
-              ) : (
-                <select
-                  className="timeout-select"
-                  value=""
-                  aria-label={`Time out ${m.user.displayName}`}
-                  onChange={(e) => {
-                    const minutes = Number(e.target.value);
-                    if (minutes) void run(() => api(`/api/servers/${server.id}/timeouts/${m.user.id}`, { method: "PUT", body: { minutes } }).then(loadTimeouts));
-                  }}
-                >
-                  <option value="">Time out…</option>
-                  {TIMEOUTS.map(([n, label]) => (
-                    <option key={n} value={n}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {owner && (
-                <button
-                  className="ghost small"
-                  onClick={() =>
-                    confirm(`Make ${m.user.displayName} the owner? You'll become an admin.`) &&
-                    void run(() => api(`/api/servers/${server.id}/transfer`, { body: { userId: m.user.id } }))
-                  }
-                >
-                  Make owner
-                </button>
-              )}
-              <button
-                className="ghost small"
-                onClick={() => confirm(`Remove ${m.user.displayName}?`) && void run(() => api(`/api/servers/${server.id}/members/${m.user.id}`, { method: "DELETE" }))}
+            {owner && m.role !== "owner" ? (
+              <select
+                value={m.role}
+                aria-label={`Role for ${m.user.displayName}`}
+                onChange={(e) => void run(() => api(`/api/servers/${server.id}/members/${m.user.id}`, { method: "PATCH", body: { role: e.target.value } }))}
               >
-                Remove
-              </button>
-              <button
-                className="ghost small danger"
-                onClick={() =>
-                  confirm(`Ban ${m.user.displayName}? They'll be removed and can't come back until unbanned.`) &&
-                  void run(() => api(`/api/servers/${server.id}/members/${m.user.id}?ban=true`, { method: "DELETE" }))
-                }
-              >
-                Ban
-              </button>
-            </span>
-          )}
-        </div>
-      ))}
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+              </select>
+            ) : (
+              <span className={`role-tag ${m.role}`}>{m.role}</span>
+            )}
+            {(canTimeout || canKick) && (
+              <span className="member-actions">
+                {!canTimeout ? null : timeouts.has(m.user.id) ? (
+                  <button className="ghost small" onClick={() => void run(() => api(`/api/servers/${server.id}/timeouts/${m.user.id}`, { method: "DELETE" }).then(loadTimeouts))}>
+                    End timeout
+                  </button>
+                ) : (
+                  <select
+                    className="timeout-select"
+                    value=""
+                    aria-label={`Time out ${m.user.displayName}`}
+                    onChange={(e) => {
+                      const minutes = Number(e.target.value);
+                      if (minutes) void run(() => api(`/api/servers/${server.id}/timeouts/${m.user.id}`, { method: "PUT", body: { minutes } }).then(loadTimeouts));
+                    }}
+                  >
+                    <option value="">Time out…</option>
+                    {TIMEOUTS.map(([n, label]) => (
+                      <option key={n} value={n}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {owner && (
+                  <button
+                    className="ghost small"
+                    onClick={() =>
+                      confirm(`Make ${m.user.displayName} the owner? You'll become an admin.`) &&
+                      void run(() => api(`/api/servers/${server.id}/transfer`, { body: { userId: m.user.id } }))
+                    }
+                  >
+                    Make owner
+                  </button>
+                )}
+                {canKick && (
+                  <>
+                    <button
+                      className="ghost small"
+                      onClick={() => confirm(`Remove ${m.user.displayName}?`) && void run(() => api(`/api/servers/${server.id}/members/${m.user.id}`, { method: "DELETE" }))}
+                    >
+                      Remove
+                    </button>
+                    <button
+                      className="ghost small danger"
+                      onClick={() =>
+                        confirm(`Ban ${m.user.displayName}? They'll be removed and can't come back until unbanned.`) &&
+                        void run(() => api(`/api/servers/${server.id}/members/${m.user.id}?ban=true`, { method: "DELETE" }))
+                      }
+                    >
+                      Ban
+                    </button>
+                  </>
+                )}
+              </span>
+            )}
+            <MemberRoles me={me} server={server} member={m} onError={setError} />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1006,7 +1048,7 @@ function InvitesTab({ server }: { server: ChatServer }) {
   const names = new Map(server.members.map((m) => [m.user.id, m.nickname ?? m.user.displayName]));
   return (
     <div className="server-settings">
-      <p className="muted small">{isMod(server) ? "Every invite link for this server." : "Invite links you made."}</p>
+      <p className="muted small">{can(server, "manageServer") ? "Every invite link for this server." : "Invite links you made."}</p>
       {invites?.length === 0 && <p className="muted">No invite links right now.</p>}
       {invites?.map((i) => (
         <div key={i.code} className="member-row">
