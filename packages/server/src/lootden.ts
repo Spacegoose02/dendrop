@@ -1,11 +1,22 @@
-import type { Activity, LootdenSettings, LootdenStatus } from "@dendrop/shared";
+import type { Activity, ChannelRef, LootdenSettings, LootdenStatus } from "@dendrop/shared";
 import type { Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import type { Gateway } from "./gateway.js";
 import { toPublic, type UserRecord, type UserRepo } from "./users.js";
 
 /** Just enough of fetch for LootDen's API; swapped out in tests. */
-export type LootdenFetch = (url: string, init: { headers: Record<string, string>; signal: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+export type LootdenFetch = (
+  url: string,
+  init: { method?: string; headers: Record<string, string>; body?: string; signal: AbortSignal },
+) => Promise<{ ok: boolean; status: number; json(): Promise<unknown>; arrayBuffer(): Promise<ArrayBuffer>; headers: { get(name: string): string | null } }>;
+
+/** What's saved for the link. */
+interface Stored {
+  url: string;
+  token: string;
+  gameNights: ChannelRef | null;
+  screenshots: ChannelRef | null;
+}
 
 /** A LootDen profile, as GET /api/users (admins) gives it. */
 interface LootdenUser {
@@ -14,6 +25,7 @@ interface LootdenUser {
   displayName: string;
   email: string | null;
   kidMode: boolean;
+  role?: string;
   /** Not sent by LootDen today; used when it is, as the surest match. */
   oidcSubject?: string | null;
 }
@@ -56,6 +68,8 @@ export class LootdenLink {
   private error: string | null = null;
   private timer?: NodeJS.Timeout;
   private polling: Promise<void> | null = null;
+  /** Run after each good check: game nights and screenshots (see lootden-extras.ts). */
+  afterPoll: (() => Promise<void>)[] = [];
 
   constructor(
     private readonly db: Db,
@@ -75,19 +89,66 @@ export class LootdenLink {
     clearInterval(this.timer);
   }
 
-  private stored(): { url: string; token: string } {
+  stored(): Stored {
     const r = this.db.prepare("SELECT value FROM server_settings WHERE key = ?").get(SETTINGS_KEY) as { value: string } | undefined;
     try {
-      const v = r ? (JSON.parse(r.value) as { url?: string; token?: string }) : {};
-      return { url: v.url ?? "", token: v.token ?? "" };
+      const v = r ? (JSON.parse(r.value) as Partial<Stored>) : {};
+      return { url: v.url ?? "", token: v.token ?? "", gameNights: v.gameNights ?? null, screenshots: v.screenshots ?? null };
     } catch {
-      return { url: "", token: "" };
+      return { url: "", token: "", gameNights: null, screenshots: null };
     }
+  }
+
+  private write(s: Stored): void {
+    this.db
+      .prepare("INSERT INTO server_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run(SETTINGS_KEY, JSON.stringify(s));
   }
 
   settings(): LootdenSettings {
     const s = this.stored();
-    return { url: s.url, hasToken: !!s.token };
+    return { url: s.url, hasToken: !!s.token, gameNights: s.gameNights, screenshots: s.screenshots };
+  }
+
+  /**
+   * Where game nights and screenshots go: a channel in a server the super admin moderates, or
+   * null to stop. Checked by `check` (which throws when it isn't allowed).
+   */
+  setChannels(input: { gameNights?: unknown; screenshots?: unknown }, check: (ref: ChannelRef) => ChannelRef): void {
+    const s = this.stored();
+    const clean = (v: unknown): ChannelRef | null => {
+      if (v === null) return null;
+      const r = v as Partial<ChannelRef>;
+      return check({ serverId: Number(r?.serverId), channelId: Number(r?.channelId) });
+    };
+    if (input.gameNights !== undefined) s.gameNights = clean(input.gameNights);
+    if (input.screenshots !== undefined) s.screenshots = clean(input.screenshots);
+    this.write(s);
+  }
+
+  /** The LootDen profile and admin flag of a Dendrop account, from the last check. */
+  profileOf(userId: number): { id: number; displayName: string; kid: boolean; admin: boolean } | undefined {
+    return this.accounts.find((a) => a.user?.id === userId)?.lootden;
+  }
+
+  /** A request to LootDen's API with the saved token. */
+  async request(path: string, init: { method?: string; body?: unknown } = {}) {
+    const { url, token } = this.stored();
+    if (!url || !token) throw new HttpError(404, "LootDen isn't linked");
+    let res;
+    try {
+      res = await this.fetchImpl(`${url}${path}`, {
+        method: init.method ?? "GET",
+        headers: { authorization: `Bearer ${token}`, accept: "application/json", ...(init.body === undefined ? {} : { "content-type": "application/json" }) },
+        body: init.body === undefined ? undefined : JSON.stringify(init.body),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      throw new Error(`Couldn't reach LootDen at ${url}: ${(err as Error).message}`);
+    }
+    if (res.status === 401) throw new Error("LootDen didn't accept the API token");
+    if (res.status === 403) throw new Error("The API token has to be a LootDen admin's");
+    return res;
   }
 
   /**
@@ -98,6 +159,7 @@ export class LootdenLink {
     const raw = str(input.url, 300).replace(/\/+$/, "");
     if (!raw) {
       this.db.prepare("DELETE FROM server_settings WHERE key = ?").run(SETTINGS_KEY);
+      this.accounts = [];
       await this.poll();
       return this.status();
     }
@@ -110,9 +172,7 @@ export class LootdenLink {
     if (url.protocol !== "https:" && url.protocol !== "http:") throw new HttpError(400, "LootDen's address should start with https:// or http://");
     const token = input.token === undefined || input.token === "" ? this.stored().token : str(input.token, 500);
     if (!token) throw new HttpError(400, "Paste an API token from a LootDen admin (LootDen, Profile, Devices and tokens)");
-    this.db
-      .prepare("INSERT INTO server_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-      .run(SETTINGS_KEY, JSON.stringify({ url: raw, token }));
+    this.write({ ...this.stored(), url: raw, token });
     this.lastOk = 0;
     await this.poll();
     return this.status();
@@ -123,7 +183,7 @@ export class LootdenLink {
       settings: this.settings(),
       lastOkAt: this.lastOk ? new Date(this.lastOk).toISOString() : null,
       error: this.error,
-      accounts: this.accounts,
+      accounts: this.accounts.map((a) => ({ ...a, userIsKid: a.user ? !!this.users.byId(a.user.id)?.isKid : false })),
       playing: this.playing.size,
     };
   }
@@ -145,16 +205,22 @@ export class LootdenLink {
     }
     try {
       const [profiles, nowPlaying] = await Promise.all([
-        this.get<LootdenUser[]>(url, token, "/api/users"),
-        this.get<NowPlaying[]>(url, token, "/api/family/now-playing"),
+        this.get<LootdenUser[]>("/api/users"),
+        this.get<NowPlaying[]>("/api/family/now-playing"),
       ]);
       if (!Array.isArray(profiles) || !Array.isArray(nowPlaying)) throw new Error("LootDen answered with something unexpected; is that LootDen's address?");
       const matched = new Map<number, { user: UserRecord; kid: boolean }>();
       this.accounts = profiles.map((p) => {
-        const lootden = { id: Number(p.id), username: str(p.username, 64), displayName: str(p.displayName, 64) || str(p.username, 64), kid: p.kidMode === true };
+        const lootden = {
+          id: Number(p.id),
+          username: str(p.username, 64),
+          displayName: str(p.displayName, 64) || str(p.username, 64),
+          kid: p.kidMode === true,
+          admin: p.role === "admin",
+        };
         const { user, matchedBy } = this.match(p);
         if (user) matched.set(lootden.id, { user, kid: lootden.kid });
-        return { lootden, user: user ? toPublic(user) : null, matchedBy };
+        return { lootden, user: user ? toPublic(user) : null, matchedBy, userIsKid: !!user?.isKid };
       });
       const next = new Map<number, Playing>();
       for (const np of nowPlaying) {
@@ -173,6 +239,7 @@ export class LootdenLink {
       this.lastOk = this.clock();
       this.error = null;
       this.replace(next);
+      for (const fn of this.afterPoll) await fn().catch((err: Error) => (this.error = err.message));
     } catch (err) {
       this.error = (err as Error).message;
       // LootDen being down for a while means we don't know who's still playing.
@@ -180,18 +247,8 @@ export class LootdenLink {
     }
   }
 
-  private async get<T>(base: string, token: string, path: string): Promise<T> {
-    let res;
-    try {
-      res = await this.fetchImpl(`${base}${path}`, {
-        headers: { authorization: `Bearer ${token}`, accept: "application/json" },
-        signal: AbortSignal.timeout(10_000),
-      });
-    } catch (err) {
-      throw new Error(`Couldn't reach LootDen at ${base}: ${(err as Error).message}`);
-    }
-    if (res.status === 401) throw new Error("LootDen didn't accept the API token");
-    if (res.status === 403) throw new Error("The API token has to be a LootDen admin's");
+  private async get<T>(path: string): Promise<T> {
+    const res = await this.request(path);
     if (!res.ok) throw new Error(`LootDen answered ${res.status} for ${path}`);
     try {
       return (await res.json()) as T;

@@ -1,12 +1,16 @@
 # LootDen and webhooks
 
 [LootDen](https://github.com/Spacegoose02/lootden) is the family's self-hosted game library.
-Dendrop links to it in two ways, and neither needs anything changed in LootDen:
+Dendrop links to it without anything changed in LootDen:
 
-- **Playing now:** what someone is playing in LootDen shows in Dendrop as their activity,
-  "🎮 Playing Stardew Valley on Den-PC".
-- **Alerts:** LootDen's alerts (new games, requests, deals) post into a Dendrop channel
-  through an incoming webhook.
+- **Playing now:** what someone is playing shows as their activity, "🎮 Playing Stardew
+  Valley on Den-PC".
+- **Alerts:** LootDen's alerts (new games, requests, deals) post into a channel through an
+  incoming webhook.
+- **Game links:** a link to a LootDen game shows a card with its cover and **Send to PC**.
+- **Game nights:** each planned night is announced in a channel and gets a voice channel.
+- **Family wall:** new screenshots are shared to a channel, kid-safe where kids can read it.
+- **Kid accounts:** LootDen's kid profiles can be made Dendrop kid accounts in one click.
 
 ## Playing now
 
@@ -84,8 +88,47 @@ curl -H 'content-type: application/json' -d '{"content": "Backups done"}' \
 Answers: `204` posted, `400` no text, `404` wrong or deleted address, `429` too many posts
 this minute. Text over 4,000 characters is cut, not refused.
 
+## Game links
+
+Paste a link to a game in LootDen (`https://games.example.com/games/<id>`) in any chat and it
+shows a card: cover art, year, genres and size, and a link back to LootDen. Covers come
+through Dendrop, so nobody needs to be signed in to LootDen to see them.
+
+**Send to PC** is on the card for anyone whose account is matched with a LootDen profile. It
+lists the PCs they use with LootDen's app (every PC for LootDen admins), and the game
+downloads and installs there the next time that PC checks in. (In LootDen it shows as sent by
+the admin whose token Dendrop uses.) Kid accounts, and anyone whose
+LootDen profile is a kid profile, only get cards for kid-safe games.
+
+## Game nights
+
+In **Instance admin → LootDen → Game nights**, pick a text channel in a server you're the
+owner or an admin of. Every game night planned in LootDen is then announced there by
+LootDen (when, the game, who's playing, the note), and gets its own voice channel in that
+server, like `game-night-mario-kart-cup`. Changing the night in LootDen edits the
+announcement; once it's over or deleted, its voice channel goes as soon as nobody's in it.
+Dendrop looks for changes every 5 minutes.
+
+## Family wall
+
+In **Instance admin → LootDen → Family wall**, pick a text channel, and new screenshots on
+LootDen's family wall (including ones taken with **Ctrl+Shift+S** in LootDen's app) are
+shared there with the picture and caption. Picking a channel starts from now: what's already
+on the wall isn't posted.
+
+**Kid-safe:** when a kid account can read that channel, only screenshots of games LootDen
+marks as kid-safe are shared. Others are skipped, not held back for later.
+
+## Kid accounts from LootDen
+
+The **Accounts** list on the admin page marks LootDen's kid profiles. For one whose Dendrop
+account isn't a kid account yet, **Make kid account** links it to a parent: the Dendrop
+account of one of LootDen's admins. That's the same as linking them by hand in Family, with
+the usual rules (the parent needs encryption turned on, and the kid starts with the default
+kid-safe rules, which parents can change).
+
 ## Still to come
 
-The rest of the LootDen card in the roadmap: game nights as Dendrop events with a voice
-channel, sharing screenshots from the family wall, seeding kid accounts from LootDen's kid
-profiles, and game-link cards with **Send to PC**.
+- LootDen's **Surprise us** picks shared to chat: that's a button on LootDen's side, which
+  can post through a Dendrop webhook once LootDen has the option.
+- LootDen's daily play limits feeding Dendrop's kid time rules.
