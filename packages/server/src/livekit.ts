@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { AccessToken, RoomServiceClient } from "livekit-server-sdk";
 import type { IncomingMessage } from "node:http";
 import { connect } from "node:net";
 import type { Duplex } from "node:stream";
@@ -13,6 +14,40 @@ export function livekitUrl(config: ServerConfig, req: FastifyRequest): string {
   // trustProxy is on, so behind a reverse proxy this is the address people actually use.
   const base = config.publicUrl || `${req.protocol}://${req.host}`;
   return base.replace(/^http/, "ws");
+}
+
+/** A token to join one LiveKit room, as this person, with audio, video and screen share. */
+export async function livekitToken(config: ServerConfig, room: string, user: { id: number; displayName: string }): Promise<string> {
+  const t = new AccessToken(config.livekit.apiKey, config.livekit.apiSecret, {
+    identity: String(user.id),
+    name: user.displayName,
+    ttl: "4h",
+  });
+  t.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true, canPublishData: false });
+  return t.toJwt();
+}
+
+/** Where Dendrop reaches LiveKit's server API: the built-in copy locally, or the separate server. */
+function livekitApiUrl(config: ServerConfig): string {
+  const b = config.livekit.builtin;
+  if (b) return `http://127.0.0.1:${b.signalPort}`;
+  return config.livekit.url.replace(/^ws/, "http");
+}
+
+/**
+ * Drops someone from a room, so a token they still hold stops being useful once they've lost
+ * access. Best effort: the room may already be gone, or the call server down.
+ */
+export async function removeFromRoom(config: ServerConfig, room: string, identity: string): Promise<void> {
+  if (!config.livekit.apiKey || (!config.livekit.url && !config.livekit.builtin)) return;
+  try {
+    await new RoomServiceClient(livekitApiUrl(config), config.livekit.apiKey, config.livekit.apiSecret, { requestTimeout: 5, failover: false }).removeParticipant(
+      room,
+      identity,
+    );
+  } catch {
+    // Not in the room, or the call server isn't reachable.
+  }
 }
 
 /** LiveKit's config for the built-in server. The signal port only listens on 127.0.0.1. */

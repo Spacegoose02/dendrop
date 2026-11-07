@@ -1,9 +1,9 @@
-import { AccessToken } from "livekit-server-sdk";
 import type { Call, CallJoin } from "@dendrop/shared";
 import { callsEnabled, type ServerConfig } from "./config.js";
 import { now } from "./db.js";
 import { HttpError } from "./errors.js";
 import type { Gateway } from "./gateway.js";
+import { livekitToken } from "./livekit.js";
 
 /** How long a call rings with nobody picking up before it counts as missed. */
 export const RING_MS = 45_000;
@@ -120,14 +120,8 @@ export class CallService {
     this.gateway.send(l.memberIds, { type: "call.updated", call: l.call });
   }
 
-  private async token(conversationId: number, user: { id: number; displayName: string }): Promise<string> {
-    const t = new AccessToken(this.config.livekit.apiKey, this.config.livekit.apiSecret, {
-      identity: String(user.id),
-      name: user.displayName,
-      ttl: "4h",
-    });
-    t.addGrant({ roomJoin: true, room: this.roomName(conversationId), canPublish: true, canSubscribe: true, canPublishData: false });
-    return t.toJwt();
+  private token(conversationId: number, user: { id: number; displayName: string }): Promise<string> {
+    return livekitToken(this.config, this.roomName(conversationId), user);
   }
 
   closeAll(): void {

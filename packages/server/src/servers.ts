@@ -33,6 +33,7 @@ interface ChannelRow {
   id: number;
   server_id: number;
   conversation_id: number;
+  kind: "text" | "voice";
   name: string;
   topic: string;
   position: number;
@@ -187,6 +188,7 @@ export class ServerRepo {
     return {
       id: c.id,
       serverId: c.server_id,
+      kind: c.kind === "voice" ? "voice" : "text",
       conversationId: c.conversation_id,
       name: c.name,
       topic: c.topic,
@@ -199,6 +201,12 @@ export class ServerRepo {
   /** The channel a conversation belongs to, if it's a channel. */
   channelForConversation(conversationId: number): Channel | undefined {
     const c = this.db.prepare("SELECT * FROM server_channels WHERE conversation_id = ?").get(conversationId) as ChannelRow | undefined;
+    return c && this.toChannel(c, false);
+  }
+
+  /** A channel by id, wherever it is, or undefined. */
+  channelById(channelId: number): Channel | undefined {
+    const c = this.channelRow(channelId);
     return c && this.toChannel(c, false);
   }
 
@@ -434,13 +442,13 @@ export class ServerRepo {
     return out;
   }
 
-  private insertChannel(serverId: number, name: string, topic: string, locked: boolean, access: number[]): number {
+  private insertChannel(serverId: number, name: string, topic: string, locked: boolean, access: number[], kind: "text" | "voice" = "text"): number {
     const t = now();
     const conv = this.db.prepare("INSERT INTO conversations (is_group, kind, name, created_at) VALUES (1, 'channel', ?, ?)").run(name, t);
     const pos = this.db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM server_channels WHERE server_id = ?").get(serverId) as { p: number };
     const res = this.db
-      .prepare("INSERT INTO server_channels (server_id, conversation_id, name, topic, position, locked, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(serverId, Number(conv.lastInsertRowid), name, topic, pos.p, locked ? 1 : 0, t);
+      .prepare("INSERT INTO server_channels (server_id, conversation_id, kind, name, topic, position, locked, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(serverId, Number(conv.lastInsertRowid), kind, name, topic, pos.p, locked ? 1 : 0, t);
     const id = Number(res.lastInsertRowid);
     const add = this.db.prepare("INSERT INTO channel_access (channel_id, user_id) VALUES (?, ?)");
     for (const u of access) add.run(id, u);
@@ -448,14 +456,15 @@ export class ServerRepo {
     return id;
   }
 
-  createChannel(serverId: number, input: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown }): Channel {
+  createChannel(serverId: number, input: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown; kind?: unknown }): Channel {
     if (this.channelRows(serverId).length >= LIMITS.channelsPerServer) {
       throw new HttpError(400, `A server can have up to ${LIMITS.channelsPerServer} channels`);
     }
     const name = cleanChannelName(input.name);
     const topic = input.topic === undefined ? "" : cleanText(input.topic, LIMITS.channelTopic, "The topic", true);
+    if (input.kind !== undefined && input.kind !== "text" && input.kind !== "voice") throw new HttpError(400, "A channel is text or voice");
     const access = this.cleanAccess(serverId, input.memberIds);
-    const id = this.atomic(() => this.insertChannel(serverId, name, topic, input.locked === true, access));
+    const id = this.atomic(() => this.insertChannel(serverId, name, topic, input.locked === true, access, input.kind === "voice" ? "voice" : "text"));
     return this.toChannel(this.channelRow(id)!, true);
   }
 

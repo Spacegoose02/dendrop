@@ -1,5 +1,20 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Call, CallJoin, Channel, ChatServer, Conversation, Friend, InvitePreview, Me, PublicUser, ServerEvent, ServerInfo } from "@dendrop/shared";
+import type {
+  Call,
+  CallJoin,
+  Channel,
+  ChannelKind,
+  ChatServer,
+  Conversation,
+  Friend,
+  InvitePreview,
+  Me,
+  PublicUser,
+  ServerEvent,
+  ServerInfo,
+  VoiceChannelState,
+  VoiceJoin,
+} from "@dendrop/shared";
 import { api, connectGateway, logout } from "./api.ts";
 import { Chat } from "./Chat.tsx";
 import { Friends } from "./Friends.tsx";
@@ -15,6 +30,7 @@ import { ChannelDialog, CreateServer, Directory, InviteDialog, InviteLinkDialog,
 
 // The call code (LiveKit) is big, so it only loads when a call starts.
 const CallPanel = lazy(() => import("./CallPanel.tsx").then((m) => ({ default: m.CallPanel })));
+const VoicePanel = lazy(() => import("./VoicePanel.tsx").then((m) => ({ default: m.VoicePanel })));
 
 export type View =
   | { kind: "friends" }
@@ -25,7 +41,7 @@ export type View =
 type ServerDialog =
   | { kind: "create" }
   | { kind: "invite"; serverId: number }
-  | { kind: "channel"; serverId: number; channel: Channel | null }
+  | { kind: "channel"; serverId: number; channel: Channel | null; channelKind?: ChannelKind }
   | { kind: "settings"; serverId: number }
   | { kind: "admin" }
   | { kind: "link"; code: string };
@@ -49,6 +65,11 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   /** The call this device is in. */
   const [inCall, setInCall] = useState<CallJoin | null>(null);
   const [callError, setCallError] = useState<string | null>(null);
+  /** Who is in each voice channel you can see, by channel id. */
+  const [voice, setVoice] = useState<Record<number, VoiceChannelState>>({});
+  /** The voice channel this device is in. */
+  const [inVoice, setInVoice] = useState<VoiceJoin | null>(null);
+  const [speaking, setSpeaking] = useState<Set<number>>(new Set());
   const [connected, setConnected] = useState(false);
   const [view, setView] = useState<View>({ kind: "friends" });
   /** On phones only one column shows: the DM list, or what's open. */
@@ -104,14 +125,16 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   };
 
   const refresh = useCallback(async () => {
-    const [f, c, info, live, sv, inv] = await Promise.all([
+    const [f, c, info, live, sv, inv, vc] = await Promise.all([
       api<Friend[]>("/api/friends"),
       api<Conversation[]>("/api/conversations"),
       api<ServerInfo>("/api/server"),
       api<Call[]>("/api/calls"),
       api<ChatServer[]>("/api/servers"),
       api<InvitePreview[]>("/api/invites"),
+      api<VoiceChannelState[]>("/api/voice"),
     ]);
+    setVoice(Object.fromEntries(vc.map((v) => [v.channelId, v])));
     setServers(sv);
     setInvites(inv);
     setServer(info);
@@ -219,6 +242,18 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           });
           setInCall((c) => (c?.call.conversationId === e.conversationId ? null : c));
           break;
+        case "voice.updated": {
+          const v = e.voice;
+          setVoice((all) => {
+            const n = { ...all };
+            if (v.members.length) n[v.channelId] = v;
+            else delete n[v.channelId];
+            return n;
+          });
+          // Taken out by the server (lost access, or the channel went away).
+          setInVoice((cur) => (cur && cur.voice.channelId === v.channelId && !v.members.some((m) => m.userId === me.id) ? null : cur));
+          break;
+        }
         case "server.updated":
           setServers((list) =>
             list.some((x) => x.id === e.server.id) ? list.map((x) => (x.id === e.server.id ? e.server : x)) : [...list, e.server],
@@ -297,7 +332,34 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     open({ kind: "conversation", id: c.id });
   };
 
+  const leaveVoice = () => {
+    void api("/api/voice/leave", { body: {} }).catch(() => {});
+    setInVoice(null);
+  };
+
+  /** Drops into a voice channel: one voice channel or call at a time. */
+  const joinVoice = async (sv: ChatServer, c: Channel) => {
+    if (inVoice?.voice.channelId === c.id) return;
+    if (inCall) {
+      if (!confirm("Leave your call and join this voice channel?")) return;
+      void api(`/api/conversations/${inCall.call.conversationId}/call/leave`, { body: {} });
+      setInCall(null);
+    }
+    // The server moves you; this just stops the old room here first.
+    setInVoice(null);
+    setCallError(null);
+    try {
+      setInVoice(await api<VoiceJoin>(`/api/servers/${sv.id}/channels/${c.id}/voice`, { body: {} }));
+    } catch (err) {
+      setCallError((err as Error).message);
+    }
+  };
+
   const startCall = async (conversationId: number, video: boolean) => {
+    if (inVoice) {
+      if (!confirm("Leave the voice channel and join this call?")) return;
+      leaveVoice();
+    }
     if (inCall && inCall.call.conversationId !== conversationId) {
       if (!confirm("Leave your current call and join this one?")) return;
       void api(`/api/conversations/${inCall.call.conversationId}/call/leave`, { body: {} });
@@ -326,7 +388,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     return {
       id: currentChannel.conversationId,
       isGroup: true,
-      name: `#${currentChannel.name}`,
+      name: currentChannel.kind === "voice" ? currentChannel.name : `#${currentChannel.name}`,
       members: currentServer.members.map((m) => ({ ...m.user, displayName: m.nickname ?? m.user.displayName })),
       lastMessageAt: null,
       createdAt: currentServer.createdAt,
@@ -377,10 +439,17 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             server={currentServer}
             activeChannel={view.kind === "channel" ? view.channelId : null}
             unread={unread}
-            onOpen={(c) => open({ kind: "channel", serverId: currentServer.id, channelId: c.id })}
+            voice={voice}
+            speaking={speaking}
+            inVoice={inVoice?.voice.channelId ?? null}
+            onOpen={(c) => {
+              open({ kind: "channel", serverId: currentServer.id, channelId: c.id });
+              // Opening a voice channel drops you in.
+              if (c.kind === "voice" && server?.calls) void joinVoice(currentServer, c);
+            }}
             onSettings={() => setServerDialog({ kind: "settings", serverId: currentServer.id })}
             onInvite={() => setServerDialog({ kind: "invite", serverId: currentServer.id })}
-            onChannel={(c) => setServerDialog({ kind: "channel", serverId: currentServer.id, channel: c })}
+            onChannel={(c, channelKind) => setServerDialog({ kind: "channel", serverId: currentServer.id, channel: c, channelKind })}
           />
         ) : (
         <>
@@ -457,6 +526,21 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           />
           </Suspense>
         )}
+        {inVoice && (
+          <Suspense fallback={<div className="call-bar muted">Joining voice…</div>}>
+            <VoicePanel
+              key={inVoice.voice.channelId}
+              me={me}
+              join={inVoice}
+              server={servers.find((x) => x.id === inVoice.voice.serverId)}
+              channel={servers.find((x) => x.id === inVoice.voice.serverId)?.channels.find((c) => c.id === inVoice.voice.channelId)}
+              compact={!(view.kind === "channel" && view.channelId === inVoice.voice.channelId)}
+              onOpen={() => open({ kind: "channel", serverId: inVoice.voice.serverId, channelId: inVoice.voice.channelId })}
+              onLeft={() => setInVoice(null)}
+              onSpeakers={(ids) => setSpeaking(new Set(ids))}
+            />
+          </Suspense>
+        )}
         {callError && (
           <p className="error call-error" role="alert">
             {callError}{" "}
@@ -497,7 +581,20 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             onBack={() => setShowMain(false)}
             keyState={keyState}
             onEncryption={() => {}}
-            channel={{ serverId: currentServer.id, topic: currentChannel.topic, canModerate: isMod(currentServer) }}
+            channel={{
+              serverId: currentServer.id,
+              topic: currentChannel.topic,
+              canModerate: isMod(currentServer),
+              voice:
+                currentChannel.kind === "voice"
+                  ? {
+                      count: voice[currentChannel.id]?.members.length ?? 0,
+                      inIt: inVoice?.voice.channelId === currentChannel.id,
+                      enabled: !!server?.calls,
+                      onJoin: () => void joinVoice(currentServer, currentChannel),
+                    }
+                  : undefined,
+            }}
           />
         )}
         {view.kind === "friends" && <Friends friends={friends} online={online} onMessage={messageFriend} onBack={() => setShowMain(false)} />}
@@ -564,6 +661,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         <ChannelDialog
           server={dialogServer}
           channel={serverDialog.channel}
+          kind={serverDialog.channelKind}
           onClose={() => setServerDialog(null)}
           onDone={(made) => {
             setServerDialog(null);

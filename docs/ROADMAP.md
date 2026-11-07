@@ -6,7 +6,7 @@ feature board into a build order.
 
 **Top priority:** private direct messaging (text and calls) between people you trust, so Dendrop can replace Discord DMs first.
 
-**Current state:** Phase 0 is in place, and Phase 1 has sign-in, friends, live DMs and group chats, files, emoji, read receipts, and voice and video calls. Phase 3's chat servers are in: servers, locked channels, invites, the public directory and super admin approval (GIFs still to come). The
+**Current state:** Phase 0 is in place, and Phase 1 has sign-in, friends, live DMs and group chats, files, emoji, read receipts, and voice and video calls. Phase 3's chat servers are in: servers, locked channels, invites, the public directory and super admin approval (GIFs still to come). Phase 4 has started with voice channels. The
 status column is updated as each piece lands.
 
 ---
@@ -164,7 +164,7 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Backbone | Private chat / direct message | 1 | Partial: DMs and group DMs live, end-to-end encrypted |
 | Backbone | Screen sharing | 4 | Missing |
 | Backbone | Game streaming | 4 | Missing |
-| Backbone | Voice chat | 1 (DM calls), 4 (channels) | Partial: voice and video calls in DMs and group chats |
+| Backbone | Voice chat | 1 (DM calls), 4 (channels) | Done: calls in DMs and group chats, and drop-in voice channels in servers (mute, deafen, camera, who's talking) |
 | Backbone | Phone notifications | 2 | Partial: server sends content-free pushes; Android app in #7 |
 | Backbone | Speaker settings | 4 | Missing |
 | Backbone | Microphone settings | 4 | Missing |

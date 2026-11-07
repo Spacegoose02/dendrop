@@ -169,9 +169,13 @@ export interface ChatServer extends ChatServerSummary {
   createdAt: string;
 }
 
+/** Text channels hold messages; voice channels are rooms people drop into to talk (and keep a text chat too). */
+export type ChannelKind = "text" | "voice";
+
 export interface Channel {
   id: number;
   serverId: number;
+  kind: ChannelKind;
   /**
    * The conversation holding this channel's messages. Messages, files, edits, typing and read
    * markers go through the same /api/conversations/:id endpoints as DMs.
@@ -184,6 +188,32 @@ export interface Channel {
   locked: boolean;
   /** For locked channels, who was picked (owners and admins see this; others get []). */
   memberIds: number[];
+}
+
+/** Someone in a voice channel, and what they show the others. */
+export interface VoiceMember {
+  userId: number;
+  muted: boolean;
+  /** Can't hear the others (and is muted too). */
+  deafened: boolean;
+  video: boolean;
+  screen: boolean;
+  joinedAt: string;
+}
+
+/** Who is in a voice channel right now. Lives in memory on the server; empty channels aren't listed. */
+export interface VoiceChannelState {
+  channelId: number;
+  serverId: number;
+  conversationId: number;
+  members: VoiceMember[];
+}
+
+/** What a client needs to join a voice channel's LiveKit room. */
+export interface VoiceJoin {
+  voice: VoiceChannelState;
+  url: string;
+  token: string;
 }
 
 export interface ServerMember {
@@ -275,7 +305,9 @@ export type ServerEvent =
   /** A friend invited you to a server. */
   | { type: "server.invited"; invite: InvitePreview }
   /** Your request to make servers was approved or denied; to super admins, a new or decided request. */
-  | { type: "server.request"; request: ServerCreatorRequest };
+  | { type: "server.request"; request: ServerCreatorRequest }
+  /** Someone joined, left or changed state in a voice channel you can see (or you were taken out of one). */
+  | { type: "voice.updated"; voice: VoiceChannelState };
 
 /** Events a client sends over the gateway. Everything else goes through the HTTP API. */
 export type ClientEvent = { type: "typing"; conversationId: number } | { type: "ping" };

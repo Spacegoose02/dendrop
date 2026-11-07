@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ExternalE2EEKeyProvider, isE2EESupported, Room, RoomEvent, Track, type Participant } from "livekit-client";
+import { ExternalE2EEKeyProvider, isE2EESupported, Room, RoomEvent, Track, type Participant, type RemoteTrack } from "livekit-client";
 import E2EEWorker from "livekit-client/e2ee-worker?worker";
 import type { CallJoin, Conversation, Me } from "@dendrop/shared";
 import { api } from "./api.ts";
@@ -157,6 +157,7 @@ export function CallPanel({
   if (compact) {
     return (
       <div className="call-bar">
+        <RemoteAudio room={room} />
         <span className="call-live" aria-hidden />
         <button className="link ellipsis" onClick={onOpen}>
           {encrypted ? "🔒 " : ""}In a call with {title}
@@ -168,6 +169,7 @@ export function CallPanel({
 
   return (
     <div className="call-panel">
+      <RemoteAudio room={room} />
       <div className="call-tiles">
         {everyone.map((p) => (
           <Tile key={p.identity} p={p} isMe={p === local} myName={me.displayName} />
@@ -186,13 +188,46 @@ export function CallPanel({
   );
 }
 
-function Tile({ p, isMe, myName }: { p: Participant; isMe: boolean; myName: string }) {
+/**
+ * Plays everyone else's voices (and shared screens' sound). Rendered whether the panel is big or
+ * compact, so you keep hearing people while you look at other chats.
+ */
+export function RemoteAudio({ room, deafened = false }: { room: Room; deafened?: boolean }) {
+  const tracks: RemoteTrack[] = [];
+  for (const p of room.remoteParticipants.values()) {
+    for (const source of [Track.Source.Microphone, Track.Source.ScreenShareAudio]) {
+      const t = p.getTrackPublication(source)?.track;
+      if (t) tracks.push(t as RemoteTrack);
+    }
+  }
+  return (
+    <>
+      {tracks.map((t) => (
+        <TrackAudio key={t.sid ?? t.mediaStreamTrack.id} track={t} muted={deafened} />
+      ))}
+    </>
+  );
+}
+
+function TrackAudio({ track, muted }: { track: RemoteTrack; muted: boolean }) {
+  const ref = useRef<HTMLAudioElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    track.attach(el);
+    return () => {
+      track.detach(el);
+    };
+  }, [track]);
+  return <audio ref={ref} autoPlay muted={muted} />;
+}
+
+/** One person in a call or voice channel: their camera or avatar, and their audio. */
+export function Tile({ p, isMe, myName, label }: { p: Participant; isMe: boolean; myName: string; label?: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
   const cam = p.getTrackPublication(Track.Source.Camera);
   const mic = p.getTrackPublication(Track.Source.Microphone);
   const camTrack = cam && !cam.isMuted ? cam.track : undefined;
-  const micTrack = !isMe ? mic?.track : undefined;
 
   useEffect(() => {
     const el = videoRef.current;
@@ -203,20 +238,10 @@ function Tile({ p, isMe, myName }: { p: Participant; isMe: boolean; myName: stri
     };
   }, [camTrack]);
 
-  useEffect(() => {
-    const el = audioRef.current;
-    if (!micTrack || !el) return;
-    micTrack.attach(el);
-    return () => {
-      micTrack.detach(el);
-    };
-  }, [micTrack]);
-
-  const name = isMe ? myName : p.name || p.identity;
+  const name = label ?? (isMe ? myName : p.name || p.identity);
   return (
     <div className={`tile ${p.isSpeaking ? "speaking" : ""}`}>
       {camTrack ? <video ref={videoRef} autoPlay playsInline muted={isMe} className={isMe ? "mirror" : ""} /> : <Avatar name={name} size={64} />}
-      {micTrack && <audio ref={audioRef} autoPlay />}
       <span className="tile-name">
         {name}
         {isMe ? " (you)" : ""}

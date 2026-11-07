@@ -41,6 +41,11 @@ back to plain media: if a browser can't encrypt, or this device hasn't been unlo
 so and doesn't join. Calls in conversations that aren't encrypted yet say "Not end-to-end
 encrypted" in the call panel.
 
+**Voice channels** in chat servers aren't end-to-end encrypted yet, like server text channels:
+the audio and video go through your own LiveKit server only (encrypted in transit), and the
+voice panel says so. Someone who loses access to a voice channel (removed from the server, or
+the channel is locked or deleted) is taken out of its room straight away.
+
 ## Resetting
 
 If you forget your passphrase you can reset: that makes a new key pair. Messages encrypted to
