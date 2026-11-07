@@ -21,6 +21,7 @@ import type {
   VoiceJoin,
 } from "@dendrop/shared";
 import { api, connectGateway, logout } from "./api.ts";
+import { BOT_REPLY_EVENT, type BotReplyDetail } from "./Bots.tsx";
 import { Chat } from "./Chat.tsx";
 import { Friends } from "./Friends.tsx";
 import { Avatar } from "./Avatar.tsx";
@@ -342,6 +343,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         case "server.request":
           if (e.request.user.id === me.id) setMe((m) => ({ ...m, canCreateServers: m.isSuperAdmin || e.request.status === "approved" }));
           setAdminVersion((n) => n + 1);
+          break;
+        case "interaction.reply":
+          window.dispatchEvent(new CustomEvent<BotReplyDetail>(BOT_REPLY_EVENT, { detail: { messageId: e.messageId, content: e.content } }));
           break;
         case "typing":
           setTyping((t) => ({ ...t, [e.conversationId]: { ...(t[e.conversationId] ?? {}), [e.userId]: Date.now() } }));

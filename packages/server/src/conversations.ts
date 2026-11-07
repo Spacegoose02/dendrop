@@ -1,4 +1,4 @@
-import { LIMITS, type Attachment, type Conversation, type ConversationE2ee, type Message, type ReadState, type WrappedKey } from "@dendrop/shared";
+import { LIMITS, type Attachment, type MessageButton, type Conversation, type ConversationE2ee, type Message, type ReadState, type WrappedKey } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { guardianIds } from "./family.js";
@@ -25,6 +25,7 @@ interface MessageRow {
   key_version: number | null;
   webhook_id: number | null;
   webhook_name: string | null;
+  buttons: string | null;
 }
 
 interface AttachmentRow {
@@ -280,6 +281,7 @@ export class ConversationRepo {
       keyVersion: r.deleted_at ? null : r.key_version,
       attachments: r.deleted_at ? [] : files.filter((f) => f.message_id === r.id).map(toAttachment),
       webhook: r.webhook_name ? { id: r.webhook_id, name: r.webhook_name } : null,
+      buttons: r.deleted_at || !r.buttons ? null : (JSON.parse(r.buttons) as MessageButton[]),
     }));
   }
 
@@ -312,6 +314,7 @@ export class ConversationRepo {
     files: NewAttachment[] = [],
     keyVersion: number | null = null,
     webhook: { id: number | null; name: string } | null = null,
+    buttons: MessageButton[] | null = null,
   ): Message {
     if (files.length > LIMITS.attachmentsPerMessage) throw new HttpError(400, `Up to ${LIMITS.attachmentsPerMessage} files per message`);
     const version = this.checkCrypto(conversationId, keyVersion, body);
@@ -319,8 +322,8 @@ export class ConversationRepo {
     const id = tx(this.db, () => {
       const t = now();
       const res = this.db
-        .prepare("INSERT INTO messages (conversation_id, author_id, body, created_at, key_version, webhook_id, webhook_name) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .run(conversationId, authorId, text, t, version, webhook?.id ?? null, webhook?.name ?? null);
+        .prepare("INSERT INTO messages (conversation_id, author_id, body, created_at, key_version, webhook_id, webhook_name, buttons) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(conversationId, authorId, text, t, version, webhook?.id ?? null, webhook?.name ?? null, buttons?.length ? JSON.stringify(buttons) : null);
       const mid = Number(res.lastInsertRowid);
       const add = this.db.prepare(
         "INSERT INTO attachments (id, message_id, conversation_id, name, size, content_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -367,6 +370,12 @@ export class ConversationRepo {
     return this.message(messageId)!;
   }
 
+  /** Changes a bot message's buttons (null or [] removes them). The caller checks it's the bot's. */
+  setButtons(messageId: number, buttons: MessageButton[] | null): Message {
+    this.db.prepare("UPDATE messages SET buttons = ? WHERE id = ?").run(buttons?.length ? JSON.stringify(buttons) : null, messageId);
+    return this.message(messageId)!;
+  }
+
   /**
    * Deletes the text and files but keeps the row, so the history shows "message deleted" in
    * place. Returns the ids of the files to remove from disk. Moderators (checked by the caller)
@@ -381,7 +390,7 @@ export class ConversationRepo {
     const removedFiles = tx(this.db, () => {
       const ids = (this.db.prepare("SELECT id FROM attachments WHERE message_id = ?").all(messageId) as { id: string }[]).map((r) => r.id);
       this.db.prepare("DELETE FROM attachments WHERE message_id = ?").run(messageId);
-      this.db.prepare("UPDATE messages SET body = '', key_version = NULL, deleted_at = ? WHERE id = ?").run(now(), messageId);
+      this.db.prepare("UPDATE messages SET body = '', key_version = NULL, buttons = NULL, deleted_at = ? WHERE id = ?").run(now(), messageId);
       return ids;
     });
     return { message: this.message(messageId)!, removedFiles };

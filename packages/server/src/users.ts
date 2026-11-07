@@ -18,6 +18,8 @@ export interface UserRecord {
   textColor: string | null;
   /** Linked to at least one parent. */
   isKid: boolean;
+  /** A bot account (see bots.ts): no password, never in DMs. */
+  isBot: boolean;
   createdAt: string;
 }
 
@@ -37,6 +39,7 @@ interface Row {
   name_color: string | null;
   text_color: string | null;
   is_kid: number;
+  is_bot: number;
   created_at: string;
 }
 
@@ -56,6 +59,7 @@ const fromRow = (r: Row): UserRecord => ({
   nameColor: r.name_color,
   textColor: r.text_color,
   isKid: !!r.is_kid,
+  isBot: !!r.is_bot,
   createdAt: r.created_at,
 });
 
@@ -66,6 +70,7 @@ export const toPublic = (u: UserRecord): PublicUser => ({
   publicKey: u.publicKey,
   nameColor: u.nameColor,
   textColor: u.textColor,
+  ...(u.isBot ? { isBot: true } : {}),
 });
 export const toMe = (u: UserRecord): Me => ({
   ...toPublic(u),
@@ -87,6 +92,7 @@ export interface NewUser {
   passwordHash?: string | null;
   oidcSubject?: string | null;
   isSuperAdmin?: boolean;
+  isBot?: boolean;
 }
 
 export class UserRepo {
@@ -119,9 +125,9 @@ export class UserRepo {
   create(u: NewUser): UserRecord {
     const res = this.db
       .prepare(
-        "INSERT INTO users (username, display_name, email, password_hash, oidc_subject, is_super_admin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO users (username, display_name, email, password_hash, oidc_subject, is_super_admin, is_bot, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(u.username, u.displayName, u.email ?? null, u.passwordHash ?? null, u.oidcSubject ?? null, u.isSuperAdmin ? 1 : 0, now());
+      .run(u.username, u.displayName, u.email ?? null, u.passwordHash ?? null, u.oidcSubject ?? null, u.isSuperAdmin ? 1 : 0, u.isBot ? 1 : 0, now());
     return this.byId(Number(res.lastInsertRowid))!;
   }
 

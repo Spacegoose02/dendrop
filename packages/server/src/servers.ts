@@ -462,6 +462,7 @@ export class ServerRepo {
     if (!current) throw new HttpError(404, "They aren't in this server");
     if (current === "owner") throw new HttpError(400, "Transfer ownership instead");
     if (role === "admin" && this.users.byId(userId)?.isKid) throw new HttpError(400, "Kid accounts can't be admins. Give them a role without moderator permissions instead");
+    if (role === "admin" && this.users.byId(userId)?.isBot) throw new HttpError(400, "Bots can't be admins");
     this.atomic(() => {
       this.db.prepare("UPDATE server_members SET role = ? WHERE server_id = ? AND user_id = ?").run(role, serverId, userId);
       this.syncServer(serverId);
@@ -472,6 +473,7 @@ export class ServerRepo {
   transfer(serverId: number, from: number, to: number): void {
     if (from === to) return;
     if (!this.role(serverId, to)) throw new HttpError(404, "They aren't in this server");
+    if (this.users.byId(to)?.isBot) throw new HttpError(400, "A bot can't own a server");
     this.atomic(() => {
       this.db.prepare("UPDATE server_members SET role = 'admin' WHERE server_id = ? AND user_id = ?").run(serverId, from);
       this.db.prepare("UPDATE server_members SET role = 'owner' WHERE server_id = ? AND user_id = ?").run(serverId, to);
@@ -799,6 +801,8 @@ export class ServerRepo {
   permissions(serverId: number, userId: number, role = this.role(serverId, userId)): ServerPermission[] {
     if (!role) return [];
     if (isModerator(role)) return [...SERVER_PERMISSIONS];
+    // Bots can hold roles (for locked channels and a color) but never moderate.
+    if (this.users.byId(userId)?.isBot) return [];
     const have = new Set(this.rolesOfMember(serverId, userId).flatMap((r) => this.permsOf(r)));
     const kid = !!this.users.byId(userId)?.isKid;
     return SERVER_PERMISSIONS.filter((p) => have.has(p) && !(kid && MODERATION_PERMISSIONS.includes(p)));

@@ -13,6 +13,8 @@ export interface PublicUser {
   nameColor: string | null;
   /** The color their messages are shown in (#rrggbb), or null for the theme's default. */
   textColor: string | null;
+  /** Set (true) for bot accounts, which post through the bot API and show a BOT tag. */
+  isBot?: boolean;
 }
 
 export interface Me extends PublicUser {
@@ -123,6 +125,8 @@ export interface Message {
   keyVersion: number | null;
   /** Set when an incoming webhook posted it (LootDen alerts, a script...): shown under this name. */
   webhook: { id: number | null; name: string } | null;
+  /** Buttons under a bot's message; clicking one tells the bot (see BotInteraction). */
+  buttons: MessageButton[] | null;
 }
 
 export interface AuthInfo {
@@ -677,6 +681,98 @@ export interface DendutyStatus {
   kidAccounts: PublicUser[];
 }
 
+// ---- Bots ------------------------------------------------------------------------------
+
+export type ButtonStyle = "primary" | "secondary" | "success" | "danger";
+
+/**
+ * A button under a bot's message. A button with an `id` tells the bot when it's clicked; one
+ * with a `url` just opens that link.
+ */
+export interface MessageButton {
+  id?: string;
+  label: string;
+  style: ButtonStyle;
+  disabled?: boolean;
+  url?: string;
+}
+
+/**
+ * A bot: an account with no password that posts through the bot API with a secret token. Bots
+ * live in server channels only: they can't be friends, so they're never in DMs, group chats or
+ * anything end-to-end encrypted.
+ */
+export interface Bot {
+  id: number;
+  username: string;
+  displayName: string;
+  description: string;
+  owner: PublicUser | null;
+  /** Any server's owner or admins can add it, not just its owner's servers. */
+  isPublic: boolean;
+  /** Gets the text of messages in the channels it's in. Off: only clicks on its buttons and its own messages. */
+  readsMessages: boolean;
+  /** Where events are POSTed (signed), or null when it only uses the bot gateway. */
+  eventsUrl: string | null;
+  /** Signs the events POSTed to eventsUrl. Only shown to the bot's owner and super admins. */
+  signingSecret?: string;
+  /** Connected to the bot gateway right now, or has an events address. */
+  online: boolean;
+  /** How many servers it's in. */
+  serverCount: number;
+  createdAt: string;
+  lastSeenAt: string | null;
+}
+
+/** A bot just made, or given a new token: the only time the token is shown. */
+export interface NewBotToken {
+  bot: Bot;
+  token: string;
+}
+
+/** Someone clicked a bot's button. Sent to the bot as an "interaction.created" event. */
+export interface BotInteraction {
+  id: number;
+  botId: number;
+  messageId: number;
+  conversationId: number;
+  serverId: number;
+  channelId: number;
+  buttonId: string;
+  /** Who clicked, and their role in the server. */
+  user: PublicUser;
+  role: ServerRole;
+  createdAt: string;
+}
+
+/**
+ * What a bot's events address may answer to an interaction, within BOT_LIMITS.callbackMs:
+ * a reply only the clicker sees, and new text or buttons for the message clicked.
+ */
+export interface InteractionResponse {
+  reply?: string;
+  update?: { content?: string; buttons?: MessageButton[] | null };
+}
+
+/** The events bots get, over the bot gateway or POSTed to their events address. */
+export const BOT_EVENT_TYPES = ["ready", "message.created", "message.updated", "server.updated", "server.removed", "interaction.created"] as const;
+
+export const BOT_LIMITS = {
+  /** Messages (and edits) a bot can post per minute. */
+  perMinute: 30,
+  buttons: 5,
+  buttonLabel: 40,
+  buttonId: 64,
+  description: 200,
+  botsPerOwner: 20,
+  /** How long a bot's events address has to answer a click. */
+  callbackMs: 3000,
+  /** How long after a click a bot can still reply to it. */
+  replyMinutes: 15,
+  /** Clicks per person per minute. */
+  clicksPerMinute: 20,
+} as const;
+
 export const WEBHOOK_LIMITS = {
   perChannel: 10,
   name: 32,
@@ -743,7 +839,11 @@ export type ServerEvent =
   /** You and others in a server are playing the same game: a voice channel is open for it. */
   | { type: "play.together"; invite: PlayTogether }
   /** A kid's chores today changed (from Den Duty), to the kid and their parents (null: nothing to show). */
-  | { type: "chores"; userId: number; chores: ChoresToday | null };
+  | { type: "chores"; userId: number; chores: ChoresToday | null }
+  /** To a bot: someone clicked one of its buttons. */
+  | { type: "interaction.created"; interaction: BotInteraction }
+  /** To whoever clicked: the bot's answer, shown only to them. */
+  | { type: "interaction.reply"; interactionId: number; messageId: number; conversationId: number; botId: number; content: string };
 
 /** Events a client sends over the gateway. Everything else goes through the HTTP API. */
 export type ClientEvent = { type: "typing"; conversationId: number } | { type: "ping" };
