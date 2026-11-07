@@ -212,6 +212,90 @@ export const MIGRATIONS: string[] = [
   -- Voice channels. Who is in one is kept in memory, like calls.
   ALTER TABLE server_channels ADD COLUMN kind TEXT NOT NULL DEFAULT 'text';
   `,
+  `
+  -- Kid-safe chat. A kid account is one with at least one linked parent.
+  CREATE TABLE family_links (
+    kid_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    parent_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (kid_id, parent_id)
+  );
+  CREATE INDEX family_links_parent ON family_links(parent_id);
+
+  -- One-time codes a parent gives a kid to link their account.
+  CREATE TABLE family_link_codes (
+    code TEXT PRIMARY KEY,
+    parent_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  -- The rules for a kid account, set by its parents. Times are HH:MM in the kid's time zone.
+  CREATE TABLE kid_rules (
+    kid_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    profanity_filter INTEGER NOT NULL DEFAULT 1,
+    blocked_words TEXT NOT NULL DEFAULT '[]',
+    approve_friends INTEGER NOT NULL DEFAULT 1,
+    can_join_servers INTEGER NOT NULL DEFAULT 0,
+    allowed_from TEXT,
+    allowed_until TEXT,
+    daily_minutes INTEGER,
+    timezone TEXT NOT NULL DEFAULT 'UTC'
+  );
+
+  -- Minutes a kid had the app open, per day in their time zone.
+  CREATE TABLE kid_usage (
+    kid_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    day TEXT NOT NULL,
+    minutes INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (kid_id, day)
+  );
+
+  -- Things a parent is told about. While an alert about a conversation is open, the kid's
+  -- parents can read that conversation (read only), and every look is written to family_audit.
+  CREATE TABLE family_alerts (
+    id INTEGER PRIMARY KEY,
+    kid_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type TEXT NOT NULL,
+    conversation_id INTEGER REFERENCES conversations(id) ON DELETE CASCADE,
+    message_id INTEGER,
+    other_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    resolved_at TEXT,
+    resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+  );
+  CREATE INDEX family_alerts_kid ON family_alerts(kid_id, resolved_at);
+
+  -- What a kid deleted, kept for their parents until a parent marks the alert done. The body
+  -- is kept exactly as it was: ciphertext for encrypted chats, which parents open with their
+  -- own copy of the conversation key. files is JSON; the bytes stay in <data>/uploads.
+  CREATE TABLE kid_deleted_messages (
+    message_id INTEGER PRIMARY KEY,
+    kid_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    key_version INTEGER,
+    files TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    deleted_at TEXT NOT NULL
+  );
+
+  -- Every time a parent opens a kid's chat. Kids see this list.
+  CREATE TABLE family_audit (
+    id INTEGER PRIMARY KEY,
+    kid_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    parent_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    conversation_id INTEGER REFERENCES conversations(id) ON DELETE SET NULL,
+    alert_id INTEGER,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX family_audit_kid ON family_audit(kid_id, id);
+
+  -- A friendship with a kid waits here until a parent approves it.
+  ALTER TABLE friendships ADD COLUMN held_for_parent INTEGER NOT NULL DEFAULT 0;
+  -- Where a parent's alerts are also posted (ntfy, Apprise, Home Assistant...).
+  ALTER TABLE users ADD COLUMN family_webhook TEXT;
+  `,
 ];
 
 export function now(): string {

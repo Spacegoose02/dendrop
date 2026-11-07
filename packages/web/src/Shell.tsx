@@ -396,6 +396,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       createdAt: currentServer.createdAt,
       reads: [],
       e2ee: null,
+      guardians: [],
     };
   }, [currentServer, currentChannel]);
   const serverUnread = (sv: ChatServer) => sv.channels.some((c) => unread.has(c.conversationId));

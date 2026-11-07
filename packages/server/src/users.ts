@@ -13,6 +13,8 @@ export interface UserRecord {
   publicKey: string | null;
   keyBackup: string | null;
   canCreateServers: boolean;
+  /** Linked to at least one parent. */
+  isKid: boolean;
   createdAt: string;
 }
 
@@ -28,6 +30,7 @@ interface Row {
   public_key: string | null;
   key_backup: string | null;
   can_create_servers: number;
+  is_kid: number;
   created_at: string;
 }
 
@@ -43,6 +46,7 @@ const fromRow = (r: Row): UserRecord => ({
   publicKey: r.public_key,
   keyBackup: r.key_backup,
   canCreateServers: !!r.can_create_servers,
+  isKid: !!r.is_kid,
   createdAt: r.created_at,
 });
 
@@ -58,7 +62,11 @@ export const toMe = (u: UserRecord): Me => ({
   isSuperAdmin: u.isSuperAdmin,
   readReceipts: u.readReceipts,
   canCreateServers: u.isSuperAdmin || u.canCreateServers,
+  isKid: u.isKid,
 });
+
+/** Every user column, plus whether they're a kid account. */
+const SELECT = "SELECT users.*, EXISTS (SELECT 1 FROM family_links f WHERE f.kid_id = users.id) AS is_kid FROM users";
 
 export interface NewUser {
   username: string;
@@ -77,22 +85,22 @@ export class UserRepo {
   }
 
   byId(id: number): UserRecord | undefined {
-    const r = this.db.prepare("SELECT * FROM users WHERE id = ?").get(id) as Row | undefined;
+    const r = this.db.prepare(`${SELECT} WHERE id = ?`).get(id) as Row | undefined;
     return r && fromRow(r);
   }
 
   byUsername(username: string): UserRecord | undefined {
-    const r = this.db.prepare("SELECT * FROM users WHERE username = ?").get(username) as Row | undefined;
+    const r = this.db.prepare(`${SELECT} WHERE username = ?`).get(username) as Row | undefined;
     return r && fromRow(r);
   }
 
   byEmail(email: string): UserRecord | undefined {
-    const r = this.db.prepare("SELECT * FROM users WHERE email = ? ORDER BY id LIMIT 1").get(email) as Row | undefined;
+    const r = this.db.prepare(`${SELECT} WHERE email = ? ORDER BY id LIMIT 1`).get(email) as Row | undefined;
     return r && fromRow(r);
   }
 
   byOidcSubject(sub: string): UserRecord | undefined {
-    const r = this.db.prepare("SELECT * FROM users WHERE oidc_subject = ?").get(sub) as Row | undefined;
+    const r = this.db.prepare(`${SELECT} WHERE oidc_subject = ?`).get(sub) as Row | undefined;
     return r && fromRow(r);
   }
 

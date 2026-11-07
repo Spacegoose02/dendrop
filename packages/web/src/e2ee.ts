@@ -6,7 +6,8 @@
  *   encrypted with a key made from the person's chat passphrase (PBKDF2), which the server
  *   never sees. That's how a new phone or PC gets the key: type the passphrase once.
  * - Each conversation has an AES-256-GCM key, made by whoever sends first once everyone has
- *   set up. It's wrapped for each member with ECIES (an ephemeral ECDH key, HKDF, AES-GCM).
+ *   set up. It's wrapped for each member with ECIES (an ephemeral ECDH key, HKDF, AES-GCM),
+ *   and for the parents of any kid accounts in it (who can read it only while an alert is open).
  *   A new version is made when a member resets their keys; older versions stay readable for
  *   everyone who still has them.
  * - Messages and files are AES-GCM with a fresh IV. The additional data ties a message to its
@@ -266,7 +267,9 @@ class KeyRing {
    * set up yet).
    */
   async forSending(conversation: Conversation): Promise<number | null> {
-    const { e2ee, members } = conversation;
+    const { e2ee } = conversation;
+    // Kids' parents get a copy of the key too (the server insists); see docs/KIDS.md.
+    const members = [...conversation.members, ...(conversation.guardians ?? [])];
     const everyoneReady = members.every((m) => m.publicKey);
     if (!this.identity) {
       if (e2ee) throw new Error("Unlock encryption on this device to send here");

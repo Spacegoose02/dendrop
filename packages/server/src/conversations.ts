@@ -1,6 +1,7 @@
 import { LIMITS, type Attachment, type Conversation, type ConversationE2ee, type Message, type ReadState, type WrappedKey } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
+import { guardianIds } from "./family.js";
 import type { FriendRepo } from "./friends.js";
 import { toPublic, type UserRepo } from "./users.js";
 
@@ -112,7 +113,19 @@ export class ConversationRepo {
       lastMessageAt: r.last_message_at,
       createdAt: r.created_at,
       e2ee: this.e2ee(r.id),
+      guardians: guardianIds(this.db, r.id).flatMap((id) => {
+        const u = this.users.byId(id);
+        return u ? [toPublic(u)] : [];
+      }),
     };
+  }
+
+  /**
+   * Who gets a copy of each conversation key: the members, and the parents of any kids in it
+   * (see family.ts). Parents can only fetch messages while an alert about the chat is open.
+   */
+  keyHolderIds(conversationId: number): number[] {
+    return [...this.memberIds(conversationId), ...guardianIds(this.db, conversationId)];
   }
 
   /** The newest key version (0 for none). */
@@ -134,7 +147,7 @@ export class ConversationRepo {
           .all(conversationId, version) as { user_id: number }[]
       ).map((r) => r.user_id),
     );
-    return { version, missing: this.memberIds(conversationId).filter((id) => !have.has(id)) };
+    return { version, missing: this.keyHolderIds(conversationId).filter((id) => !have.has(id)) };
   }
 
   /** The copies of this conversation's keys that `userId` can open with their current key. */
@@ -154,13 +167,14 @@ export class ConversationRepo {
   addKey(conversationId: number, by: number, version: unknown, keys: unknown): void {
     if (!keys || typeof keys !== "object") throw new HttpError(400, "keys is { userId: { publicKey, wrapped } }");
     const given = keys as Record<string, { publicKey?: unknown; wrapped?: unknown } | undefined>;
-    const members = this.memberIds(conversationId).map((id) => this.users.byId(id)!);
+    // Members and kids' parents. Parents always have keys (linking needs them), but check anyway.
+    const members = this.keyHolderIds(conversationId).map((id) => this.users.byId(id)!);
     const waiting = members.filter((u) => !u.publicKey);
     if (waiting.length) throw new HttpError(409, `${waiting.map((u) => u.displayName).join(", ")} hasn't set up encryption yet`);
-    if (Object.keys(given).length !== members.length) throw new HttpError(400, "The key has to be wrapped for every member");
+    if (Object.keys(given).length !== members.length) throw new HttpError(400, "The key has to be wrapped for every member and every kid's parent");
     for (const u of members) {
       const k = given[String(u.id)];
-      if (!k || !isWrappedKey(k.wrapped)) throw new HttpError(400, "The key has to be wrapped for every member");
+      if (!k || !isWrappedKey(k.wrapped)) throw new HttpError(400, "The key has to be wrapped for every member and every kid's parent");
       if (k.publicKey !== u.publicKey) throw new HttpError(409, "Someone's encryption key changed; reload and try again");
     }
     tx(this.db, () => {
@@ -276,6 +290,12 @@ export class ConversationRepo {
     const a = this.db.prepare("SELECT * FROM attachments WHERE id = ?").get(id) as (AttachmentRow & { conversation_id: number }) | undefined;
     if (!a || !this.isMember(a.conversation_id, userId)) return undefined;
     return { ...toAttachment(a), messageId: a.message_id };
+  }
+
+  /** A file in a conversation, for someone allowed to see it without being a member. */
+  attachmentIn(id: string, conversationId: number): Attachment | undefined {
+    const a = this.db.prepare("SELECT * FROM attachments WHERE id = ? AND conversation_id = ?").get(id, conversationId) as AttachmentRow | undefined;
+    return a && toAttachment(a);
   }
 
   send(conversationId: number, authorId: number, body: unknown, files: NewAttachment[] = [], keyVersion: number | null = null): Message {

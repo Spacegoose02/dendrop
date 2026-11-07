@@ -22,6 +22,11 @@ ECDH key, HKDF-SHA256, AES-GCM). From then on the server refuses plain messages 
 conversation, so an old or tampered client can't quietly fall back. Until everyone has set up,
 the chat says who it's waiting for and messages stay plain.
 
+**Kid accounts.** Conversation keys are also wrapped for the parents of any kid account in the
+conversation, and everyone in it is shown who those parents are. A parent can only fetch the
+messages while an alert about that chat is open, and each look is logged for the kid. See
+[KIDS.md](KIDS.md).
+
 **Messages and files.** Each message is AES-GCM with a fresh IV. The additional data binds it
 to its conversation and author, so the server can't move it to another chat or change who sent
 it without decryption failing. Files are encrypted separately; their real name, type and size
