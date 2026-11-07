@@ -28,11 +28,13 @@ export function SettingsButton({
   onSaved,
   keyState,
   onEncryption,
+  onFamily,
 }: {
   me: Me;
   onSaved: (me: Me) => void;
   keyState: KeyState;
   onEncryption: (mode: EncryptionMode) => void;
+  onFamily: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
@@ -70,6 +72,10 @@ export function SettingsButton({
               setOpen(false);
               onEncryption(mode);
             }}
+            onFamily={() => {
+              setOpen(false);
+              onFamily();
+            }}
           />
         )}
       </dialog>
@@ -83,12 +89,14 @@ function SettingsPane({
   onDone,
   keyState,
   onEncryption,
+  onFamily,
 }: {
   me: Me;
   onSaved: (me: Me) => void;
   onDone: () => void;
   keyState: KeyState;
   onEncryption: (mode: EncryptionMode) => void;
+  onFamily: () => void;
 }) {
   const [appearance, set] = useState<Appearance>(loadAppearance);
   const [family, setFamily] = useState<ThemeFamily | "all">(() => getTheme(loadAppearance().theme).family);
@@ -112,6 +120,16 @@ function SettingsPane({
 
       <AccountSection me={me} onSaved={onSaved} />
       <EncryptionSection me={me} keyState={keyState} onEncryption={onEncryption} />
+
+      <section>
+        <h3>Family</h3>
+        <p className="muted small">
+          {me.isKid
+            ? "Your account is linked to your parents. See what they can see, your rules, and when they looked."
+            : "Link a kid's account to yours: you set their rules and get alerts, and their chats stay end-to-end encrypted. Got a code from a parent? Type it here."}
+        </p>
+        <button onClick={onFamily}>{me.isKid ? "Your family" : "Family and kid accounts"}</button>
+      </section>
 
       <section>
         <h3>Theme</h3>
