@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { Room, RoomEvent, Track, type Participant } from "livekit-client";
 import type { Channel, ChatServer, Me, VoiceJoin, VoiceMember } from "@dendrop/shared";
 import { api } from "./api.ts";
+import { loadAudio, micError, playSound, useAudioPrefs } from "./audio.ts";
 import { RemoteAudio, Tile } from "./CallPanel.tsx";
+import { comboLabel, useKeybinds, voiceControls } from "./keybinds.ts";
+import { roomAudioOptions, useRoomAudio } from "./voiceAudio.ts";
 import { canShareScreen, ScreenTile, ShareDialog, shareOptions, type ShareQuality } from "./ScreenShare.tsx";
 
 /**
@@ -40,6 +43,10 @@ export function VoicePanel({
   /** Whose screen is shown big, when more than one person shares. */
   const [focus, setFocus] = useState<string | null>(null);
   const left = useRef(false);
+  const prefs = useAudioPrefs();
+  const keybinds = useKeybinds();
+  const [sending, setSending] = useState(true);
+  useRoomAudio(room, prefs, setSending);
   const bump = () => setVersion((v) => v + 1);
 
   const report = (state: Partial<Pick<VoiceMember, "muted" | "deafened" | "video" | "screen">>) =>
@@ -48,6 +55,7 @@ export function VoicePanel({
   const leave = () => {
     if (left.current) return;
     left.current = true;
+    playSound("leave");
     void room?.disconnect();
     void api("/api/voice/leave", { body: {} }).catch(() => {});
     onSpeakers([]);
@@ -55,7 +63,7 @@ export function VoicePanel({
   };
 
   useEffect(() => {
-    const room = new Room({ adaptiveStream: true, dynacast: true });
+    const room = new Room({ adaptiveStream: true, dynacast: true, ...roomAudioOptions(loadAudio()) });
     setRoom(room);
     const events = [
       RoomEvent.ParticipantConnected,
@@ -68,6 +76,11 @@ export function VoicePanel({
       RoomEvent.LocalTrackUnpublished,
     ] as const;
     for (const e of events) room.on(e, bump);
+    // A soft chime when someone drops in or heads out.
+    const onJoined = () => playSound("join");
+    const onGone = () => playSound("leave");
+    room.on(RoomEvent.ParticipantConnected, onJoined);
+    room.on(RoomEvent.ParticipantDisconnected, onGone);
     const onActive = (speakers: Participant[]) => {
       onSpeakers(speakers.map((p) => Number(p.identity)));
       bump();
@@ -91,8 +104,9 @@ export function VoicePanel({
         if (cancelled) return;
         connected = true;
         setStatus("connected");
+        playSound("join");
         await room.localParticipant.setMicrophoneEnabled(true).catch((err: Error) => {
-          setError(`Microphone: ${err.message}`);
+          setError(micError(err));
           report({ muted: true });
         });
         bump();
@@ -107,6 +121,8 @@ export function VoicePanel({
       cancelled = true;
       for (const e of events) room.off(e, bump);
       room.off(RoomEvent.ActiveSpeakersChanged, onActive);
+      room.off(RoomEvent.ParticipantConnected, onJoined);
+      room.off(RoomEvent.ParticipantDisconnected, onGone);
       room.off(RoomEvent.LocalTrackUnpublished, onUnpublished);
       room.off(RoomEvent.Disconnected, onDisconnected);
       void room.disconnect();
@@ -114,6 +130,19 @@ export function VoicePanel({
     };
     // The room is made once per channel joined.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keybinds: the latest toggles, whichever render they came from.
+  const toggles = useRef({ mute: () => {}, deafen: () => {} });
+  useEffect(() => {
+    const mute = () => toggles.current.mute();
+    const deafen = () => toggles.current.deafen();
+    voiceControls.addEventListener("mute", mute);
+    voiceControls.addEventListener("deafen", deafen);
+    return () => {
+      voiceControls.removeEventListener("mute", mute);
+      voiceControls.removeEventListener("deafen", deafen);
+    };
   }, []);
 
   if (!room) return null;
@@ -159,10 +188,12 @@ export function VoicePanel({
     if (deafened) {
       // Unmuting while deafened undeafens too: you can't talk without hearing.
       setDeafened(false);
-      await local.setMicrophoneEnabled(true).catch((err: Error) => setError(`Microphone: ${err.message}`));
+      await local.setMicrophoneEnabled(true).catch((err: Error) => setError(micError(err)));
+      playSound("undeafen");
       report({ muted: !local.isMicrophoneEnabled, deafened: false });
     } else {
-      await local.setMicrophoneEnabled(!micOn).catch((err: Error) => setError(`Microphone: ${err.message}`));
+      await local.setMicrophoneEnabled(!micOn).catch((err: Error) => setError(micError(err)));
+      playSound(local.isMicrophoneEnabled ? "unmute" : "mute");
       report({ muted: !local.isMicrophoneEnabled });
     }
     bump();
@@ -173,14 +204,18 @@ export function VoicePanel({
       micBeforeDeafen.current = micOn;
       setDeafened(true);
       await local.setMicrophoneEnabled(false);
+      playSound("deafen");
       report({ deafened: true, muted: true });
     } else {
       setDeafened(false);
-      if (micBeforeDeafen.current) await local.setMicrophoneEnabled(true).catch((err: Error) => setError(`Microphone: ${err.message}`));
+      if (micBeforeDeafen.current) await local.setMicrophoneEnabled(true).catch((err: Error) => setError(micError(err)));
+      playSound("undeafen");
       report({ deafened: false, muted: !local.isMicrophoneEnabled });
     }
     bump();
   };
+
+  toggles.current = { mute: () => void toggleMic(), deafen: () => void toggleDeafen() };
 
   const toggleCamera = async () => {
     await local.setCameraEnabled(!camOn).catch((err: Error) => setError(`Camera: ${err.message}`));
@@ -272,6 +307,12 @@ export function VoicePanel({
         {status !== "failed" && <span>Voice channels aren't end-to-end encrypted yet. </span>}
         {status === "connecting" && "Connecting…"}
         {alone && "It's just you in here. Others can drop in any time."}
+        {keybinds.inputMode === "ptt" && micOn && status === "connected" && (
+          <span className={sending ? "ptt-live" : ""}>
+            {" "}
+            {keybinds.binds.pushToTalk ? (sending ? "Talking…" : `Hold ${comboLabel(keybinds.binds.pushToTalk)} to talk.`) : "Push to talk has no key yet (Settings)."}
+          </span>
+        )}
         {error && <span className="error">{error}</span>}
       </div>
       {controls}

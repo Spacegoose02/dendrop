@@ -478,3 +478,6 @@ select {
     height: 40vh;
   }
 }
+.ptt-live {
+  color: var(--dd-online);
+}

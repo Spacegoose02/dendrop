@@ -16,11 +16,12 @@ import {
 } from "@dendrop/theme";
 import { LIMITS, type Me } from "@dendrop/shared";
 import { api } from "./api.ts";
+import { AudioSettings } from "./AudioSettings.tsx";
 import { securityCode } from "./e2ee.ts";
 import type { EncryptionMode } from "./EncryptionDialog.tsx";
 import "./settings.css";
 
-/** The gear button and the settings dialog it opens: your account and privacy, then appearance. */
+/** The gear button and the settings dialog it opens: your account and privacy, voice and audio, then appearance. */
 type KeyState = "loading" | "off" | "locked" | "on";
 
 export function SettingsButton({
@@ -120,6 +121,7 @@ function SettingsPane({
 
       <AccountSection me={me} onSaved={onSaved} />
       <EncryptionSection me={me} keyState={keyState} onEncryption={onEncryption} />
+      <AudioSettings />
 
       <section>
         <h3>Family</h3>
