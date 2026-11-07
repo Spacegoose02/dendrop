@@ -151,9 +151,9 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Systems | Linux | 2 | Missing |
 | Systems | SSO with TinyAuth | 1 | Done |
 | Systems | MFA usable | 1 | Done (enforced in TinyAuth) |
-| Systems | Automatically adjust input sensitivity | 4 | Missing |
-| Systems | Noise suppression with levels | 4 | Missing |
-| Systems | Advanced audio switches | 4 | Missing |
+| Systems | Automatically adjust input sensitivity | 4 | Done (automatic, manual threshold, or always on) |
+| Systems | Noise suppression with levels | 4 | Partial: off, standard and strong (browser suppression and voice isolation); RNNoise still to come |
+| Systems | Advanced audio switches | 4 | Partial: echo cancellation, automatic gain control, no-mic warnings; ducking and quality-of-service still to come |
 | Systems | Automatically open when PC starts | 2 | Missing |
 | Systems | Keybinds | 2 | Missing |
 | Systems | Server: Docker / Unraid hosting | 0 | Done (Unraid template still to do) |
@@ -166,8 +166,8 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Backbone | Game streaming | 4 | Done: "Game" quality (1080p 60 fps) with the game's sound (tab sound in browsers, PC sound in the Windows app) |
 | Backbone | Voice chat | 1 (DM calls), 4 (channels) | Done: calls in DMs and group chats, and drop-in voice channels in servers (mute, deafen, camera, who's talking) |
 | Backbone | Phone notifications | 2 | Partial: server sends content-free pushes; Android app in #7 |
-| Backbone | Speaker settings | 4 | Missing |
-| Backbone | Microphone settings | 4 | Missing |
+| Backbone | Speaker settings | 4 | Done (speaker picker where the browser allows, volume, test sound) |
+| Backbone | Microphone settings | 4 | Done (mic picker, mic check with level meter, hear yourself) |
 | Backbone | Friend invites | 1 | Done |
 | Backbone | Browse other chat servers | 3 | Done (public servers only; private ones are never listed) |
 | Backbone | Lock channels / owner chooses members | 3 | Done |
@@ -194,7 +194,7 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Kid safe chat | Link kid accounts with parents | 5 | Missing |
 | Kid safe chat | Webhook alert notifications | 5 | Missing |
 | Kid safe chat | Parents as ghost admins when alerted | 5 | Missing |
-| Sounds | Sounds for deafen/mute events | 4 | Missing |
+| Sounds | Sounds for deafen/mute events | 4 | Done (mute, unmute, deafen, undeafen, join, leave; can be turned off) |
 | Sounds | Incoming call / message notifications | 2 | Missing |
 | Automod | Automod settings | 6 | Missing |
 | Look alike | Layout reference 1 (settings) | 1, 7 | Missing |

@@ -4,7 +4,9 @@ import E2EEWorker from "livekit-client/e2ee-worker?worker";
 import type { CallJoin, Conversation, Me } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { Avatar } from "./Avatar.tsx";
+import { applyOutput, loadAudio, micError, playSound, useAudioPrefs, type AudioPrefs } from "./audio.ts";
 import { keyring } from "./e2ee.ts";
+import { roomAudioOptions, useRoomAudio } from "./voiceAudio.ts";
 import { conversationTitle } from "./util.ts";
 
 /**
@@ -35,6 +37,8 @@ export function CallPanel({
   const cid = join.call.conversationId;
   // Calls in an encrypted conversation are encrypted too, with a key only its members can make.
   const keyVersion = conversation?.e2ee?.version ?? null;
+  const prefs = useAudioPrefs();
+  useRoomAudio(room, prefs);
 
   const leave = () => {
     if (left.current) return;
@@ -47,7 +51,7 @@ export function CallPanel({
   useEffect(() => {
     const keyProvider = keyVersion ? new ExternalE2EEKeyProvider() : null;
     const worker = keyProvider && isE2EESupported() ? new E2EEWorker() : null;
-    const room = new Room({ adaptiveStream: true, dynacast: true, ...(keyProvider && worker ? { encryption: { keyProvider, worker } } : {}) });
+    const room = new Room({ adaptiveStream: true, dynacast: true, ...roomAudioOptions(loadAudio()), ...(keyProvider && worker ? { encryption: { keyProvider, worker } } : {}) });
     setRoom(room);
     const bump = () => setVersion((v) => v + 1);
     const events = [
@@ -91,7 +95,7 @@ export function CallPanel({
         if (cancelled) return;
         connected = true;
         setStatus("connected");
-        await room.localParticipant.setMicrophoneEnabled(true).catch((err: Error) => setError(`Microphone: ${err.message}`));
+        await room.localParticipant.setMicrophoneEnabled(true).catch((err: Error) => setError(micError(err)));
         if (join.call.video && join.call.startedBy === me.id) {
           await room.localParticipant.setCameraEnabled(true).catch((err: Error) => setError(`Camera: ${err.message}`));
         }
@@ -128,7 +132,15 @@ export function CallPanel({
     <div className="call-controls">
       <button
         className={micOn ? "" : "off"}
-        onClick={() => void local.setMicrophoneEnabled(!micOn).then(() => setVersion((v) => v + 1))}
+        onClick={() =>
+          void local
+            .setMicrophoneEnabled(!micOn)
+            .then(() => {
+              playSound(micOn ? "mute" : "unmute");
+              setVersion((v) => v + 1);
+            })
+            .catch((err: Error) => setError(micError(err)))
+        }
         aria-pressed={!micOn}
         title={micOn ? "Mute" : "Unmute"}
       >
@@ -193,6 +205,7 @@ export function CallPanel({
  * compact, so you keep hearing people while you look at other chats.
  */
 export function RemoteAudio({ room, deafened = false }: { room: Room; deafened?: boolean }) {
+  const prefs = useAudioPrefs();
   const tracks: RemoteTrack[] = [];
   for (const p of room.remoteParticipants.values()) {
     for (const source of [Track.Source.Microphone, Track.Source.ScreenShareAudio]) {
@@ -203,14 +216,17 @@ export function RemoteAudio({ room, deafened = false }: { room: Room; deafened?:
   return (
     <>
       {tracks.map((t) => (
-        <TrackAudio key={t.sid ?? t.mediaStreamTrack.id} track={t} muted={deafened} />
+        <TrackAudio key={t.sid ?? t.mediaStreamTrack.id} track={t} muted={deafened} prefs={prefs} />
       ))}
     </>
   );
 }
 
-function TrackAudio({ track, muted }: { track: RemoteTrack; muted: boolean }) {
+function TrackAudio({ track, muted, prefs }: { track: RemoteTrack; muted: boolean; prefs: AudioPrefs }) {
   const ref = useRef<HTMLAudioElement>(null);
+  useEffect(() => {
+    if (ref.current) applyOutput(ref.current, prefs);
+  }, [prefs]);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
