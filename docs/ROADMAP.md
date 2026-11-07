@@ -187,13 +187,13 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Features | Server chat profile / rename | 7 | Done (name, description, per-server nickname) |
 | Features | Server chat banner | 7 | Done (icon and banner) |
 | Integrations | LootDen integration | 8 | Missing |
-| Kid safe chat | Profanity filters | 5 | Partial: filter and per-kid words on the server (plain messages); filtering on the kid's device in the app PR |
-| Kid safe chat | Kid's deleted messages sent to parent | 5 | Partial: server keeps copies (still encrypted) until a parent is done; app view to come |
-| Kid safe chat | Time-based controls | 5 | Partial: chat hours and daily minutes enforced by the server; app screens to come |
-| Kid safe chat | Parental controls | 5 | Partial: friend approval and chat server permission on the server; dashboard to come |
-| Kid safe chat | Link kid accounts with parents | 5 | Partial: link codes and super admin links on the server; app screens to come |
-| Kid safe chat | Webhook alert notifications | 5 | Done on the server (content-free, ntfy/Apprise friendly); setting in the app to come |
-| Kid safe chat | Parents as ghost admins when alerted | 5 | Partial: read-only access while an alert is open, audit log for the kid; app view to come |
+| Kid safe chat | Profanity filters | 5 | Done for kid accounts: hidden in what they read and blocked when they send (on their device, and on the server for plain messages), extra words per kid |
+| Kid safe chat | Kid's deleted messages sent to parent | 5 | Done: kept (still encrypted, files too) until a parent has looked and marks it done |
+| Kid safe chat | Time-based controls | 5 | Done: chat hours and daily minutes, enforced by the server |
+| Kid safe chat | Parental controls | 5 | Done: family dashboard with friend approval, chat server permission, word filter and time rules |
+| Kid safe chat | Link kid accounts with parents | 5 | Done: link codes (the kid sees what parents can see first) and super admin links; LootDen kid profiles in Phase 8 |
+| Kid safe chat | Webhook alert notifications | 5 | Done: in-app alerts and a content-free webhook per parent (ntfy, Apprise, Home Assistant) |
+| Kid safe chat | Parents as ghost admins when alerted | 5 | Done: read-only view of an alerted chat, end-to-end encrypted to parents, with an audit log the kid sees |
 | Sounds | Sounds for deafen/mute events | 4 | Missing |
 | Kid safe chat | Profanity filters | 5 | Missing |
 | Kid safe chat | Kid's deleted messages sent to parent | 5 | Missing |

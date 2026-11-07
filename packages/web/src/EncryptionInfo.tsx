@@ -12,13 +12,13 @@ export function EncryptionInfo({ me, conversation, onClose }: { me: Me; conversa
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all(conversation.members.map(async (m) => [m.id, m.publicKey ? await securityCode(m.publicKey) : ""] as const)).then(
+    void Promise.all([...conversation.members, ...conversation.guardians].map(async (m) => [m.id, m.publicKey ? await securityCode(m.publicKey) : ""] as const)).then(
       (list) => !cancelled && setCodes(Object.fromEntries(list)),
     );
     return () => {
       cancelled = true;
     };
-  }, [conversation.members]);
+  }, [conversation.members, conversation.guardians]);
 
   return (
     <Modal title="End-to-end encrypted" onClose={onClose}>
@@ -41,6 +41,22 @@ export function EncryptionInfo({ me, conversation, onClose }: { me: Me; conversa
           </li>
         ))}
       </ul>
+      {conversation.guardians.length > 0 && (
+        <>
+          <p className="small">
+            <strong>Parents of a kid in this chat</strong> also get the key, so they can read it, read only, when they get an alert
+            about it (the kid sees each time they look):
+          </p>
+          <ul className="security-codes">
+            {conversation.guardians.map((g) => (
+              <li key={g.id}>
+                <strong>{g.displayName}</strong>
+                <code>{g.publicKey ? (codes[g.id] ?? "…") : "Not set up"}</code>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {conversation.e2ee && conversation.e2ee.missing.length > 0 && (
         <p className="muted small">Someone reset their keys. A new conversation key is made the next time anyone sends a message.</p>
       )}

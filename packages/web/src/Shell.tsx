@@ -6,6 +6,8 @@ import type {
   ChannelKind,
   ChatServer,
   Conversation,
+  FamilyAlert,
+  FamilyInfo,
   Friend,
   InvitePreview,
   Me,
@@ -27,6 +29,7 @@ import { useVoiceKeybinds } from "./keybinds.ts";
 import { keyring, loadIdentity, reveal, type Identity } from "./e2ee.ts";
 import { conversationTitle, upsert, type History } from "./util.ts";
 import { AdminDialog } from "./Admin.tsx";
+import { FamilyDialog } from "./Family.tsx";
 import { ChannelDialog, CreateServer, Directory, InviteDialog, InviteLinkDialog, isMod, ServerIcon, ServerSettings, ServerSidebar } from "./Servers.tsx";
 
 // The call code (LiveKit) is big, so it only loads when a call starts.
@@ -100,6 +103,16 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   /** Encryption on this device: still checking, not set up for the account, set up but not unlocked here, or ready. */
   const [keyState, setKeyState] = useState<"loading" | "off" | "locked" | "on">("loading");
   const [encryptionDialog, setEncryptionDialog] = useState<EncryptionMode | null>(null);
+  /** Kid-safe chat: your family (as a kid or a parent), and alerts about your kids. */
+  const [family, setFamily] = useState<FamilyInfo | null>(null);
+  const [familyAlerts, setFamilyAlerts] = useState<FamilyAlert[]>([]);
+  const [showFamily, setShowFamily] = useState(false);
+  const loadFamily = useCallback(async () => {
+    const f = await api<FamilyInfo>("/api/family");
+    setFamily(f);
+    setMe((m) => ({ ...m, isKid: f.parents.length > 0 }));
+    setFamilyAlerts(f.kids.length ? await api<FamilyAlert[]>("/api/family/alerts") : []);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -144,6 +157,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     setFriends(f);
     setOnline(new Set(f.filter((x) => x.online).map((x) => x.user.id)));
     setConversations(c);
+    void loadFamily().catch(() => {});
     // Anything open may have missed messages while disconnected; reload it on demand.
     setHistories({});
   }, []);
@@ -152,7 +166,16 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     (e: ServerEvent) => {
       switch (e.type) {
         case "ready":
+          setMe((m) => ({ ...m, ...e.user, publicKey: m.publicKey ?? e.user.publicKey }));
           void refresh();
+          break;
+        case "family.updated":
+          setFamily(e.family);
+          setMe((m) => ({ ...m, isKid: e.family.parents.length > 0 }));
+          if (e.family.kids.length) void api<FamilyAlert[]>("/api/family/alerts").then(setFamilyAlerts);
+          break;
+        case "family.alert":
+          setFamilyAlerts((list) => [e.alert, ...list.filter((a) => a.id !== e.alert.id)]);
           break;
         case "friend.updated":
           setFriends((fs) => [...fs.filter((f) => f.user.id !== e.friend.user.id), e.friend]);
@@ -381,6 +404,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   // Ring for a call that's ringing this person, unless they're already in one.
   const ringing = Object.values(calls).find((c) => c.ringing.includes(me.id) && c.conversationId !== inCall?.call.conversationId);
 
+  const kidRules = me.isKid && family?.rules && family.status ? { rules: family.rules, status: family.status } : null;
+  const openAlerts = familyAlerts.filter((a) => !a.resolvedAt).length;
   const current = view.kind === "conversation" ? conversations.find((c) => c.id === view.id) : undefined;
   const currentServer = view.kind === "channel" ? servers.find((x) => x.id === view.serverId) : undefined;
   const currentChannel = view.kind === "channel" ? currentServer?.channels.find((c) => c.id === view.channelId) : undefined;
@@ -499,10 +524,21 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             <strong>{me.displayName}</strong>
             <span className="muted">@{me.username}</span>
           </div>
+          {(me.isKid || !!family?.kids.length) && (
+          <button
+            className="ghost family-button"
+            onClick={() => setShowFamily(true)}
+            title={me.isKid ? "Your family" : "Family: kid accounts and alerts"}
+            aria-label={openAlerts ? `Family, ${openAlerts} new alerts` : "Family"}
+          >
+            👪{openAlerts > 0 && <span className="dot" aria-hidden />}
+          </button>
+          )}
           <SettingsButton
             me={me}
             keyState={keyState}
             onEncryption={(mode) => setEncryptionDialog(mode)}
+            onFamily={() => setShowFamily(true)}
             onSaved={(m) => {
               setMe(m);
               // Turning receipts on or off changes whose reads this person can see.
@@ -584,6 +620,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             onBack={() => setShowMain(false)}
             keyState={keyState}
             onEncryption={() => {}}
+            kid={kidRules}
             channel={{
               serverId: currentServer.id,
               topic: currentChannel.topic,
@@ -618,9 +655,21 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             onBack={() => setShowMain(false)}
             keyState={keyState}
             onEncryption={() => setEncryptionDialog(keyState === "off" ? "setup" : "unlock")}
+            kid={kidRules}
           />
         )}
       </main>
+      {showFamily && (
+        <FamilyDialog
+          me={me}
+          family={family}
+          alerts={familyAlerts}
+          conversations={conversations}
+          encryptionOn={keyState === "on"}
+          onClose={() => setShowFamily(false)}
+          onChanged={() => void loadFamily()}
+        />
+      )}
       {encryptionDialog && (
         <EncryptionDialog me={me} mode={encryptionDialog} setMode={setEncryptionDialog} onDone={onUnlocked} onClose={() => setEncryptionDialog(null)} />
       )}

@@ -38,6 +38,8 @@ export function Friends({
   const byName = (a: Friend, b: Friend) => a.user.displayName.localeCompare(b.user.displayName);
   const incoming = friends.filter((f) => f.state === "incoming").sort(byName);
   const outgoing = friends.filter((f) => f.state === "outgoing").sort(byName);
+  /** Both said yes, but a kid's parent still has to approve. */
+  const held = friends.filter((f) => f.state === "held").sort(byName);
   const accepted = friends
     .filter((f) => f.state === "friends")
     .sort((a, b) => Number(online.has(b.user.id)) - Number(online.has(a.user.id)) || byName(a, b));
@@ -100,6 +102,20 @@ export function Friends({
           </div>
         ))}
 
+        {held.length > 0 && (
+          <>
+            <div className="section-label">Waiting for a parent · {held.length}</div>
+            {held.map((f) => (
+              <div className="person" key={f.user.id}>
+                <Avatar name={f.user.displayName} />
+                <PersonName u={f.user} sub="A parent has to say yes before you can chat" />
+                <button className="ghost" onClick={() => act(f, "remove")}>
+                  Cancel
+                </button>
+              </div>
+            ))}
+          </>
+        )}
         {outgoing.length > 0 && (
           <>
             <div className="section-label">Sent · {outgoing.length}</div>
