@@ -212,7 +212,7 @@
   }
 }
 
-.account-settings label {
+.account-settings label:not(.toggle) {
   display: block;
   max-width: 420px;
 }

@@ -107,6 +107,25 @@ export const MIGRATIONS: string[] = [
     value TEXT NOT NULL
   );
   `,
+  `
+  -- End-to-end encryption. The server keeps public keys, private keys encrypted with a
+  -- passphrase it never sees, and conversation keys encrypted to each member's public key.
+  ALTER TABLE users ADD COLUMN public_key TEXT;
+  ALTER TABLE users ADD COLUMN key_backup TEXT;
+  ALTER TABLE messages ADD COLUMN key_version INTEGER;
+
+  CREATE TABLE conversation_keys (
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    -- The public key this copy was encrypted to, so a reset shows up as a missing copy.
+    recipient_key TEXT NOT NULL,
+    wrapped TEXT NOT NULL,
+    created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (conversation_id, version, user_id)
+  );
+  `,
 ];
 
 export function now(): string {

@@ -16,10 +16,24 @@ import {
 } from "@dendrop/theme";
 import { LIMITS, type Me } from "@dendrop/shared";
 import { api } from "./api.ts";
+import { securityCode } from "./e2ee.ts";
+import type { EncryptionMode } from "./EncryptionDialog.tsx";
 import "./settings.css";
 
 /** The gear button and the settings dialog it opens: your account and privacy, then appearance. */
-export function SettingsButton({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
+type KeyState = "loading" | "off" | "locked" | "on";
+
+export function SettingsButton({
+  me,
+  onSaved,
+  keyState,
+  onEncryption,
+}: {
+  me: Me;
+  onSaved: (me: Me) => void;
+  keyState: KeyState;
+  onEncryption: (mode: EncryptionMode) => void;
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
 
@@ -46,13 +60,36 @@ export function SettingsButton({ me, onSaved }: { me: Me; onSaved: (me: Me) => v
         onClose={() => setOpen(false)}
         onClick={(e) => e.target === dialog.current && setOpen(false)}
       >
-        {open && <SettingsPane me={me} onSaved={onSaved} onDone={() => setOpen(false)} />}
+        {open && (
+          <SettingsPane
+            me={me}
+            onSaved={onSaved}
+            onDone={() => setOpen(false)}
+            keyState={keyState}
+            onEncryption={(mode) => {
+              setOpen(false);
+              onEncryption(mode);
+            }}
+          />
+        )}
       </dialog>
     </>
   );
 }
 
-function SettingsPane({ me, onSaved, onDone }: { me: Me; onSaved: (me: Me) => void; onDone: () => void }) {
+function SettingsPane({
+  me,
+  onSaved,
+  onDone,
+  keyState,
+  onEncryption,
+}: {
+  me: Me;
+  onSaved: (me: Me) => void;
+  onDone: () => void;
+  keyState: KeyState;
+  onEncryption: (mode: EncryptionMode) => void;
+}) {
   const [appearance, set] = useState<Appearance>(loadAppearance);
   const [family, setFamily] = useState<ThemeFamily | "all">(() => getTheme(loadAppearance().theme).family);
   const current = getTheme(appearance.theme);
@@ -74,6 +111,7 @@ function SettingsPane({ me, onSaved, onDone }: { me: Me; onSaved: (me: Me) => vo
       </header>
 
       <AccountSection me={me} onSaved={onSaved} />
+      <EncryptionSection me={me} keyState={keyState} onEncryption={onEncryption} />
 
       <section>
         <h3>Theme</h3>
@@ -169,6 +207,52 @@ function AccountSection({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) 
         </button>
         {status && !changed && <span className="muted small">{status}</span>}
       </div>
+    </section>
+  );
+}
+
+/** Encryption status, your security code, and passphrase changes. */
+function EncryptionSection({ me, keyState, onEncryption }: { me: Me; keyState: KeyState; onEncryption: (mode: EncryptionMode) => void }) {
+  const [code, setCode] = useState<string | null>(null);
+  useEffect(() => {
+    if (me.publicKey) void securityCode(me.publicKey).then(setCode);
+  }, [me.publicKey]);
+
+  return (
+    <section className="encryption-settings">
+      <h3>End-to-end encryption</h3>
+      {keyState === "off" && (
+        <>
+          <p className="muted small">Off. Turn it on so your direct messages can only be read by the people in them.</p>
+          <button className="primary" onClick={() => onEncryption("setup")}>
+            Turn on encryption
+          </button>
+        </>
+      )}
+      {keyState === "locked" && (
+        <>
+          <p className="muted small">On for your account, but locked on this device. Type your chat passphrase to read encrypted messages here.</p>
+          <button className="primary" onClick={() => onEncryption("unlock")}>
+            Unlock
+          </button>
+        </>
+      )}
+      {keyState === "on" && (
+        <>
+          <p className="muted small">On, and unlocked on this device.</p>
+          {code && (
+            <p className="small">
+              Your security code: <code className="security-code">{code}</code>
+            </p>
+          )}
+          <div className="account-save">
+            <button onClick={() => onEncryption("change")}>Change passphrase</button>
+            <button className="ghost danger" onClick={() => onEncryption("reset")}>
+              Reset keys
+            </button>
+          </div>
+        </>
+      )}
     </section>
   );
 }

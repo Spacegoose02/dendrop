@@ -1,14 +1,21 @@
-import { randomBytes } from "node:crypto";
+import { ECDH, randomBytes } from "node:crypto";
 import { createReadStream, createWriteStream, mkdirSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { INLINE_IMAGE_TYPES, isUsername, LIMITS } from "@dendrop/shared";
+import { INLINE_IMAGE_TYPES, isUsername, LIMITS, type E2eeSetup, type KeyBackup } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
 import { CallService } from "../calls.js";
 import { ConversationRepo, type NewAttachment } from "../conversations.js";
 import { HttpError } from "../errors.js";
 import { FriendRepo } from "../friends.js";
+
+const keyVersion = (v: unknown): number | null => {
+  if (v === undefined || v === null || v === "") return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n <= 0) throw new HttpError(400, "Bad keyVersion");
+  return n;
+};
 
 const id = (v: unknown): number => {
   const n = Number(v);
@@ -120,6 +127,13 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     if (!convos.isMember(cid, userId)) throw new HttpError(404, "No such conversation");
   };
 
+  app.get<{ Params: { id: string } }>("/api/conversations/:id", async (req) => {
+    const me = requireUser(req);
+    const cid = id(req.params.id);
+    member(cid, me.id);
+    return convos.get(cid, me.id);
+  });
+
   app.get<{ Params: { id: string }; Querystring: { before?: string; limit?: string } }>("/api/conversations/:id/messages", async (req) => {
     const me = requireUser(req);
     const cid = id(req.params.id);
@@ -131,14 +145,19 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
    * Reads a message from JSON ({ body }) or multipart (a "body" field plus files). Files are
    * streamed to the uploads folder; on any error the ones already written are removed.
    */
-  const readMessage = async (req: FastifyRequest): Promise<{ body: unknown; files: NewAttachment[] }> => {
-    if (!req.isMultipart()) return { body: (req.body as { body?: unknown } | undefined)?.body, files: [] };
+  const readMessage = async (req: FastifyRequest): Promise<{ body: unknown; files: NewAttachment[]; keyVersion: number | null }> => {
+    if (!req.isMultipart()) {
+      const json = req.body as { body?: unknown; keyVersion?: unknown } | undefined;
+      return { body: json?.body, files: [], keyVersion: keyVersion(json?.keyVersion) };
+    }
     const files: NewAttachment[] = [];
     let body: unknown;
+    let kv: number | null = null;
     try {
       for await (const part of req.parts({ limits: { fileSize: config.maxUploadBytes, files: LIMITS.attachmentsPerMessage, fields: 4 } })) {
         if (part.type === "field") {
           if (part.fieldname === "body") body = part.value;
+          if (part.fieldname === "keyVersion") kv = keyVersion(part.value);
           continue;
         }
         if (files.length >= LIMITS.attachmentsPerMessage) throw new HttpError(400, `Up to ${LIMITS.attachmentsPerMessage} files per message`);
@@ -159,17 +178,20 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
       if (code === "FST_FILES_LIMIT") throw new HttpError(400, `Up to ${LIMITS.attachmentsPerMessage} files per message`);
       throw err;
     }
-    return { body, files };
+    // Encrypted files carry their real name and type inside the message, so store neither.
+    if (kv) for (const f of files) Object.assign(f, { name: "file", contentType: "application/octet-stream" });
+    return { body, files, keyVersion: kv };
   };
 
   app.post<{ Params: { id: string } }>("/api/conversations/:id/messages", async (req) => {
     const me = requireUser(req);
     const cid = id(req.params.id);
     member(cid, me.id);
-    const { body, files } = await readMessage(req);
+    const msg = await readMessage(req);
+    const { body, files } = msg;
     let m;
     try {
-      m = convos.send(cid, me.id, body, files);
+      m = convos.send(cid, me.id, body, files, msg.keyVersion);
     } catch (err) {
       removeFiles(files.map((f) => f.id));
       throw err;
@@ -248,9 +270,9 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     return { ok: true };
   });
 
-  app.patch<{ Params: { id: string }; Body: { body?: unknown } }>("/api/messages/:id", async (req) => {
+  app.patch<{ Params: { id: string }; Body: { body?: unknown; keyVersion?: unknown } }>("/api/messages/:id", async (req) => {
     const me = requireUser(req);
-    const m = convos.edit(id(req.params.id), me.id, req.body?.body);
+    const m = convos.edit(id(req.params.id), me.id, req.body?.body, keyVersion(req.body?.keyVersion));
     gateway.send(convos.memberIds(m.conversationId), { type: "message.updated", message: m });
     return m;
   });
@@ -262,6 +284,73 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     gateway.send(convos.memberIds(m.conversationId), { type: "message.updated", message: m });
     return m;
   });
+  // ---- End-to-end encryption ------------------------------------------------------
+
+  /** Sends each member their own view of a conversation (read receipts differ per person). */
+  const pushConversation = (cid: number) => {
+    for (const uid of convos.memberIds(cid)) gateway.send([uid], { type: "conversation.updated", conversation: convos.get(cid, uid)! });
+  };
+
+  app.get("/api/e2ee", async (req): Promise<E2eeSetup> => {
+    const me = requireUser(req);
+    return { publicKey: me.publicKey, backup: me.keyBackup ? (JSON.parse(me.keyBackup) as KeyBackup) : null };
+  });
+
+  /**
+   * Saves your public key and passphrase-encrypted private key. With the same public key this
+   * changes the passphrase. A new public key needs reset: true, because messages encrypted to
+   * the old one can't be read again.
+   */
+  app.put<{ Body: { publicKey?: unknown; backup?: unknown; reset?: unknown } }>("/api/e2ee", async (req): Promise<E2eeSetup> => {
+    const me = requireUser(req);
+    const { publicKey, backup, reset } = req.body ?? {};
+    if (!isPublicKey(publicKey)) throw new HttpError(400, "That isn't a P-256 public key");
+    const b = cleanBackup(backup);
+    const changed = me.publicKey !== null && me.publicKey !== publicKey;
+    if (changed && reset !== true) throw new HttpError(409, "You already have encryption keys; resetting them needs reset: true");
+    const user = users.setKeys(me.id, publicKey, JSON.stringify(b));
+    if (me.publicKey !== publicKey) for (const c of convos.list(me.id)) pushConversation(c.id);
+    return { publicKey: user.publicKey, backup: b };
+  });
+
+  /** Your copies of a conversation's keys, one per version you can read. */
+  app.get<{ Params: { id: string } }>("/api/conversations/:id/keys", async (req) => {
+    const me = requireUser(req);
+    const cid = id(req.params.id);
+    member(cid, me.id);
+    return convos.wrappedKeys(cid, me.id);
+  });
+
+  /** Adds the next key version: { version, keys: { [userId]: { publicKey, wrapped } } }. */
+  app.post<{ Params: { id: string }; Body: { version?: unknown; keys?: unknown } }>("/api/conversations/:id/keys", async (req) => {
+    const me = requireUser(req);
+    const cid = id(req.params.id);
+    member(cid, me.id);
+    convos.addKey(cid, me.id, req.body?.version, req.body?.keys);
+    pushConversation(cid);
+    return convos.get(cid, me.id);
+  });
+}
+
+function isPublicKey(v: unknown): v is string {
+  if (typeof v !== "string" || !/^[A-Za-z0-9_-]{87}$/.test(v)) return false;
+  try {
+    // Throws unless it's an uncompressed point on the curve.
+    ECDH.convertKey(Buffer.from(v, "base64url"), "prime256v1", undefined, undefined, "uncompressed");
+    return Buffer.from(v, "base64url")[0] === 4;
+  } catch {
+    return false;
+  }
+}
+
+function cleanBackup(v: unknown): KeyBackup {
+  const b = (v ?? {}) as Partial<Record<keyof KeyBackup, unknown>>;
+  const b64 = (s: unknown, max: number): s is string => typeof s === "string" && s.length <= max && /^[A-Za-z0-9_-]+$/.test(s);
+  const iterations = Number(b.iterations);
+  if (!b64(b.salt, 64) || !b64(b.iv, 32) || !b64(b.ciphertext, 1024) || !Number.isInteger(iterations) || iterations < 100_000 || iterations > 10_000_000) {
+    throw new HttpError(400, "That isn't a key backup");
+  }
+  return { salt: b.salt, iterations, iv: b.iv, ciphertext: b.ciphertext };
 }
 
 /** A safe display name for an uploaded file: no paths or control characters. */

@@ -1,4 +1,4 @@
-import { LIMITS, type Attachment, type Conversation, type Message, type ReadState } from "@dendrop/shared";
+import { LIMITS, type Attachment, type Conversation, type ConversationE2ee, type Message, type ReadState, type WrappedKey } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import type { FriendRepo } from "./friends.js";
@@ -21,6 +21,7 @@ interface MessageRow {
   created_at: string;
   edited_at: string | null;
   deleted_at: string | null;
+  key_version: number | null;
 }
 
 interface AttachmentRow {
@@ -46,6 +47,14 @@ const toAttachment = (a: AttachmentRow): Attachment => ({
   contentType: a.content_type,
   url: `/api/attachments/${a.id}/${encodeURIComponent(a.name)}`,
 });
+
+const B64 = /^[A-Za-z0-9_-]+$/;
+/** An encrypted message body: base64url IV and ciphertext. */
+const isCiphertext = (s: unknown): s is string =>
+  typeof s === "string" && s.length <= LIMITS.encryptedBodyLength && /^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{22,}$/.test(s);
+/** A wrapped conversation key: base64url ephemeral public key, IV and ciphertext. */
+export const isWrappedKey = (s: unknown): s is string =>
+  typeof s === "string" && s.length <= 400 && s.split(".").length === 3 && s.split(".").every((p) => B64.test(p));
 
 export function cleanBody(body: unknown, allowEmpty = false): string {
   if (body === undefined && allowEmpty) return "";
@@ -102,7 +111,81 @@ export class ConversationRepo {
       }),
       lastMessageAt: r.last_message_at,
       createdAt: r.created_at,
+      e2ee: this.e2ee(r.id),
     };
+  }
+
+  /** The newest key version (0 for none). */
+  keyVersion(conversationId: number): number {
+    const r = this.db.prepare("SELECT MAX(version) AS v FROM conversation_keys WHERE conversation_id = ?").get(conversationId) as { v: number | null };
+    return Number(r.v ?? 0);
+  }
+
+  e2ee(conversationId: number): ConversationE2ee | null {
+    const version = this.keyVersion(conversationId);
+    if (!version) return null;
+    const have = new Set(
+      (
+        this.db
+          .prepare(
+            `SELECT k.user_id FROM conversation_keys k JOIN users u ON u.id = k.user_id
+             WHERE k.conversation_id = ? AND k.version = ? AND k.recipient_key = u.public_key`,
+          )
+          .all(conversationId, version) as { user_id: number }[]
+      ).map((r) => r.user_id),
+    );
+    return { version, missing: this.memberIds(conversationId).filter((id) => !have.has(id)) };
+  }
+
+  /** The copies of this conversation's keys that `userId` can open with their current key. */
+  wrappedKeys(conversationId: number, userId: number): WrappedKey[] {
+    return this.db
+      .prepare(
+        `SELECT k.version, k.wrapped FROM conversation_keys k JOIN users u ON u.id = k.user_id
+         WHERE k.conversation_id = ? AND k.user_id = ? AND k.recipient_key = u.public_key ORDER BY k.version`,
+      )
+      .all(conversationId, userId) as unknown as WrappedKey[];
+  }
+
+  /**
+   * Adds the next key version, encrypted to every member's current public key. The client
+   * makes and wraps the key; the server only checks it covers everyone, with up-to-date keys.
+   */
+  addKey(conversationId: number, by: number, version: unknown, keys: unknown): void {
+    if (!keys || typeof keys !== "object") throw new HttpError(400, "keys is { userId: { publicKey, wrapped } }");
+    const given = keys as Record<string, { publicKey?: unknown; wrapped?: unknown } | undefined>;
+    const members = this.memberIds(conversationId).map((id) => this.users.byId(id)!);
+    const waiting = members.filter((u) => !u.publicKey);
+    if (waiting.length) throw new HttpError(409, `${waiting.map((u) => u.displayName).join(", ")} hasn't set up encryption yet`);
+    if (Object.keys(given).length !== members.length) throw new HttpError(400, "The key has to be wrapped for every member");
+    for (const u of members) {
+      const k = given[String(u.id)];
+      if (!k || !isWrappedKey(k.wrapped)) throw new HttpError(400, "The key has to be wrapped for every member");
+      if (k.publicKey !== u.publicKey) throw new HttpError(409, "Someone's encryption key changed; reload and try again");
+    }
+    tx(this.db, () => {
+      if (version !== this.keyVersion(conversationId) + 1) throw new HttpError(409, "Someone just made a new key; reload and try again");
+      const add = this.db.prepare(
+        "INSERT INTO conversation_keys (conversation_id, version, user_id, recipient_key, wrapped, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      );
+      const t = now();
+      for (const u of members) add.run(conversationId, version, u.id, u.publicKey, given[String(u.id)]!.wrapped as string, by, t);
+    });
+  }
+
+  /**
+   * Checks a message's encryption against the conversation: once it has a key, messages must be
+   * encrypted with the newest version, so an old or tampered client can't send in the clear.
+   */
+  private checkCrypto(conversationId: number, keyVersion: number | null | undefined, body: unknown): number | null {
+    const latest = this.keyVersion(conversationId);
+    if (keyVersion === null || keyVersion === undefined) {
+      if (latest) throw new HttpError(409, "This conversation is end-to-end encrypted; update the app to send here");
+      return null;
+    }
+    if (!latest || keyVersion !== latest) throw new HttpError(409, "The conversation key changed; reload and try again");
+    if (!isCiphertext(body)) throw new HttpError(400, "That isn't an encrypted message");
+    return keyVersion;
   }
 
   /** Conversations `userId` is in, most recently active first. */
@@ -178,6 +261,7 @@ export class ConversationRepo {
       createdAt: r.created_at,
       editedAt: r.edited_at,
       deleted: !!r.deleted_at,
+      keyVersion: r.deleted_at ? null : r.key_version,
       attachments: r.deleted_at ? [] : files.filter((f) => f.message_id === r.id).map(toAttachment),
     }));
   }
@@ -194,14 +278,15 @@ export class ConversationRepo {
     return { ...toAttachment(a), messageId: a.message_id };
   }
 
-  send(conversationId: number, authorId: number, body: unknown, files: NewAttachment[] = []): Message {
+  send(conversationId: number, authorId: number, body: unknown, files: NewAttachment[] = [], keyVersion: number | null = null): Message {
     if (files.length > LIMITS.attachmentsPerMessage) throw new HttpError(400, `Up to ${LIMITS.attachmentsPerMessage} files per message`);
-    const text = cleanBody(body, files.length > 0);
+    const version = this.checkCrypto(conversationId, keyVersion, body);
+    const text = version ? (body as string) : cleanBody(body, files.length > 0);
     const id = tx(this.db, () => {
       const t = now();
       const res = this.db
-        .prepare("INSERT INTO messages (conversation_id, author_id, body, created_at) VALUES (?, ?, ?, ?)")
-        .run(conversationId, authorId, text, t);
+        .prepare("INSERT INTO messages (conversation_id, author_id, body, created_at, key_version) VALUES (?, ?, ?, ?, ?)")
+        .run(conversationId, authorId, text, t, version);
       const mid = Number(res.lastInsertRowid);
       const add = this.db.prepare(
         "INSERT INTO attachments (id, message_id, conversation_id, name, size, content_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -236,10 +321,15 @@ export class ConversationRepo {
     return r;
   }
 
-  edit(messageId: number, userId: number, body: unknown): Message {
-    this.own(messageId, userId);
+  edit(messageId: number, userId: number, body: unknown, keyVersion: number | null = null): Message {
+    const r = this.own(messageId, userId);
+    const version = this.checkCrypto(r.conversation_id, keyVersion, body);
     const hasFiles = !!this.db.prepare("SELECT 1 FROM attachments WHERE message_id = ?").get(messageId);
-    this.db.prepare("UPDATE messages SET body = ?, edited_at = ? WHERE id = ?").run(cleanBody(body, hasFiles), now(), messageId);
+    // An encrypted message's files are described inside its ciphertext, so a plain edit would lose them.
+    if (!version && r.key_version) throw new HttpError(400, "Edits of an encrypted message must be encrypted");
+    this.db
+      .prepare("UPDATE messages SET body = ?, edited_at = ?, key_version = ? WHERE id = ?")
+      .run(version ? (body as string) : cleanBody(body, hasFiles), now(), version, messageId);
     return this.message(messageId)!;
   }
 
@@ -252,7 +342,7 @@ export class ConversationRepo {
     const removedFiles = tx(this.db, () => {
       const ids = (this.db.prepare("SELECT id FROM attachments WHERE message_id = ?").all(messageId) as { id: string }[]).map((r) => r.id);
       this.db.prepare("DELETE FROM attachments WHERE message_id = ?").run(messageId);
-      this.db.prepare("UPDATE messages SET body = '', deleted_at = ? WHERE id = ?").run(now(), messageId);
+      this.db.prepare("UPDATE messages SET body = '', key_version = NULL, deleted_at = ? WHERE id = ?").run(now(), messageId);
       return ids;
     });
     return { message: this.message(messageId)!, removedFiles };

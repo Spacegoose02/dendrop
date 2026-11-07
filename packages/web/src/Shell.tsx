@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import type { Call, CallJoin, Conversation, Friend, Me, Message, PublicUser, ServerEvent, ServerInfo } from "@dendrop/shared";
+import type { Call, CallJoin, Conversation, Friend, Me, PublicUser, ServerEvent, ServerInfo } from "@dendrop/shared";
 import { api, connectGateway, logout } from "./api.ts";
 import { Chat } from "./Chat.tsx";
 import { Friends } from "./Friends.tsx";
@@ -7,7 +7,9 @@ import { Avatar } from "./Avatar.tsx";
 import { IncomingCall } from "./IncomingCall.tsx";
 import { NewGroup } from "./NewGroup.tsx";
 import { SettingsButton } from "./Settings.tsx";
-import { conversationTitle, type History } from "./util.ts";
+import { EncryptionDialog, type EncryptionMode } from "./EncryptionDialog.tsx";
+import { keyring, loadIdentity, reveal, type Identity } from "./e2ee.ts";
+import { conversationTitle, upsert, type History } from "./util.ts";
 
 // The call code (LiveKit) is big, so it only loads when a call starts.
 const CallPanel = lazy(() => import("./CallPanel.tsx").then((m) => ({ default: m.CallPanel })));
@@ -38,6 +40,34 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const [unread, setUnread] = useState<Set<number>>(new Set());
   const viewRef = useRef(view);
   viewRef.current = view;
+  /** Encryption on this device: still checking, not set up for the account, set up but not unlocked here, or ready. */
+  const [keyState, setKeyState] = useState<"loading" | "off" | "locked" | "on">("loading");
+  const [encryptionDialog, setEncryptionDialog] = useState<EncryptionMode | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadIdentity(initialMe.id, initialMe.publicKey).then((identity) => {
+      if (cancelled) return;
+      keyring.identity = identity;
+      const state = identity ? "on" : initialMe.publicKey ? "locked" : "off";
+      setKeyState(state);
+      // Ask once per visit; "Not now" closes it until next time.
+      if (state === "off") setEncryptionDialog("setup");
+      if (state === "locked") setEncryptionDialog("unlock");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialMe.id, initialMe.publicKey]);
+
+  const onUnlocked = (identity: Identity) => {
+    keyring.identity = identity;
+    setKeyState("on");
+    setEncryptionDialog(null);
+    setMe((m) => ({ ...m, publicKey: identity.publicKey }));
+    // Load everything again, now that it can be read.
+    void refresh();
+  };
 
   const refresh = useCallback(async () => {
     const [f, c, info, live] = await Promise.all([
@@ -88,13 +118,18 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         case "conversation.created":
           setConversations((cs) => [e.conversation, ...cs.filter((c) => c.id !== e.conversation.id)]);
           break;
+        case "conversation.updated":
+          setConversations((cs) => cs.map((c) => (c.id === e.conversation.id ? e.conversation : c)));
+          break;
         case "message.created": {
           const m = e.message;
-          setHistories((h) => {
-            const cur = h[m.conversationId];
-            if (!cur || cur.messages.some((x) => x.id === m.id)) return h;
-            return { ...h, [m.conversationId]: { ...cur, messages: [...cur.messages, m] } };
-          });
+          void reveal(m).then((shown) =>
+            setHistories((h) => {
+              const cur = h[m.conversationId];
+              if (!cur || cur.messages.some((x) => x.id === m.id)) return h;
+              return { ...h, [m.conversationId]: { ...cur, messages: upsert(cur.messages, shown) } };
+            }),
+          );
           setConversations((cs) => {
             const c = cs.find((x) => x.id === m.conversationId);
             if (!c) {
@@ -116,11 +151,13 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         }
         case "message.updated": {
           const m = e.message;
-          setHistories((h) => {
-            const cur = h[m.conversationId];
-            if (!cur) return h;
-            return { ...h, [m.conversationId]: { ...cur, messages: cur.messages.map((x) => (x.id === m.id ? m : x)) } };
-          });
+          void reveal(m).then((shown) =>
+            setHistories((h) => {
+              const cur = h[m.conversationId];
+              if (!cur) return h;
+              return { ...h, [m.conversationId]: { ...cur, messages: cur.messages.map((x) => (x.id === m.id ? shown : x)) } };
+            }),
+          );
           break;
         }
         case "read":
@@ -270,6 +307,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           </div>
           <SettingsButton
             me={me}
+            keyState={keyState}
+            onEncryption={(mode) => setEncryptionDialog(mode)}
             onSaved={(m) => {
               setMe(m);
               // Turning receipts on or off changes whose reads this person can see.
@@ -320,9 +359,14 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             inThisCall={inCall?.call.conversationId === current.id}
             onCall={(video) => void startCall(current.id, video)}
             onBack={() => setShowMain(false)}
+            keyState={keyState}
+            onEncryption={() => setEncryptionDialog(keyState === "off" ? "setup" : "unlock")}
           />
         )}
       </main>
+      {encryptionDialog && (
+        <EncryptionDialog me={me} mode={encryptionDialog} setMode={setEncryptionDialog} onDone={onUnlocked} onClose={() => setEncryptionDialog(null)} />
+      )}
       {ringing && !dialog && (
         <IncomingCall
           me={me}
