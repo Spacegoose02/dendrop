@@ -298,6 +298,9 @@ export function guardKids(app: FastifyInstance, ctx: Context): void {
     ["PUT", /^\/api\/messages\/\d+\/reactions\/[^/]+$/],
     ["POST", /^\/api\/servers\/\d+\/events$/],
     ["PATCH", /^\/api\/events\/\d+$/],
+    // Polls, quick games and nudges.
+    ["POST", /^\/api\/conversations\/\d+\/(polls|games|nudges)$/],
+    ["POST", /^\/api\/messages\/\d+\/(votes|close-poll|game)$/],
   ];
   const servers: [string, RegExp][] = [
     ["POST", /^\/api\/servers$/],

@@ -16,6 +16,7 @@ import type {
   PlayTogether,
   PublicUser,
   ScheduledEvent,
+  Reminder,
   ServerEvent,
   ServerInfo,
   VoiceChannelState,
@@ -27,6 +28,7 @@ import { channelTitle } from "./channels.ts";
 import { EventReminderCard, EventsDialog } from "./Events.tsx";
 import { BOT_REPLY_EVENT, type BotReplyDetail } from "./Bots.tsx";
 import { Chat } from "./Chat.tsx";
+import { excerptOf, ReminderTray, type FiredReminder } from "./Fun.tsx";
 import { Friends } from "./Friends.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { IncomingCall } from "./IncomingCall.tsx";
@@ -88,6 +90,13 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   /** The call this device is in. */
   const [inCall, setInCall] = useState<CallJoin | null>(null);
   const [callError, setCallError] = useState<string | null>(null);
+  /** Reminders that went off and haven't been dismissed. */
+  const [fired, setFired] = useState<FiredReminder[]>([]);
+  useEffect(() => {
+    api<Reminder[]>("/api/reminders")
+      .then((list) => setFired((cur) => [...cur, ...list.filter((r) => r.firedAt && !cur.some((x) => x.reminder.id === r.id)).map((reminder) => ({ reminder, excerpt: null }))]))
+      .catch(() => {});
+  }, []);
   /** Back from linking Google or TinyAuth in Settings: say how it went, then tidy the address. */
   const [signInNotice, setSignInNotice] = useState<{ ok: boolean; text: string } | null>(() => {
     const q = new URLSearchParams(location.search);
@@ -399,6 +408,17 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         case "interaction.reply":
           window.dispatchEvent(new CustomEvent<BotReplyDetail>(BOT_REPLY_EVENT, { detail: { messageId: e.messageId, content: e.content } }));
           break;
+        case "reminder": {
+          const { reminder, message } = e;
+          void (message ? reveal(message) : Promise.resolve(null)).then((shown) => {
+            const excerpt = shown ? excerptOf(shown) : null;
+            setFired((f) => [...f.filter((x) => x.reminder.id !== reminder.id), { reminder, excerpt }]);
+            if (document.visibilityState !== "visible" && typeof Notification !== "undefined" && Notification.permission === "granted") {
+              new Notification("Dendrop reminder", { body: excerpt ?? "A message you wanted to come back to" });
+            }
+          });
+          break;
+        }
         case "couples.updated":
           window.dispatchEvent(new CustomEvent<CouplesEventDetail>(COUPLES_EVENT, { detail: { conversationId: e.conversationId, noteFrom: e.noteFrom } }));
           break;
@@ -434,6 +454,11 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     }, 2000);
     return () => clearInterval(t);
   }, []);
+
+  const dismissReminder = (r: Reminder) => {
+    setFired((f) => f.filter((x) => x.reminder.id !== r.id));
+    void api(`/api/reminders/${r.id}`, { method: "DELETE" }).catch(() => {});
+  };
 
   const open = (v: View) => {
     setView(v);
@@ -716,6 +741,21 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             </button>
           </p>
         )}
+        <ReminderTray
+          items={fired}
+          titleOf={(cid) => {
+            const c = conversations.find((x) => x.id === cid);
+            if (c) return conversationTitle(c, me.id);
+            const ch = servers.flatMap((sv) => sv.channels).find((x) => x.conversationId === cid);
+            return ch ? `#${ch.name}` : "a chat";
+          }}
+          onOpen={(r) => {
+            const ch = servers.flatMap((sv) => sv.channels).find((x) => x.conversationId === r.conversationId);
+            open(ch ? { kind: "channel", serverId: ch.serverId, channelId: ch.id } : { kind: "conversation", id: r.conversationId });
+            dismissReminder(r);
+          }}
+          onDismiss={dismissReminder}
+        />
         {callError && (
           <p className="error call-error" role="alert">
             {callError}{" "}
