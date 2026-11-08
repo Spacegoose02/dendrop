@@ -1,4 +1,4 @@
-import type { Me, PublicUser } from "@dendrop/shared";
+import { liveStatus, type CustomStatus, type Me, type PublicUser } from "@dendrop/shared";
 import { now, type Db } from "./db.js";
 
 export interface UserRecord {
@@ -20,6 +20,15 @@ export interface UserRecord {
   canCreateServers: boolean;
   nameColor: string | null;
   textColor: string | null;
+  avatarFile: string | null;
+  avatarType: string | null;
+  bannerFile: string | null;
+  bannerType: string | null;
+  bannerColor: string | null;
+  bio: string;
+  pronouns: string;
+  /** Their custom status, even if it has expired (toPublic drops expired ones). */
+  status: CustomStatus | null;
   /** Linked to at least one parent. */
   isKid: boolean;
   /** A bot account (see bots.ts): no password, never in DMs. */
@@ -45,6 +54,16 @@ interface Row {
   can_create_servers: number;
   name_color: string | null;
   text_color: string | null;
+  avatar_file: string | null;
+  avatar_type: string | null;
+  banner_file: string | null;
+  banner_type: string | null;
+  banner_color: string | null;
+  bio: string;
+  pronouns: string;
+  status_emoji: string | null;
+  status_text: string | null;
+  status_expires_at: string | null;
   is_kid: number;
   is_bot: number;
   created_at: string;
@@ -68,10 +87,21 @@ const fromRow = (r: Row): UserRecord => ({
   canCreateServers: !!r.can_create_servers,
   nameColor: r.name_color,
   textColor: r.text_color,
+  avatarFile: r.avatar_file,
+  avatarType: r.avatar_type,
+  bannerFile: r.banner_file,
+  bannerType: r.banner_type,
+  bannerColor: r.banner_color,
+  bio: r.bio,
+  pronouns: r.pronouns,
+  status: r.status_text !== null ? { emoji: r.status_emoji, text: r.status_text, expiresAt: r.status_expires_at } : null,
   isKid: !!r.is_kid,
   isBot: !!r.is_bot,
   createdAt: r.created_at,
 });
+
+/** Where a profile picture or banner is served. The file name changes with the picture, so it caches forever. */
+export const pictureUrl = (userId: number, file: string | null): string | null => (file ? `/api/users/${userId}/pictures/${file}` : null);
 
 export const toPublic = (u: UserRecord): PublicUser => ({
   id: u.id,
@@ -80,6 +110,8 @@ export const toPublic = (u: UserRecord): PublicUser => ({
   publicKey: u.publicKey,
   nameColor: u.nameColor,
   textColor: u.textColor,
+  avatar: pictureUrl(u.id, u.avatarFile),
+  status: liveStatus(u.status),
   ...(u.isBot ? { isBot: true } : {}),
 });
 export const toMe = (u: UserRecord): Me => ({
@@ -172,6 +204,25 @@ export class UserRepo {
 
   setKeys(id: number, publicKey: string, keyBackup: string): UserRecord {
     this.db.prepare("UPDATE users SET public_key = ?, key_backup = ? WHERE id = ?").run(publicKey, keyBackup, id);
+    return this.byId(id)!;
+  }
+
+  /** Sets (or clears, with null) the profile picture or banner. Returns the old file to delete. */
+  setPicture(id: number, kind: "avatar" | "banner", file: string | null, type: string | null): string | null {
+    const old = this.byId(id);
+    if (kind === "avatar") this.db.prepare("UPDATE users SET avatar_file = ?, avatar_type = ? WHERE id = ?").run(file, type, id);
+    else this.db.prepare("UPDATE users SET banner_file = ?, banner_type = ? WHERE id = ?").run(file, type, id);
+    return (kind === "avatar" ? old?.avatarFile : old?.bannerFile) ?? null;
+  }
+
+  setProfile(id: number, patch: { bio?: string; pronouns?: string; bannerColor?: string | null; status?: CustomStatus | null }): UserRecord {
+    if (patch.bio !== undefined) this.db.prepare("UPDATE users SET bio = ? WHERE id = ?").run(patch.bio, id);
+    if (patch.pronouns !== undefined) this.db.prepare("UPDATE users SET pronouns = ? WHERE id = ?").run(patch.pronouns, id);
+    if (patch.bannerColor !== undefined) this.db.prepare("UPDATE users SET banner_color = ? WHERE id = ?").run(patch.bannerColor && patch.bannerColor.toLowerCase(), id);
+    if (patch.status !== undefined) {
+      const st = patch.status;
+      this.db.prepare("UPDATE users SET status_emoji = ?, status_text = ?, status_expires_at = ? WHERE id = ?").run(st?.emoji ?? null, st ? st.text : null, st?.expiresAt ?? null, id);
+    }
     return this.byId(id)!;
   }
 

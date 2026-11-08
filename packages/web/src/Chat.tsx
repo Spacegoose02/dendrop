@@ -35,6 +35,7 @@ import { GameLinks } from "./GameLink.tsx";
 import { MessageButtons } from "./Bots.tsx";
 import { AudioPlayer, FunMenu, GameCard, NudgeCard, PollCard, PollDialog, RemindMenu, slashCommand, VoiceRecorder, type NewPoll } from "./Fun.tsx";
 import { Avatar } from "./Avatar.tsx";
+import { ProfileLink, StatusLine } from "./Profile.tsx";
 import { decryptFile, encryptFile, encryptMessage, keyring, reveal, type ChatMessage, type FileMeta } from "./e2ee.ts";
 import { EncryptionInfo } from "./EncryptionInfo.tsx";
 import { CouplesKitDialog, useCouplesKit } from "./Couples.tsx";
@@ -552,7 +553,9 @@ export function Chat({
             {channel.icon ?? (channel.voice ? (channel.voice.stage ? "🎙️" : "🔊") : "#")}
           </span>
         ) : !conversation.isGroup && others[0] ? (
-          <Avatar name={others[0].displayName} online={online.has(others[0].id)} size={28} />
+          <ProfileLink userId={others[0].id}>
+            <Avatar name={others[0].displayName} src={others[0].avatar} online={online.has(others[0].id)} size={28} />
+          </ProfileLink>
         ) : (
           <Avatar name={title} size={28} />
         )}
@@ -567,7 +570,12 @@ export function Chat({
         ) : conversation.isGroup ? (
           <span className="muted small">{conversation.members.length} members</span>
         ) : (
-          others[0] && <ActivityLine userId={others[0].id} />
+          others[0] && (
+            <>
+              <StatusLine user={others[0]} filter={filter} />
+              <ActivityLine userId={others[0].id} />
+            </>
+          )
         )}
         {(channel?.onPins || channel?.actions) && (
           <span className="header-actions">
@@ -677,12 +685,16 @@ export function Chat({
                 {grouped ? (
                   <span className="msg-time-gutter">{time(m.createdAt)}</span>
                 ) : (
-                  <Avatar name={m.webhook ? m.webhook.name : (author?.displayName ?? "?")} size={36} />
+                  <ProfileLink userId={m.webhook ? undefined : author?.id} serverId={channel?.serverId} className="msg-avatar">
+                    <Avatar name={m.webhook ? m.webhook.name : (author?.displayName ?? "?")} src={m.webhook ? null : author?.avatar} size={36} />
+                  </ProfileLink>
                 )}
                 <div className="msg-content">
                   {!grouped && (
                     <div className="msg-head">
-                      <strong style={colors.name}>{authorName}</strong>
+                      <ProfileLink userId={m.webhook ? undefined : author?.id} serverId={channel?.serverId}>
+                        <strong style={colors.name}>{authorName}</strong>
+                      </ProfileLink>
                       {m.webhook && (
                         <span className="bot-tag" title="Posted by a webhook">
                           app

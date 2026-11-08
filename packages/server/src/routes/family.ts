@@ -160,7 +160,9 @@ export function familyRoutes(app: FastifyInstance, ctx: Context): void {
     const me = requireUser(req);
     const kidId = id(req.params.kidId);
     family.requireParent(me.id, kidId);
-    family.setRules(kidId, req.body ?? {});
+    const rules = family.setRules(kidId, req.body ?? {});
+    // Turning profile pictures off takes the kid's picture and banner down.
+    if (!rules.profilePictures) ctx.profiles.takeDownPictures(kidId);
     family.pushFamily([kidId]);
     return family.kidView(kidId);
   });

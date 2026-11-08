@@ -1,0 +1,278 @@
+/* Profiles: pictures in avatars, the profile card, and the profile editor. Theme tokens only. */
+
+.avatar.has-picture {
+  background: var(--dd-bg-raised);
+}
+.avatar > img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Names and avatars that open a profile card look like what's inside them. */
+.profile-link {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: var(--dd-radius-sm);
+}
+.profile-link:hover strong,
+.profile-link:hover .profile-link-name {
+  text-decoration: underline;
+}
+.profile-link:focus-visible {
+  outline: 2px solid var(--dd-accent);
+  outline-offset: 1px;
+}
+
+.custom-status {
+  display: block;
+}
+
+/* ---- The card ---- */
+
+.profile-card {
+  margin: 0 -20px -20px;
+  border-radius: 0 0 var(--dd-radius-lg) var(--dd-radius-lg);
+  overflow: hidden;
+}
+.profile-banner {
+  position: relative;
+  height: 110px;
+  background: linear-gradient(135deg, var(--dd-accent), var(--dd-accent-2));
+  background-size: cover;
+  background-position: center;
+}
+.profile-avatar {
+  position: absolute;
+  left: 18px;
+  bottom: -42px;
+  border-radius: 50%;
+  border: 5px solid var(--dd-bg-sidebar);
+  background: var(--dd-bg-sidebar);
+  display: inline-flex;
+}
+.profile-avatar .status {
+  width: 18px;
+  height: 18px;
+  right: 2px;
+  bottom: 2px;
+  border-width: 3px;
+}
+.profile-body {
+  padding: 50px 20px 20px;
+  display: grid;
+  gap: 6px;
+}
+.profile-name {
+  margin: 0;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.profile-handle {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.profile-status {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--dd-radius);
+  background: var(--dd-bg-raised);
+  overflow-wrap: anywhere;
+}
+.profile-activity {
+  display: block;
+}
+.profile-section {
+  border-top: 1px solid var(--dd-border);
+  padding-top: 10px;
+  margin-top: 6px;
+  display: grid;
+  gap: 6px;
+}
+.profile-section h4 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--dd-text-muted);
+}
+.profile-section p {
+  margin: 0;
+}
+.profile-bio {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+.profile-rank {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+.profile-roles,
+.profile-mutual {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.profile-mutual .chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+}
+.profile-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.profile-actions:empty {
+  display: none;
+}
+.profile-actions button {
+  flex: 1;
+}
+
+/* ---- The editor ---- */
+
+.profile-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 260px);
+  gap: 20px;
+  align-items: start;
+}
+.profile-editor .profile-card.preview {
+  order: 2;
+  margin: 0;
+  border-radius: var(--dd-radius-lg);
+  border: 1px solid var(--dd-border);
+  background: var(--dd-bg-sidebar);
+  position: sticky;
+  top: 0;
+}
+.profile-editor .preview .profile-banner {
+  height: 90px;
+}
+.profile-editor .preview .profile-avatar {
+  bottom: -36px;
+}
+.profile-editor .preview .profile-body {
+  padding-top: 44px;
+}
+.profile-fields {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+.profile-fields label {
+  margin: 0;
+}
+.profile-fields .field-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--dd-text-muted);
+  margin-bottom: 4px;
+}
+.profile-pictures {
+  display: grid;
+  gap: 6px;
+}
+.row-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.row-wrap > input {
+  margin-top: 0;
+}
+.row-wrap > .grow {
+  flex: 1;
+  min-width: 140px;
+}
+.status-emoji-input {
+  width: 56px;
+  text-align: center;
+  font-size: 18px;
+  padding: 6px;
+}
+.status-emoji-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-top: 6px;
+}
+.status-emoji-picks button {
+  padding: 4px 6px;
+  font-size: 18px;
+  line-height: 1;
+}
+.status-emoji-picks button.active {
+  background: var(--dd-bg-hover);
+  outline: 2px solid var(--dd-accent);
+}
+.profile-status-edit select {
+  font: inherit;
+  padding: 6px 8px;
+  border-radius: var(--dd-radius-sm);
+  border: 1px solid var(--dd-border);
+  background: var(--dd-bg-input);
+  color: var(--dd-text);
+}
+.profile-color input[type="color"] {
+  width: 48px;
+  height: 34px;
+  padding: 2px;
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .profile-editor {
+    grid-template-columns: 1fr;
+  }
+  .profile-editor .profile-card.preview {
+    order: 0;
+    position: static;
+  }
+}
+
+/* Your name in the corner opens your own card (and your status). */
+.me .me-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  margin: -4px 0 -4px -6px;
+  text-align: left;
+  color: inherit;
+}
+
+.server-member .server-member-link {
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 104px;
+}
+.server-member .server-member-name {
+  flex: 1;
+}
+.server-member .role-chip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+}
+.msg .profile-link.msg-avatar {
+  align-self: flex-start;
+  border-radius: 50%;
+}

@@ -51,6 +51,7 @@ import { FamilyDialog } from "./Family.tsx";
 import { ChannelDialog, CreateServer, Directory, InviteDialog, InviteLinkDialog, ServerIcon, ServerSettings, ServerSidebar, type SettingsTab } from "./Servers.tsx";
 import { can } from "./roles.ts";
 import { ExpressionsContext } from "./expressions.tsx";
+import { patchUser, ProfileCard, ProfileContext, ProfileEditorDialog, StatusLine, type ProfileTarget } from "./Profile.tsx";
 
 // The call code (LiveKit) is big, so it only loads when a call starts.
 const CallPanel = lazy(() => import("./CallPanel.tsx").then((m) => ({ default: m.CallPanel })));
@@ -173,6 +174,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const [family, setFamily] = useState<FamilyInfo | null>(null);
   const [familyAlerts, setFamilyAlerts] = useState<FamilyAlert[]>([]);
   const [showFamily, setShowFamily] = useState(false);
+  /** The profile card that's open, and whether your profile editor is. */
+  const [profileTarget, setProfileTarget] = useState<ProfileTarget | null>(null);
+  const [editingProfile, setEditingProfile] = useState(false);
   const loadFamily = useCallback(async () => {
     const f = await api<FamilyInfo>("/api/family");
     setFamily(f);
@@ -284,6 +288,15 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             return n;
           });
           break;
+        case "user.updated": {
+          // Someone's name, colors, picture or status changed: update every copy of them.
+          const u = e.user;
+          if (u.id === me.id) setMe((m) => ({ ...m, ...u, publicKey: m.publicKey }));
+          setFriends((fs) => (fs.some((f) => f.user.id === u.id) ? fs.map((f) => (f.user.id === u.id ? { ...f, user: { ...f.user, ...u } } : f)) : fs));
+          setConversations((cs) => patchUser.conversations(cs, u));
+          setServers((list) => patchUser.servers(list, u));
+          break;
+        }
         case "play.together":
           setPlayInvite(e.invite);
           break;
@@ -562,6 +575,13 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const ringing = Object.values(calls).find((c) => c.ringing.includes(me.id) && c.conversationId !== inCall?.call.conversationId);
 
   const kidRules = me.isKid && family?.rules && family.status ? { rules: family.rules, status: family.status } : null;
+  /** A kid's word filter, for other people's statuses and profiles. */
+  const profileFilter = kidRules?.rules.profanityFilter ? kidRules.rules.blockedWords : null;
+  /** The freshest copy of someone the app already knows. */
+  const knownUser = (id: number): PublicUser | undefined =>
+    friends.find((f) => f.user.id === id)?.user ??
+    conversations.flatMap((c) => [...c.members, ...c.guardians]).find((u) => u.id === id) ??
+    servers.flatMap((sv) => sv.members.map((m) => m.user)).find((u) => u.id === id);
   const expressions = useMemo(() => ({ servers, gifs: !!server?.gifs && (!me.isKid || !!family?.rules?.gifs) }), [servers, server?.gifs, me.isKid, family?.rules?.gifs]);
   const openAlerts = familyAlerts.filter((a) => !a.resolvedAt).length;
   const current = view.kind === "conversation" ? conversations.find((c) => c.id === view.id) : undefined;
@@ -762,10 +782,11 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
                 className={`nav-item ${view.kind === "conversation" && view.id === c.id ? "active" : ""} ${unread.has(c.id) ? "unread" : ""}`}
                 onClick={() => open({ kind: "conversation", id: c.id })}
               >
-                <Avatar name={solo ? solo.displayName : (c.name ?? "#")} online={solo ? online.has(solo.id) : undefined} size={32} />
+                <Avatar name={solo ? solo.displayName : (c.name ?? "#")} src={solo ? solo.avatar : null} online={solo ? online.has(solo.id) : undefined} size={32} />
                 <span className="nav-text">
                   <span className="ellipsis">{conversationTitle(c, me.id)}</span>
                   {c.isGroup && <span className="muted small">{c.members.length} members</span>}
+                  {solo && <StatusLine user={solo} filter={profileFilter} />}
                   {solo && <ActivityLine userId={solo.id} />}
                 </span>
                 {unread.has(c.id) && <span className="dot" aria-label="Unread" />}
@@ -776,11 +797,14 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         </>
         )}
         <footer className="me">
-          <Avatar name={me.displayName} online={connected} size={36} title={connected ? "Connected" : "Reconnecting…"} />
-          <div className="me-names">
-            <strong>{me.displayName}</strong>
-            <span className="muted">@{me.username}</span>
-          </div>
+          <button className="ghost me-profile" onClick={() => setProfileTarget({ userId: me.id })} title="Your profile and status" aria-label="Your profile and status">
+            <Avatar name={me.displayName} src={me.avatar} online={connected} size={36} title={connected ? "Connected" : "Reconnecting…"} />
+            <span className="me-names">
+              <strong className="ellipsis">{me.displayName}</strong>
+              <StatusLine user={me} className="muted small ellipsis" />
+              {!me.status && <span className="muted">@{me.username}</span>}
+            </span>
+          </button>
           {(me.isKid || !!family?.kids.length) && (
           <button
             className="ghost family-button"
@@ -793,6 +817,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           )}
           <SettingsButton
             me={me}
+            picturesAllowed={!me.isKid || !!family?.rules?.profilePictures}
             keyState={keyState}
             onEncryption={(mode) => setEncryptionDialog(mode)}
             onFamily={() => setShowFamily(true)}
@@ -1115,6 +1140,39 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           }}
         />
       )}
+      {profileTarget && (
+        <ProfileCard
+          key={`${profileTarget.userId}:${profileTarget.serverId ?? ""}`}
+          target={profileTarget}
+          me={me}
+          known={knownUser(profileTarget.userId)}
+          servers={servers}
+          online={online}
+          filter={profileFilter}
+          onClose={() => setProfileTarget(null)}
+          onMessage={(u) => {
+            setProfileTarget(null);
+            void messageFriend(u);
+          }}
+          onEdit={() => {
+            setProfileTarget(null);
+            setEditingProfile(true);
+          }}
+          onOpenServer={(id) => {
+            setProfileTarget(null);
+            const sv = servers.find((x) => x.id === id);
+            if (sv) openServer(sv);
+          }}
+        />
+      )}
+      {editingProfile && (
+        <ProfileEditorDialog
+          me={me}
+          picturesAllowed={!me.isKid || !!family?.rules?.profilePictures}
+          onSaved={(m) => setMe(m)}
+          onClose={() => setEditingProfile(false)}
+        />
+      )}
       {dialog === "group" && (
         <NewGroup
           friends={friends}
@@ -1132,7 +1190,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     <LootdenUrlContext.Provider value={server?.lootdenUrl ?? null}>
       <ActivityContext.Provider value={activities}>
         <ChoresContext.Provider value={chores}>
-          <ExpressionsContext.Provider value={expressions}>{shell}</ExpressionsContext.Provider>
+          <ExpressionsContext.Provider value={expressions}>
+            <ProfileContext.Provider value={setProfileTarget}>{shell}</ProfileContext.Provider>
+          </ExpressionsContext.Provider>
         </ChoresContext.Provider>
       </ActivityContext.Provider>
     </LootdenUrlContext.Provider>

@@ -15,7 +15,67 @@ export interface PublicUser {
   textColor: string | null;
   /** Set (true) for bot accounts, which post through the bot API and show a BOT tag. */
   isBot?: boolean;
+  /** Their profile picture's address, or null for the round initial. */
+  avatar: string | null;
+  /** What they've set as their custom status, or null. Clients hide it once expiresAt passes. */
+  status: CustomStatus | null;
 }
+
+/** A short line under someone's name, like "🎂 Birthday weekend!", that can clear itself. */
+export interface CustomStatus {
+  /** One emoji shown before the text, or null. */
+  emoji: string | null;
+  text: string;
+  /** When it clears by itself, or null to keep it until it's changed. */
+  expiresAt: string | null;
+}
+
+/**
+ * Someone's profile: what the profile card shows on top of their PublicUser. Only the person,
+ * their friends, family and the people who share a chat or a server with them can see it.
+ */
+export interface UserProfile {
+  user: PublicUser;
+  /** "About me", up to PROFILE_LIMITS.bio characters. */
+  bio: string;
+  /** Free text, like "she/her". */
+  pronouns: string;
+  /** The banner picture's address, or null for a color. */
+  banner: string | null;
+  /** The banner color (#rrggbb) when there's no picture, or null for the theme's accent. */
+  bannerColor: string | null;
+  /** When the account was made. */
+  createdAt: string;
+  /** When you became friends, or null. */
+  friendsSince: string | null;
+  /** Servers you're both in. */
+  mutualServers: { id: number; name: string }[];
+  /** Set for kid accounts, so their card can say their parents look after their profile. */
+  isKid: boolean;
+}
+
+/** What PATCH /api/me/profile takes. Leave a field out to keep it. */
+export interface ProfilePatch {
+  bio?: string;
+  pronouns?: string;
+  bannerColor?: string | null;
+  /** null clears it. */
+  status?: { emoji: string | null; text: string; expiresAt: string | null } | null;
+}
+
+export const PROFILE_LIMITS = {
+  bio: 190,
+  pronouns: 40,
+  statusText: 128,
+  /** Profile pictures and banners. */
+  imageBytes: 5 * 1024 * 1024,
+  /** The furthest ahead a custom status can be set to clear. */
+  statusDays: 30,
+} as const;
+
+/** The custom status to show now: null once it has expired. */
+export const liveStatus = (s: CustomStatus | null | undefined, at = Date.now()): CustomStatus | null =>
+  s && (!s.expiresAt || Date.parse(s.expiresAt) > at) ? s : null;
 
 export interface Me extends PublicUser {
   email: string | null;
@@ -812,6 +872,11 @@ export interface KidRules {
   lootdenPlayTime: boolean;
   /** May search for and see GIFs (always the mildest rating). Off until a parent turns it on. */
   gifs: boolean;
+  /**
+   * May set a profile picture and banner. Off until a parent turns it on; turning it off takes
+   * them down. The kid's bio, pronouns and status always go through the family filter.
+   */
+  profilePictures: boolean;
 }
 
 /** The kid's LootDen play limits, when LootDen is linked and their profile is matched. */
@@ -861,7 +926,9 @@ export type FamilyAlertType =
   /** The kid used up today's minutes. */
   | "time_limit"
   /** The kid asked a parent to look at a chat. */
-  | "help";
+  | "help"
+  /** The kid changed their profile (bio, pronouns, status or pictures). */
+  | "profile";
 
 export interface FamilyAlert {
   id: number;
@@ -1453,6 +1520,8 @@ export type ServerEvent =
   | { type: "automod.alert"; event: AutomodEvent }
   /** Someone you can see started or stopped playing something (null: nothing now). */
   | { type: "activity"; userId: number; activity: Activity | null }
+  /** Someone's name, colors, picture or custom status changed: to them and everyone who can see them. */
+  | { type: "user.updated"; user: PublicUser }
   /** You and others in a server are playing the same game: a voice channel is open for it. */
   | { type: "play.together"; invite: PlayTogether }
   /** A kid's chores today changed (from Den Duty), to the kid and their parents (null: nothing to show). */

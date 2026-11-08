@@ -42,7 +42,7 @@ export function NewGroup({ friends, onClose, onCreated }: { friends: Friend[]; o
         {accepted.map((f) => (
           <label key={f.user.id} className="pick">
             <input type="checkbox" checked={picked.has(f.user.id)} onChange={() => toggle(f.user.id)} />
-            <Avatar name={f.user.displayName} size={28} />
+            <Avatar name={f.user.displayName} src={f.user.avatar} size={28} />
             <span className="ellipsis">{f.user.displayName}</span>
             <span className="muted small">@{f.user.username}</span>
           </label>

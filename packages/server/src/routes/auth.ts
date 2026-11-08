@@ -129,6 +129,8 @@ export function authRoutes(app: FastifyInstance, ctx: Context): void {
       }),
     );
     if (shareActivity !== undefined && shareActivity !== user.shareActivity) ctx.lootden.shareChanged(user.id);
+    // Names and colors show everywhere, so tell everyone who can see them.
+    if (name !== undefined || nameColor !== undefined || textColor !== undefined) ctx.profiles.announce(user.id);
     return updated;
   });
 

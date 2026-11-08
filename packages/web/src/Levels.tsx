@@ -101,7 +101,7 @@ export function LevelsTab({ me, server }: { me: Me; server: ChatServer }) {
                 return (
                   <li key={e.userId} className={`member-row ${e.userId === me.id ? "is-me" : ""}`}>
                     <span className={`leaderboard-place place-${i + 1}`}>{i + 1}</span>
-                    <Avatar name={name} size={28} />
+                    <Avatar name={name} src={m.user.avatar} size={28} />
                     <span className="nav-text">
                       <span className="ellipsis" style={colorsOf(memberColors(m)).name}>
                         {name}

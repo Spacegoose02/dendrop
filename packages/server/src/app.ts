@@ -25,6 +25,8 @@ import type { LevelService } from "./levels.js";
 import { builtinLivekit } from "./livekit.js";
 import { LootdenLink, type LootdenFetch } from "./lootden.js";
 import { PushService } from "./push.js";
+import { ProfileService } from "./profiles.js";
+import { profileRoutes } from "./routes/profiles.js";
 import { pushRoutes } from "./routes/push.js";
 import { authRoutes } from "./routes/auth.js";
 import { signInRoutes } from "./routes/signin.js";
@@ -78,6 +80,8 @@ export interface Context {
   events: EventService;
   /** Couples kits: private extras for 1:1 DMs between two adults. */
   couples: CouplesService;
+  /** Profiles: pictures, banners, bios and custom statuses, and who can see them. */
+  profiles: ProfileService;
   /** Set by the server routes: sends a server's members its new state (and prunes voice). */
   serverChanged?: (serverId: number) => void;
   /** Set by the server routes: XP and raccoon ranks. */
@@ -138,6 +142,7 @@ export async function buildApp(
     gifs: new GifService(db, family, config.dataDir, options.gifFetch),
     events: new EventService(db, users, gateway, push),
     couples: new CouplesService(db, users, gateway, path.join(config.dataDir, "uploads"), (ids) => void push.notify(ids, "message")),
+    profiles: new ProfileService(db, users, gateway, path.join(config.dataDir, "uploads")),
     onClientEvent: [],
     onPresence: [],
     onMessageCreated: [],
@@ -192,6 +197,7 @@ export async function buildApp(
   await app.register(async (api) => dendutyRoutes(api, ctx));
   await app.register(async (api) => botRoutes(api, ctx));
   await app.register(async (api) => couplesRoutes(api, ctx));
+  await app.register(async (api) => profileRoutes(api, ctx));
   await app.register(async (api) => gatewayRoute(api, ctx));
   builtinLivekit(app, config);
   ctx.events.start();
