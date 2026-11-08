@@ -221,6 +221,7 @@ const RULES: Record<string, Rule> = {
   "PUT /api/admin/accounts/:id/password": (p) => ({ serverId: null, action: "account.password", targetUserId: num(p.id) }),
   "DELETE /api/admin/accounts/:id/signins/:provider": (p) => ({ serverId: null, action: "account.unlink", targetUserId: num(p.id), details: p.provider }),
   "DELETE /api/admin/accounts/:id/2fa": (p) => ({ serverId: null, action: "account.reset2fa", targetUserId: num(p.id) }),
+  "PUT /api/admin/accounts/:id/couples": (p, b) => ({ serverId: null, action: b.on === true ? "account.couplesOn" : "account.couplesOff", targetUserId: num(p.id) }),
   "PUT /api/admin/server-creators/:userId": (p, b) => ({ serverId: null, action: b.allowed === true ? "creator.allow" : "creator.deny", targetUserId: num(p.userId) }),
   "POST /api/admin/family": (_p, b) => ({ serverId: null, action: "family.link", targetName: `${str(b.parent)} → ${str(b.kid)}` }),
   "PUT /api/admin/gifs": (_p, b) => ({ serverId: null, action: "gifs.update", details: keys(b).replace("apiKey", "API key") }),

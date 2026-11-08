@@ -180,7 +180,11 @@ export async function buildApp(
   // LootDen's play limits feed kids' time rules, when a parent turns that on.
   family.playLimits = (kidId, at) => ctx.lootden.kidLimits(kidId, at);
   // Linking an account to a parent deletes every couples kit it's in, before any key is shared.
-  family.onLinked.push((kidId) => ctx.couples.wipeFor(kidId));
+  // A kid account never has the couples kit, so its switch is turned off as well.
+  family.onLinked.push((kidId) => {
+    ctx.couples.wipeFor(kidId);
+    users.setCouplesKit(kidId, false);
+  });
   // GIF links pass automod's link rule while GIFs are on.
   automod.extraAllowedHosts = () => ctx.gifs.linkHosts();
 

@@ -4,7 +4,7 @@ import { requireUser, type Context } from "../app.js";
 import { hashPassword, verifyPassword } from "../auth/crypto.js";
 import { SESSION_COOKIE } from "../auth/sessions.js";
 import { HttpError } from "../errors.js";
-import { toPublic, type UserRecord } from "../users.js";
+import { couplesAllowed, toMe, toPublic, type UserRecord } from "../users.js";
 import { MIN_PASSWORD } from "./auth.js";
 
 const provider = (v: unknown): SignInProvider => {
@@ -129,6 +129,7 @@ export function signInRoutes(app: FastifyInstance, ctx: Context): void {
     createdAt: u.createdAt,
     twoFactor: ctx.twofactor.totpOn(u.id),
     passkeys: ctx.twofactor.passkeys(u.id).length,
+    couplesKit: couplesAllowed(u),
   });
 
   app.get("/api/admin/accounts", async (req) => {
@@ -142,6 +143,23 @@ export function signInRoutes(app: FastifyInstance, ctx: Context): void {
     const u = users.byId(id(req.params.id));
     if (!u || u.isBot) throw new HttpError(404, "No such account");
     return account(users.setSignIn(u.id, provider(req.params.provider), null));
+  });
+
+  /**
+   * Switches the couples kit on or off for an account. Kid accounts are always refused. Turning
+   * it off deletes every kit they're in, like either person turning that kit off.
+   */
+  app.put<{ Params: { id: string }; Body: { on?: unknown } }>("/api/admin/accounts/:id/couples", async (req) => {
+    admin(req);
+    const u = users.byId(id(req.params.id));
+    if (!u || u.isBot) throw new HttpError(404, "No such account");
+    if (typeof req.body?.on !== "boolean") throw new HttpError(400, "on is true or false");
+    if (req.body.on && u.isKid) throw new HttpError(403, "Kid accounts can never have the couples kit");
+    if (u.isSuperAdmin) throw new HttpError(409, "Super admins always have the couples kit");
+    const updated = users.setCouplesKit(u.id, req.body.on);
+    if (!req.body.on) ctx.couples.wipeFor(u.id);
+    ctx.gateway.send([u.id], { type: "ready", user: toMe(updated) });
+    return account(updated);
   });
 
   /** Sets someone's password, for when they're locked out. Signs them out everywhere. */

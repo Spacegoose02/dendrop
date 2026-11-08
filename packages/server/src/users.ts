@@ -33,6 +33,8 @@ export interface UserRecord {
   isKid: boolean;
   /** A bot account (see bots.ts): no password, never in DMs. */
   isBot: boolean;
+  /** A super admin switched the couples kit on for them (see couplesAllowed). */
+  couplesKit: boolean;
   createdAt: string;
 }
 
@@ -66,6 +68,7 @@ interface Row {
   status_expires_at: string | null;
   is_kid: number;
   is_bot: number;
+  couples_kit: number;
   created_at: string;
 }
 
@@ -97,6 +100,7 @@ const fromRow = (r: Row): UserRecord => ({
   status: r.status_text !== null ? { emoji: r.status_emoji, text: r.status_text, expiresAt: r.status_expires_at } : null,
   isKid: !!r.is_kid,
   isBot: !!r.is_bot,
+  couplesKit: !!r.couples_kit,
   createdAt: r.created_at,
 });
 
@@ -114,6 +118,13 @@ export const toPublic = (u: UserRecord): PublicUser => ({
   status: liveStatus(u.status),
   ...(u.isBot ? { isBot: true } : {}),
 });
+/**
+ * Whether someone can use the couples kit: super admins, and accounts a super admin switched it
+ * on for. Never a kid account or a bot, whatever the switch says.
+ */
+export const couplesAllowed = (u: Pick<UserRecord, "isKid" | "isBot" | "isSuperAdmin" | "couplesKit">): boolean =>
+  !u.isKid && !u.isBot && (u.isSuperAdmin || u.couplesKit);
+
 export const toMe = (u: UserRecord): Me => ({
   ...toPublic(u),
   email: u.email,
@@ -123,6 +134,7 @@ export const toMe = (u: UserRecord): Me => ({
   canCreateServers: u.isSuperAdmin || u.canCreateServers,
   isKid: u.isKid,
   managedBy: u.isKid ? u.managedBy : null,
+  couplesKit: couplesAllowed(u),
 });
 
 /** Every user column, plus whether they're a kid account. */
@@ -195,6 +207,11 @@ export class UserRepo {
       )
       .run(u.username, u.displayName, u.email ?? null, u.passwordHash ?? null, u.oidcSubject ?? null, u.isSuperAdmin ? 1 : 0, u.isBot ? 1 : 0, u.managedBy ?? null, now());
     return this.byId(Number(res.lastInsertRowid))!;
+  }
+
+  setCouplesKit(id: number, on: boolean): UserRecord {
+    this.db.prepare("UPDATE users SET couples_kit = ? WHERE id = ?").run(on ? 1 : 0, id);
+    return this.byId(id)!;
   }
 
   setCanCreateServers(id: number, allowed: boolean): UserRecord {

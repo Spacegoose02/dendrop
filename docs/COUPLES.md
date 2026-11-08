@@ -29,6 +29,13 @@ and it's end-to-end encrypted when you do.
 
 ## Who can use it
 
+- It's **hidden unless a super admin switches it on** for an account, in Admin → Accounts
+  (💞 Couples kit on / off). Super admins always have it. Both people in a chat need it: until
+  then there's no 💞 button, and `/api/couples` answers 404 to anyone without it. Switching it off
+  for someone deletes every kit they're in. Accounts that were already using a kit when the switch
+  was added keep it.
+- **Kid accounts never get it.** A super admin can't switch it on for one (403), the switch is
+  ignored for kid accounts even if it's set, and linking an account to a parent switches it off.
 - Only a **1:1 chat**, only between **two adult accounts**. If either person is a kid account (see
   [KIDS.md](KIDS.md)), or a kid's parents are guardians of the chat, there's no kit: the button
   isn't shown, and every `/api/couples` route answers 404 to a kid account.
