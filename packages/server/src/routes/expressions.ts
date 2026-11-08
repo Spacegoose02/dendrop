@@ -5,7 +5,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { EXPRESSION_LIMITS } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
 import { HttpError } from "../errors.js";
-import { ExpressionRepo, sniffPicture } from "../expressions.js";
+import { ExpressionRepo, sniffPicture, sniffSound } from "../expressions.js";
 import { ServerRepo } from "../servers.js";
 import type { UserRecord } from "../users.js";
 
@@ -171,6 +171,65 @@ export function expressionRoutes(app: FastifyInstance, ctx: Context): void {
     requireUser(req);
     const r = expressions.stickerRow(id(req.params.id));
     if (!r) throw new HttpError(404, "No such sticker");
+    return serve(reply, r.file, r.content_type);
+  });
+
+  // ---- Soundboard ----------------------------------------------------------------------
+
+  /** Multipart: name, emoji (for its button), volume (1 to 100), and the sound (MP3, Ogg or WAV). */
+  app.post<{ Params: { id: string } }>("/api/servers/:id/sounds", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    manager(sid, me);
+    if (!req.isMultipart()) throw new HttpError(400, "Send the sound as multipart form data");
+    const fields: Record<string, string> = {};
+    let data: Buffer | undefined;
+    try {
+      for await (const part of req.parts({ limits: { fileSize: EXPRESSION_LIMITS.soundBytes, files: 1, fields: 5 } })) {
+        if (part.type === "field") fields[part.fieldname] = String(part.value);
+        else data = await part.toBuffer();
+      }
+    } catch (err) {
+      if ((err as { code?: string }).code === "FST_REQ_FILE_TOO_LARGE") throw new HttpError(413, `Sounds can be up to ${Math.round(EXPRESSION_LIMITS.soundBytes / 1024)} KB`);
+      throw err;
+    }
+    if (!data?.length) throw new HttpError(400, "Send a sound");
+    const type = sniffSound(data);
+    if (!type) throw new HttpError(400, "Use an MP3, Ogg or WAV sound");
+    const file = save(data);
+    try {
+      const sound = expressions.addSound(sid, me.id, fields, file, type);
+      ctx.serverChanged?.(sid);
+      return sound;
+    } catch (err) {
+      remove(file);
+      throw err;
+    }
+  });
+
+  app.patch<{ Params: { id: string; soundId: string }; Body: { name?: unknown; emoji?: unknown; volume?: unknown } }>("/api/servers/:id/sounds/:soundId", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    manager(sid, me);
+    const sound = expressions.updateSound(sid, id(req.params.soundId), req.body ?? {});
+    ctx.serverChanged?.(sid);
+    return sound;
+  });
+
+  app.delete<{ Params: { id: string; soundId: string } }>("/api/servers/:id/sounds/:soundId", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    manager(sid, me);
+    remove(expressions.deleteSound(sid, id(req.params.soundId)));
+    ctx.serverChanged?.(sid);
+    return { ok: true };
+  });
+
+  /** A sound's file, for members of its server (sounds only play in its voice channels). */
+  app.get<{ Params: { id: string } }>("/api/sounds/:id", async (req, reply) => {
+    const me = requireUser(req);
+    const r = expressions.soundRow(id(req.params.id));
+    if (!r || !servers.role(r.server_id, me.id)) throw new HttpError(404, "No such sound");
     return serve(reply, r.file, r.content_type);
   });
 

@@ -14,6 +14,7 @@ const SERVER_FILTERS: [string, string][] = [
   ["server", "Server"],
   ["automod", "Automod"],
   ["emoji", "Emoji"],
+  ["sound", "Soundboard"],
   ["webhook", "Webhooks"],
   ["bot", "Bots"],
   ["event", "Events"],

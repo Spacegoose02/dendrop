@@ -1,7 +1,9 @@
 import { useRef, useState } from "react";
-import { EXPRESSION_LIMITS, isEmojiName, type ChatServer, type CustomEmoji, type Sticker } from "@dendrop/shared";
+import { EXPRESSION_LIMITS, isEmojiName, type ChatServer, type CustomEmoji, type ServerSound, type Sticker } from "@dendrop/shared";
 import { api, ApiError } from "./api.ts";
 import { can } from "./roles.ts";
+import { playServerSound, soundLength } from "./soundboard.ts";
+import { loadAudio } from "./audio.ts";
 
 const kb = (n: number) => `${Math.round(n / 1024)} KB`;
 
@@ -257,6 +259,139 @@ export function StickersTab({ server }: { server: ChatServer }) {
                 <span className="small">
                   {s.emoji} {s.name}
                 </span>
+                {manage && (
+                  <button className="ghost danger small" onClick={() => void remove(s)}>
+                    Delete
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Server settings → Sounds: the server's soundboard. */
+export function SoundsTab({ server }: { server: ChatServer }) {
+  const manage = can(server, "manageExpressions");
+  const [file, setFile] = useState<File | null>(null);
+  const [name, setName] = useState("");
+  const [emoji, setEmoji] = useState("");
+  const [volume, setVolume] = useState(100);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const full = server.sounds.length >= EXPRESSION_LIMITS.sounds;
+
+  const pick = async (f: File | null) => {
+    setError(null);
+    setFile(null);
+    if (!f) return;
+    if (f.size > EXPRESSION_LIMITS.soundBytes) return setError(`Sounds can be up to ${kb(EXPRESSION_LIMITS.soundBytes)}`);
+    try {
+      const secs = await soundLength(f);
+      // A little slack for silence at the end.
+      if (secs > EXPRESSION_LIMITS.soundSeconds + 0.5) return setError(`Sounds can be up to ${EXPRESSION_LIMITS.soundSeconds} seconds; that one is ${secs.toFixed(1)}`);
+    } catch {
+      return setError("That file doesn't play as a sound here. Try an MP3 or Ogg.");
+    }
+    setFile(f);
+    if (!name) setName(nameFromFile(f.name));
+  };
+
+  const preview = () => {
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    const a = new Audio(url);
+    a.volume = (volume / 100) * (loadAudio().soundboardVolume / 100 || 0.6);
+    a.onended = () => URL.revokeObjectURL(url);
+    void a.play().catch(() => {});
+  };
+
+  const add = async () => {
+    if (!file) return;
+    setError(null);
+    setBusy(true);
+    const form = new FormData();
+    form.append("name", name);
+    form.append("emoji", emoji.trim());
+    form.append("volume", String(volume));
+    form.append("file", file, file.name);
+    try {
+      await postForm<ServerSound>(`/api/servers/${server.id}/sounds`, form);
+      setFile(null);
+      setName("");
+      setEmoji("");
+      setVolume(100);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (s: ServerSound) => {
+    if (!confirm(`Delete the ${s.name} sound?`)) return;
+    try {
+      await api(`/api/servers/${server.id}/sounds/${s.id}`, { method: "DELETE" });
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  return (
+    <div className="server-settings">
+      <p className="muted small">
+        Sounds for the soundboard in {server.name}'s voice channels, next to the built-in ones. Anyone in a voice channel can play them for everyone there.
+        Up to {EXPRESSION_LIMITS.sounds}, {EXPRESSION_LIMITS.soundSeconds} seconds and {kb(EXPRESSION_LIMITS.soundBytes)} each: MP3, Ogg or WAV.
+      </p>
+      {manage && !full && (
+        <fieldset className="sticker-form">
+          <legend>Add a sound</legend>
+          <label>
+            Sound
+            <input type="file" accept="audio/mpeg,audio/ogg,audio/wav,.mp3,.ogg,.opus,.wav" onChange={(e) => void pick(e.target.files?.[0] ?? null)} />
+          </label>
+          <label>
+            Name
+            <input value={name} maxLength={EXPRESSION_LIMITS.nameLength} onChange={(e) => setName(e.target.value.replace(/[^A-Za-z0-9_]/g, "_"))} placeholder="goose_honk" />
+          </label>
+          <label>
+            Emoji for its button <span className="muted small">(optional)</span>
+            <input value={emoji} onChange={(e) => setEmoji(e.target.value)} placeholder="🦢" className="short" />
+          </label>
+          <label className="range-row">
+            <span>Volume</span>
+            <input type="range" min={1} max={100} value={volume} onChange={(e) => setVolume(Number(e.target.value))} />
+            <span className="range-value">{volume}%</span>
+            <button type="button" disabled={!file} onClick={preview}>
+              Preview
+            </button>
+          </label>
+          <button className="primary" disabled={!file || !isEmojiName(name) || busy} onClick={() => void add()}>
+            {busy ? "Adding…" : "Add sound"}
+          </button>
+        </fieldset>
+      )}
+      {error && <p className="error small">{error}</p>}
+      {server.sounds.length === 0 ? (
+        <p className="muted">No sounds of its own yet.</p>
+      ) : (
+        <>
+          <h4>
+            Sounds <span className="muted small">({server.sounds.length}/{EXPRESSION_LIMITS.sounds})</span>
+          </h4>
+          <ul className="expression-list">
+            {server.sounds.map((s) => (
+              <li key={s.id} className="expression-row">
+                <button className="ghost" onClick={() => void playServerSound(s, { ...loadAudio(), soundboardVolume: loadAudio().soundboardVolume || 60 })} aria-label={`Play ${s.name}`}>
+                  ▶️
+                </button>
+                <span className="grow">
+                  {s.emoji} {s.name}
+                </span>
+                <span className="muted small">{s.volume}%</span>
                 {manage && (
                   <button className="ghost danger small" onClick={() => void remove(s)}>
                     Delete

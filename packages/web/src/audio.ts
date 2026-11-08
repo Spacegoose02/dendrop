@@ -6,8 +6,11 @@
 import { useEffect, useState } from "react";
 import { INSECURE_MEDIA } from "./secure.ts";
 
-/** Standard is the browser's noise suppression; strong also asks for voice isolation where the browser has it. */
-export type NoiseLevel = "off" | "standard" | "strong";
+/**
+ * Smart is Dendrop's own (RNNoise, the same in every browser). Browser is the browser's built-in
+ * suppression, plus voice isolation where the browser has it (Chrome and Safari, not Firefox).
+ */
+export type NoiseLevel = "off" | "browser" | "smart";
 
 export interface AudioPrefs {
   /** "" means the system default. */
@@ -23,17 +26,20 @@ export interface AudioPrefs {
   sensitivity: "auto" | "off" | number;
   /** Sounds for mute, unmute, deafen, undeafen, and people joining and leaving voice. */
   sounds: boolean;
+  /** How loud soundboard sounds play for you, 0 (off) to 100. */
+  soundboardVolume: number;
 }
 
 export const DEFAULT_AUDIO: AudioPrefs = {
   inputId: "",
   outputId: "",
   outputVolume: 100,
-  noiseSuppression: "standard",
+  noiseSuppression: "smart",
   echoCancellation: true,
   autoGain: true,
   sensitivity: "auto",
   sounds: true,
+  soundboardVolume: 60,
 };
 
 const KEY = "dendrop.audio";
@@ -41,7 +47,10 @@ const EVENT = "dendrop-audio";
 
 export function loadAudio(): AudioPrefs {
   try {
-    return { ...DEFAULT_AUDIO, ...(JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<AudioPrefs>) };
+    const p = { ...DEFAULT_AUDIO, ...(JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<AudioPrefs>) };
+    // Before smart suppression there were "standard" (the old default) and "strong": both move to smart.
+    if (!["off", "browser", "smart"].includes(p.noiseSuppression)) p.noiseSuppression = "smart";
+    return p;
   } catch {
     return { ...DEFAULT_AUDIO };
   }
@@ -74,12 +83,18 @@ export function useAudioPrefs(): AudioPrefs {
   return prefs;
 }
 
-/** getUserMedia / LiveKit capture options for the mic. */
+/**
+ * getUserMedia / LiveKit capture options for the mic. Mono at 48 kHz, which is what Opus sends and
+ * RNNoise needs, so nothing is resampled on the way (Firefox otherwise may open the mic at the
+ * sound card's rate). With smart suppression the browser's own is off, so the two don't fight.
+ */
 export function micConstraints(p: AudioPrefs): MediaTrackConstraints & { voiceIsolation?: boolean } {
   return {
     ...(p.inputId ? { deviceId: { exact: p.inputId } } : {}),
-    noiseSuppression: p.noiseSuppression !== "off",
-    ...(p.noiseSuppression === "strong" ? { voiceIsolation: true } : {}),
+    channelCount: 1,
+    sampleRate: 48000,
+    noiseSuppression: p.noiseSuppression === "browser",
+    ...(p.noiseSuppression === "browser" ? { voiceIsolation: true } : {}),
     echoCancellation: p.echoCancellation,
     autoGainControl: p.autoGain,
   };
@@ -139,8 +154,12 @@ export class LevelMeter {
 
 /** How far above the background noise you need to be in auto mode. */
 const AUTO_MARGIN_DB = 12;
-/** Keep sending this long after you stop, so word endings aren't clipped. */
-const HOLD_MS = 400;
+/** Keep sending this long after you stop, so word endings and short pauses aren't clipped. */
+const HOLD_MS = 500;
+/** How often the gate checks the level. With the pipeline's 40 ms look-ahead, word starts get through. */
+const TICK_MS = 20;
+/** How fast the learned floor creeps up per tick (the same pace as before at 50 ms ticks). */
+const FLOOR_RISE = 0.002;
 
 /**
  * Input sensitivity: decides from the mic's loudness whether you're talking. In "auto" it learns
@@ -148,22 +167,30 @@ const HOLD_MS = 400;
  * margin above it. Reads a clone of the track, so turning the sent track off doesn't blind it.
  */
 export class VoiceGate {
-  private meter: LevelMeter;
-  private clone: MediaStreamTrack;
+  private meter: LevelMeter | null = null;
+  private clone: MediaStreamTrack | null = null;
+  private level: () => number;
   private floor = -60;
   private openUntil = 0;
   private timer: ReturnType<typeof setInterval>;
   open = true;
 
+  /** `source` is the mic track to measure, or a function giving its level (the mic pipeline's meter). */
   constructor(
-    track: MediaStreamTrack,
+    source: MediaStreamTrack | (() => number),
     private sensitivity: () => AudioPrefs["sensitivity"],
     private onChange: (open: boolean, level: number, threshold: number) => void,
   ) {
-    this.clone = track.clone();
-    this.clone.enabled = true;
-    this.meter = new LevelMeter(this.clone);
-    this.timer = setInterval(() => this.tick(), 50);
+    if (typeof source === "function") this.level = source;
+    else {
+      const clone = source.clone();
+      clone.enabled = true;
+      const meter = new LevelMeter(clone);
+      this.clone = clone;
+      this.meter = meter;
+      this.level = () => meter.level();
+    }
+    this.timer = setInterval(() => this.tick(), TICK_MS);
   }
 
   threshold(): number {
@@ -174,9 +201,9 @@ export class VoiceGate {
   }
 
   private tick(): void {
-    const level = this.meter.level();
+    const level = this.level();
     // The floor drops straight to quieter readings and creeps up slowly, so speech doesn't raise it much.
-    this.floor = level < this.floor ? level : this.floor + 0.005 * (level - this.floor);
+    this.floor = level < this.floor ? level : this.floor + FLOOR_RISE * (level - this.floor);
     const t = this.threshold();
     const now = Date.now();
     if (level >= t) this.openUntil = now + HOLD_MS;
@@ -187,8 +214,8 @@ export class VoiceGate {
 
   close(): void {
     clearInterval(this.timer);
-    this.meter.close();
-    this.clone.stop();
+    this.meter?.close();
+    this.clone?.stop();
   }
 }
 
@@ -208,23 +235,37 @@ const NOTES: Record<SoundName, number[]> = {
 
 let soundCtx: AudioContext | null = null;
 
+/** The shared context for little sounds and the soundboard. */
+export function soundContext(): AudioContext {
+  soundCtx ??= new AudioContext();
+  void soundCtx.resume().catch(() => {});
+  return soundCtx;
+}
+
+/**
+ * A gain node that plays on the chosen speakers for about `seconds`, at `gain` times the volume
+ * of others. Browsers can only pick speakers for media elements, so then it goes through one.
+ */
+export function outputNode(ctx: AudioContext, prefs: AudioPrefs, gain: number, seconds: number): GainNode {
+  const out = ctx.createGain();
+  out.gain.value = gain * Math.max(0, Math.min(1, prefs.outputVolume / 100));
+  if (prefs.outputId && canPickOutput()) {
+    const dest = ctx.createMediaStreamDestination();
+    out.connect(dest);
+    const el = new Audio();
+    el.srcObject = dest.stream;
+    applyOutput(el, { ...prefs, outputVolume: 100 });
+    void el.play().catch(() => {});
+    setTimeout(() => (el.srcObject = null), seconds * 1000 + 500);
+  } else out.connect(ctx.destination);
+  return out;
+}
+
 export function playSound(name: SoundName, prefs: AudioPrefs = loadAudio()): void {
   if (!prefs.sounds) return;
   try {
-    soundCtx ??= new AudioContext();
-    const ctx = soundCtx;
-    void ctx.resume();
-    const out = ctx.createGain();
-    out.gain.value = 0.12 * Math.max(0, Math.min(1, prefs.outputVolume / 100));
-    const dest = ctx.createMediaStreamDestination();
-    out.connect(prefs.outputId && canPickOutput() ? dest : ctx.destination);
-    if (prefs.outputId && canPickOutput()) {
-      const el = new Audio();
-      el.srcObject = dest.stream;
-      applyOutput(el, { ...prefs, outputVolume: 100 });
-      void el.play().catch(() => {});
-      setTimeout(() => (el.srcObject = null), 1000);
-    }
+    const ctx = soundContext();
+    const out = outputNode(ctx, prefs, 0.12, 1);
     NOTES[name].forEach((freq, i) => {
       const start = ctx.currentTime + i * 0.09;
       const osc = ctx.createOscillator();

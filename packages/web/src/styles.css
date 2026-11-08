@@ -1854,3 +1854,25 @@ button.attachment-file {
 .login-card .link + .link {
   margin-left: 12px;
 }
+
+/* Soundboard (VoicePanel) */
+.soundboard-anchor {
+  position: relative;
+}
+.soundboard-menu {
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(340px, calc(100vw - 32px));
+}
+.soundboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.soundboard-sound {
+  overflow: hidden;
+  padding: 7px 8px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

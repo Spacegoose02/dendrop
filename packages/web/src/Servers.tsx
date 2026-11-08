@@ -28,7 +28,7 @@ import { ActivityLine } from "./activity.tsx";
 import { useColors } from "./colors.ts";
 import { MemberRoles, RoleChip, RolesTab } from "./Roles.tsx";
 import { byRank, can, memberColors, outranks, rolesOf } from "./roles.ts";
-import { EmojiTab, StickersTab } from "./ServerExpressions.tsx";
+import { EmojiTab, SoundsTab, StickersTab } from "./ServerExpressions.tsx";
 import { CHANNEL_KINDS, channelMark, channelTitle } from "./channels.ts";
 import { LevelBadge, LevelsTab } from "./Levels.tsx";
 import { mustAgree, WelcomeTab } from "./Welcome.tsx";
@@ -802,7 +802,7 @@ export function ChannelDialog({
   );
 }
 
-export type SettingsTab = "profile" | "members" | "levels" | "welcome" | "roles" | "emoji" | "stickers" | "invites" | "bans" | "automod" | "modlog" | "audit" | "webhooks" | "bots";
+export type SettingsTab = "profile" | "members" | "levels" | "welcome" | "roles" | "emoji" | "stickers" | "sounds" | "invites" | "bans" | "automod" | "modlog" | "audit" | "webhooks" | "bots";
 
 /** Server settings: profile and pictures, members and roles, invites, bans, automod, and leaving. */
 export function ServerSettings({
@@ -826,6 +826,7 @@ export function ServerSettings({
     ...(can(server, "manageRoles") || server.roles.length ? [{ id: "roles" as const, label: "Roles" }] : []),
     ...(can(server, "manageExpressions") || server.emojis.length ? [{ id: "emoji" as const, label: "Emoji" }] : []),
     ...(can(server, "manageExpressions") || server.stickers.length ? [{ id: "stickers" as const, label: "Stickers" }] : []),
+    ...(can(server, "manageExpressions") || server.sounds.length ? [{ id: "sounds" as const, label: "Sounds" }] : []),
     ...(canInvite(server) ? [{ id: "invites" as const, label: "Invites" }] : []),
     ...(can(server, "kickMembers") ? [{ id: "bans" as const, label: "Bans" }] : []),
     ...(can(server, "manageAutomod")
@@ -854,6 +855,7 @@ export function ServerSettings({
       {tab === "roles" && <RolesTab me={me} server={server} />}
       {tab === "emoji" && <EmojiTab server={server} />}
       {tab === "stickers" && <StickersTab server={server} />}
+      {tab === "sounds" && <SoundsTab server={server} />}
       {tab === "invites" && <InvitesTab server={server} />}
       {tab === "bans" && <BansTab server={server} />}
       {tab === "automod" && <AutomodTab server={server} />}
