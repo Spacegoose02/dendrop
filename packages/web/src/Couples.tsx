@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { COUPLES_LIMITS, type Conversation, type CouplesItem, type CouplesKind, type CouplesKit, type Me, type Message } from "@dendrop/shared";
+import { COUPLES_LIMITS, type Conversation, type CouplesItem, type CouplesKind, type CouplesKit, type CouplesSpicyPack, type Me, type Message } from "@dendrop/shared";
 import { api, apiForm, ApiError } from "./api.ts";
 import { BUILTIN_DECKS, STARTER_IDEAS, STARTER_SPINNER, WOULD_YOU_RATHER } from "./couplesContent.ts";
 import { decryptKitItem, decryptKitPhoto, encryptKitItem, encryptKitPhoto, encryptMessage, keyring, type FileMeta } from "./e2ee.ts";
@@ -112,6 +112,21 @@ export function CouplesKitDialog({ me, conversation, onClose }: { me: Me; conver
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // The spicy pack only comes from the server once you've both switched spicy mode on.
+  const spicyOn = !!kit?.spicy?.mine && !!kit?.spicy?.partner && kit.state === "on";
+  const [pack, setPack] = useState<CouplesSpicyPack | null>(null);
+  useEffect(() => {
+    if (!spicyOn) return setPack(null);
+    let live = true;
+    api<CouplesSpicyPack>(`/api/couples/${cid}/spicy-pack`).then(
+      (p) => live && setPack(p),
+      () => live && setPack(null),
+    );
+    return () => {
+      live = false;
+    };
+  }, [cid, spicyOn]);
+
   useEffect(() => {
     let live = true;
     void reveal(kit?.items ?? []).then((x) => live && setItems(x));
@@ -167,7 +182,7 @@ export function CouplesKitDialog({ me, conversation, onClose }: { me: Me; conver
       api<Message>(`/api/conversations/${cid}/messages`, { body: { body: await encryptMessage(cid, me.id, version, text), keyVersion: version } }),
     );
 
-  const ctx: Ctx = { me, name, items, busy, run, add, edit, remove, vote, share, cid, withKey };
+  const ctx: Ctx = { me, name, items, busy, run, add, edit, remove, vote, share, cid, withKey, pack, spicy: kit?.spicy ?? { mine: false, partner: false } };
 
   let body;
   if (!kit) body = <p className="muted">Loading…</p>;
@@ -183,6 +198,14 @@ export function CouplesKitDialog({ me, conversation, onClose }: { me: Me; conver
             </button>
           ))}
         </nav>
+        {kit.spicy.partner && !kit.spicy.mine && tab !== "settings" && (
+          <p className="notice small">
+            🌶️ {name} switched on spicy mode.{" "}
+            <button className="link" onClick={() => setTab("settings")}>
+              See what it adds
+            </button>
+          </p>
+        )}
         <div className="couples-body">
           {tab === "ideas" && <Ideas {...ctx} />}
           {tab === "questions" && <Questions {...ctx} />}
@@ -224,6 +247,9 @@ interface Ctx {
   vote: (item: CouplesItem, v: string | number | null) => Promise<CouplesItem>;
   share: (text: string) => Promise<Message>;
   withKey: <T>(fn: (version: number) => Promise<T>) => Promise<T>;
+  /** The spicy pack, once you've both switched spicy mode on. */
+  pack: CouplesSpicyPack | null;
+  spicy: { mine: boolean; partner: boolean };
 }
 
 const of = <T,>(items: Shown[], kind: CouplesKind) => items.filter((i) => i.kind === kind) as Shown<T>[];
@@ -291,7 +317,7 @@ function Invite({ me, kit, name, run, busy, cid }: { me: Me; kit: CouplesKit; na
 
 // ---- Yes / No / Maybe ---------------------------------------------------------------
 
-function Ideas({ items, add, vote, remove, run, busy, name }: Ctx) {
+function Ideas({ items, add, vote, remove, run, busy, name, pack }: Ctx) {
   const [text, setText] = useState("");
   const ideas = of<IdeaData>(items, "idea");
   const matches = ideas.filter((i) => i.match === "yes");
@@ -340,6 +366,11 @@ function Ideas({ items, add, vote, remove, run, busy, name }: Ctx) {
           Add some starter ideas
         </button>
       )}
+      {pack && pack.ideas.some((t) => !have.has(t)) && (
+        <button className="link spicy-link" disabled={busy} onClick={() => void run(async () => { for (const t of pack.ideas) if (!have.has(t)) await add("idea", { t }); })}>
+          🌶️ Add the spicy ideas
+        </button>
+      )}
       {matches.length > 0 && (
         <>
           <h3 className="section-label">💞 You both said yes</h3>
@@ -370,7 +401,7 @@ function Ideas({ items, add, vote, remove, run, busy, name }: Ctx) {
 
 // ---- Questions and would you rather -------------------------------------------------
 
-function Questions({ me, items, add, vote, remove, run, busy, name }: Ctx) {
+function Questions({ me, items, add, vote, remove, run, busy, name, pack }: Ctx) {
   const [q, setQ] = useState("");
   const [options, setOptions] = useState(["", ""]);
   const questions = of<QuestionData>(items, "question").reverse();
@@ -419,6 +450,18 @@ function Questions({ me, items, add, vote, remove, run, busy, name }: Ctx) {
           >
             🎲 Random would you rather
           </button>
+          {pack && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                const [wq, a, b] = pack.wouldYouRather[random(pack.wouldYouRather.length)]!;
+                void run(() => add("question", { q: wq, o: [a, b] }));
+              }}
+            >
+              🌶️ Spicy would you rather
+            </button>
+          )}
         </div>
       </form>
       <ul className="couples-list">
@@ -474,25 +517,26 @@ function Questions({ me, items, add, vote, remove, run, busy, name }: Ctx) {
 
 // ---- Prompt decks -------------------------------------------------------------------
 
-function Prompts({ items, add, remove, edit, share, run, busy, me }: Ctx) {
+function Prompts({ items, add, remove, edit, share, run, busy, me, pack }: Ctx) {
+  const decks = useMemo(() => [...BUILTIN_DECKS, ...(pack?.decks ?? [])], [pack]);
   const custom = of<CardData>(items, "card").filter((c) => c.data);
   const deckNames = useMemo(() => {
-    const names = BUILTIN_DECKS.map((d) => d.name);
+    const names = decks.map((d) => d.name);
     for (const c of custom) if (!names.includes(c.data!.deck)) names.push(c.data!.deck);
     return names;
-  }, [custom]);
+  }, [custom, decks]);
   const [deck, setDeck] = useState(deckNames[0]!);
   const [card, setCard] = useState<string | null>(null);
   const [newDeck, setNewDeck] = useState("Ours");
   const [newCard, setNewCard] = useState("");
   const [editing, setEditing] = useState<{ id: number; t: string } | null>(null);
-  const cards = [...(BUILTIN_DECKS.find((d) => d.name === deck)?.cards ?? []), ...custom.filter((c) => c.data!.deck === deck).map((c) => c.data!.t)];
+  const cards = [...(decks.find((d) => d.name === deck)?.cards ?? []), ...custom.filter((c) => c.data!.deck === deck).map((c) => c.data!.t)];
 
   return (
     <>
       <div className="chips">
         {deckNames.map((d) => {
-          const b = BUILTIN_DECKS.find((x) => x.name === d);
+          const b = decks.find((x) => x.name === d);
           return (
             <button key={d} className={`chip ${deck === d ? "on" : ""}`} onClick={() => (setDeck(d), setCard(null))}>
               {b?.emoji ?? "✍️"} {d}
@@ -571,7 +615,7 @@ function Prompts({ items, add, remove, edit, share, run, busy, me }: Ctx) {
 
 // ---- Date night spinner --------------------------------------------------------------
 
-function Spinner({ me, items, add, edit, remove, share, run, busy }: Ctx) {
+function Spinner({ me, items, add, edit, remove, share, run, busy, pack }: Ctx) {
   const lists = of<SpinnerData>(items, "spinner").filter((l) => l.data);
   const [listId, setListId] = useState<number | null>(null);
   const list = lists.find((l) => l.id === listId) ?? lists[0];
@@ -672,6 +716,11 @@ function Spinner({ me, items, add, edit, remove, share, run, busy }: Ctx) {
             </>
           )}
         </>
+      )}
+      {pack && !lists.some((l) => l.data!.name === pack.spinner.name) && (
+        <button className="link spicy-link" disabled={busy} onClick={() => void run(async () => setListId((await add("spinner", { name: pack.spinner.name, o: pack.spinner.options })).id))}>
+          🌶️ Add "{pack.spinner.name}"
+        </button>
       )}
       <h3 className="section-label">New list</h3>
       <form
@@ -939,9 +988,25 @@ function Countdowns({ me, items, add, edit, remove, run, busy }: Ctx) {
 
 // ---- Settings ------------------------------------------------------------------------------
 
-function KitSettings({ cid, run, busy, name, onOff }: Ctx & { onOff: () => void }) {
+function KitSettings({ cid, run, busy, name, onOff, spicy }: Ctx & { onOff: () => void }) {
   return (
     <>
+      <h3 className="section-label">🌶️ Spicy mode</h3>
+      <p className="small">
+        Adds wilder starters: spicy Yes / No / Maybe ideas, "After dark" and "Dares" decks, spicy would you rather, and a "Tonight's menu"
+        spinner. It turns on only when you've <strong>both</strong> switched it on, and either of you can switch it off any time. A dare can
+        always be passed.
+      </p>
+      <label className="toggle">
+        <input type="checkbox" checked={spicy.mine} disabled={busy} onChange={(e) => void run(() => api(`/api/couples/${cid}/spicy`, { method: "PUT", body: { on: e.target.checked } }))} />
+        <span>
+          <strong>I'm in</strong>
+          <span className="muted small">
+            {spicy.mine && spicy.partner ? "On for both of you 🔥" : spicy.mine ? `Waiting for ${name} to switch it on too.` : spicy.partner ? `${name} switched it on.` : "Off for both of you."}
+          </span>
+        </span>
+      </label>
+      <h3 className="section-label">Turn off</h3>
       <p>Turning the couples kit off deletes everything in it for both of you: ideas and votes, questions, cards, lists, photos, notes and countdowns. It can't be undone.</p>
       <p className="muted small">Things you shared into the chat stay in the chat, like any message.</p>
       <button

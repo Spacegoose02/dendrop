@@ -832,6 +832,16 @@ export const MIGRATIONS: string[] = [
     SELECT m.user_id FROM conversation_members m JOIN couples_kits k ON k.conversation_id = m.conversation_id
   );
   `,
+  `
+  -- Couples kit spicy mode: each person switches it on for themselves; the spicy pack is only
+  -- sent once both have. Deleted with the kit.
+  CREATE TABLE couples_spicy (
+    conversation_id INTEGER NOT NULL REFERENCES couples_kits(conversation_id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (conversation_id, user_id)
+  );
+  `,
 ];
 
 export function now(): string {

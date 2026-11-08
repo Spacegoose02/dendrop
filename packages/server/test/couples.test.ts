@@ -3,7 +3,7 @@ import { createECDH, randomBytes } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
-import type { AdminAccount, Conversation, CouplesItem, CouplesKit, FamilyLinkCode, Me } from "@dendrop/shared";
+import type { AdminAccount, Conversation, CouplesItem, CouplesKit, CouplesSpicyPack, FamilyLinkCode, Me } from "@dendrop/shared";
 import { account, listen, startServer, type TestServer } from "./helpers.js";
 
 const b64 = (n: number) => randomBytes(n).toString("base64url");
@@ -119,6 +119,33 @@ describe("couples kit", () => {
     assert.equal((await add(ann, { kind: "nope" })).statusCode, 400);
     assert.equal((await add(ann, { kind: "photo" })).statusCode, 400, "a photo needs its file");
     assert.equal((await add(ann, { kind: "idea", deliverAt: new Date(Date.now() + 60_000).toISOString() })).statusCode, 400, "only notes are scheduled");
+  });
+
+  it("only sends the spicy pack once both have switched spicy mode on", async () => {
+    const pack = (c: string) => req(c, "GET", `/api/couples/${dm}/spicy-pack`);
+    assert.deepEqual((await kitOf(ann)).spicy, { mine: false, partner: false });
+    assert.equal((await pack(ann)).statusCode, 403);
+    assert.equal((await req(ann, "PUT", `/api/couples/${dm}/spicy`, { on: "yes" })).statusCode, 400);
+
+    const beaWs = await listen(s, bea);
+    assert.deepEqual((await req(ann, "PUT", `/api/couples/${dm}/spicy`, { on: true })).json<CouplesKit>().spicy, { mine: true, partner: false });
+    await beaWs.waitFor("couples.updated");
+    beaWs.ws.close();
+    assert.deepEqual((await kitOf(bea)).spicy, { mine: false, partner: true });
+    assert.equal((await pack(ann)).statusCode, 403, "not until bea says yes too");
+
+    await req(bea, "PUT", `/api/couples/${dm}/spicy`, { on: true });
+    const r = await pack(ann);
+    assert.equal(r.statusCode, 200);
+    assert.equal(r.headers["cache-control"], "no-store");
+    const p = r.json<CouplesSpicyPack>();
+    assert.ok(p.ideas.length > 10 && p.decks.length >= 2 && p.wouldYouRather.length > 5 && p.spinner.options.length > 3);
+    assert.equal((await pack(cal)).statusCode, 404, "nobody outside the chat");
+
+    // Either can switch it off again.
+    await req(bea, "PUT", `/api/couples/${dm}/spicy`, { on: false });
+    assert.equal((await pack(ann)).statusCode, 403);
+    await req(bea, "PUT", `/api/couples/${dm}/spicy`, { on: true });
   });
 
   it("only reveals mutual yeses on the Yes / No / Maybe list", async () => {
@@ -269,6 +296,8 @@ describe("couples kit", () => {
     assert.equal(left.n, 0);
     assert.equal((await req(bea, "GET", `/api/couples/${dm}`)).statusCode, 404);
     assert.equal(s.ctx.users.byId(beaId)!.couplesKit, false, "linking switches it off");
+    const spicyLeft = s.ctx.db.prepare("SELECT COUNT(*) AS n FROM couples_spicy").get() as { n: number };
+    assert.equal(spicyLeft.n, 0, "spicy mode goes with the kit");
   });
 
   it("deletes everything when turned off", async () => {

@@ -1621,6 +1621,20 @@ export interface CouplesKit {
   unavailable: string | null;
   /** Everything in it, oldest first. Empty unless state is "on". */
   items: CouplesItem[];
+  /**
+   * Spicy mode: wilder built-in starters. Each person switches it on for themselves, and the
+   * spicy pack (/api/couples/:id/spicy-pack) only comes once both have.
+   */
+  spicy: { mine: boolean; partner: boolean };
+}
+
+/** The spicy pack's built-in starters (see CouplesKit.spicy). */
+export interface CouplesSpicyPack {
+  ideas: string[];
+  decks: { name: string; emoji: string; cards: string[] }[];
+  /** [question, answer A, answer B] */
+  wouldYouRather: [string, string, string][];
+  spinner: { name: string; options: string[] };
 }
 
 export interface CouplesItem {
