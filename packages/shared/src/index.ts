@@ -993,6 +993,78 @@ export const WEBHOOK_LIMITS = {
   perMinute: 30,
 } as const;
 
+// ---- Couples kit ------------------------------------------------------------------
+
+/**
+ * What goes in a couples kit (see docs/COUPLES.md):
+ * - idea: the Yes / No / Maybe list. Votes stay private; only mutual matches are shown.
+ * - question: a question or "would you rather" with up to 10 answers, revealed once both answered.
+ * - card: a custom prompt card in a named deck.
+ * - spinner: a list of options for the date night spinner.
+ * - photo: a view-once photo, deleted from the server once it's opened.
+ * - note: a love note, held back until its delivery time.
+ * - countdown: a shared countdown to a date.
+ */
+export const COUPLES_KINDS = ["idea", "question", "card", "spinner", "photo", "note", "countdown"] as const;
+export type CouplesKind = (typeof COUPLES_KINDS)[number];
+
+export type CouplesIdeaVote = "yes" | "no" | "maybe";
+
+/** off: nobody asked. invited: one person asked and waits for the other. on: both said yes. */
+export type CouplesKitState = "off" | "invited" | "on";
+
+export interface CouplesKit {
+  conversationId: number;
+  state: CouplesKitState;
+  /** Who asked to turn it on (null while off). */
+  invitedBy: number | null;
+  /**
+   * False when this chat can never have a kit (someone in it is a kid account, or it isn't a
+   * chat between two people): apps hide the kit button.
+   */
+  eligible: boolean;
+  /** Why this conversation can't have a kit right now (null when it can). */
+  unavailable: string | null;
+  /** Everything in it, oldest first. Empty unless state is "on". */
+  items: CouplesItem[];
+}
+
+export interface CouplesItem {
+  id: number;
+  conversationId: number;
+  kind: CouplesKind;
+  authorId: number;
+  /**
+   * Ciphertext, encrypted with the conversation key like a message but bound to the kit
+   * ("dendrop:couples:<conversation>:<author>:<kind>"). Empty for an opened photo.
+   */
+  body: string;
+  keyVersion: number;
+  createdAt: string;
+  updatedAt: string;
+  /** Ideas: your vote. Questions: the number of the answer you picked. Null until you answer. */
+  myVote: string | null;
+  /** Ideas: "yes" when you both said yes, "maybe" when you both said yes or maybe; else null. */
+  match: "yes" | "maybe" | null;
+  /** Questions: whether the other person has answered (not what). */
+  partnerAnswered: boolean;
+  /** Questions: both answers by user id, once both of you have answered. */
+  answers: Record<number, number> | null;
+  /** Photos: whether it was opened (then it's gone). */
+  opened: boolean;
+  /** Photos: the encrypted file's size while it can still be opened. */
+  fileSize: number | null;
+  /** Notes: when it shows up for the other person (null for a note sent straight away). */
+  deliverAt: string | null;
+}
+
+export const COUPLES_LIMITS = {
+  itemsPerKit: 2000,
+  questionOptions: 10,
+  /** How far ahead a love note can be scheduled. */
+  noteDays: 366,
+} as const;
+
 /** Pictures the web client shows inline. Everything else is offered as a download. */
 export const INLINE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
@@ -1058,7 +1130,12 @@ export type ServerEvent =
   /** To a bot: someone clicked one of its buttons. */
   | { type: "interaction.created"; interaction: BotInteraction }
   /** To whoever clicked: the bot's answer, shown only to them. */
-  | { type: "interaction.reply"; interactionId: number; messageId: number; conversationId: number; botId: number; content: string };
+  | { type: "interaction.reply"; interactionId: number; messageId: number; conversationId: number; botId: number; content: string }
+  /**
+   * A couples kit you're in changed: fetch it again (/api/couples/:id), since each person sees
+   * their own view. noteFrom is set when a love note just arrived for you.
+   */
+  | { type: "couples.updated"; conversationId: number; noteFrom?: number };
 
 /** Events a client sends over the gateway. Everything else goes through the HTTP API. */
 export type ClientEvent = { type: "typing"; conversationId: number } | { type: "ping" };

@@ -27,6 +27,7 @@ import { Friends } from "./Friends.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { IncomingCall } from "./IncomingCall.tsx";
 import { PlayTogetherCard } from "./PlayTogether.tsx";
+import { COUPLES_EVENT, LoveNotePopup, type CouplesEventDetail } from "./Couples.tsx";
 import { NewGroup } from "./NewGroup.tsx";
 import { SettingsButton } from "./Settings.tsx";
 import { EncryptionDialog, type EncryptionMode } from "./EncryptionDialog.tsx";
@@ -364,6 +365,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           break;
         case "interaction.reply":
           window.dispatchEvent(new CustomEvent<BotReplyDetail>(BOT_REPLY_EVENT, { detail: { messageId: e.messageId, content: e.content } }));
+          break;
+        case "couples.updated":
+          window.dispatchEvent(new CustomEvent<CouplesEventDetail>(COUPLES_EVENT, { detail: { conversationId: e.conversationId, noteFrom: e.noteFrom } }));
           break;
         case "typing":
           setTyping((t) => ({ ...t, [e.conversationId]: { ...(t[e.conversationId] ?? {}), [e.userId]: Date.now() } }));
@@ -758,6 +762,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           onChanged={() => void loadFamily()}
         />
       )}
+      {!me.isKid && <LoveNotePopup me={me} conversations={conversations} />}
       {encryptionDialog && (
         <EncryptionDialog me={me} mode={encryptionDialog} setMode={setEncryptionDialog} onDone={onUnlocked} onClose={() => setEncryptionDialog(null)} />
       )}
