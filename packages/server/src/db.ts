@@ -506,6 +506,32 @@ export const MIGRATIONS: string[] = [
   -- GIFs for kids: off until a parent turns them on.
   ALTER TABLE kid_rules ADD COLUMN gifs INTEGER NOT NULL DEFAULT 0;
   `,
+  `
+  -- Server levels: XP members earn by chatting, which gives raccoon ranks. On unless turned off.
+  ALTER TABLE servers ADD COLUMN levels INTEGER NOT NULL DEFAULT 1;
+  CREATE TABLE server_xp (
+    server_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    xp INTEGER NOT NULL DEFAULT 0,
+    last_award_at TEXT,
+    PRIMARY KEY (server_id, user_id),
+    FOREIGN KEY (server_id, user_id) REFERENCES server_members(server_id, user_id) ON DELETE CASCADE
+  );
+  CREATE INDEX server_xp_rank ON server_xp(server_id, xp DESC);
+
+  -- The welcome screen: a hello, rules, and roles members pick themselves (JSON, see
+  -- ServerWelcome). welcomed_at is when a member went through it and agreed to the rules.
+  CREATE TABLE server_welcome (
+    server_id INTEGER PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    message TEXT NOT NULL DEFAULT '',
+    rules TEXT NOT NULL DEFAULT '[]',
+    require_agree INTEGER NOT NULL DEFAULT 0,
+    roles TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL
+  );
+  ALTER TABLE server_members ADD COLUMN welcomed_at TEXT;
+  `,
 ];
 
 export function now(): string {

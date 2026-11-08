@@ -840,3 +840,198 @@ select {
   display: flex;
   gap: 8px;
 }
+
+/* Levels and raccoon ranks */
+.level-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--dd-bg-raised);
+  color: var(--dd-text-muted);
+  white-space: nowrap;
+}
+.server-member .level-badge {
+  margin-left: auto;
+}
+.level-bar {
+  display: block;
+  height: 8px;
+  margin: 6px 0 4px;
+  border-radius: 999px;
+  background: var(--dd-bg-raised);
+  overflow: hidden;
+}
+.level-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--dd-accent);
+}
+.level-me {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--dd-radius-lg);
+  background: var(--dd-bg-raised);
+}
+.level-me-emoji {
+  font-size: 34px;
+  line-height: 1;
+}
+.level-me .nav-text {
+  flex: 1;
+}
+.leaderboard {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.leaderboard .member-row.is-me {
+  background: var(--dd-bg-hover);
+  border-radius: var(--dd-radius);
+}
+.leaderboard-place {
+  width: 22px;
+  flex: none;
+  text-align: center;
+  font-weight: 800;
+  color: var(--dd-text-faint);
+}
+.leaderboard-place.place-1,
+.leaderboard-place.place-2,
+.leaderboard-place.place-3 {
+  color: var(--dd-accent);
+}
+.rank-ladder {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+}
+.rank-ladder li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--dd-radius);
+  border: 1px solid var(--dd-border);
+}
+.rank-ladder li > span:first-child {
+  font-size: 20px;
+}
+.rank-ladder li.on {
+  border-color: var(--dd-accent);
+  box-shadow: 0 0 0 1px var(--dd-accent);
+}
+
+/* Welcome screen */
+.welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.welcome-banner {
+  width: 100%;
+  max-height: 140px;
+  object-fit: cover;
+  border-radius: var(--dd-radius-lg);
+}
+.welcome-hello {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.welcome-hello p {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+}
+.welcome-emoji {
+  font-size: 36px;
+  line-height: 1;
+}
+.welcome-rules {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.welcome-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.welcome-role {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+  border-radius: var(--dd-radius);
+  border: 1px solid var(--dd-border);
+  background: var(--dd-bg-main);
+  color: var(--dd-text);
+}
+.welcome-role.on {
+  border-color: var(--dd-accent);
+  background: var(--dd-bg-raised);
+}
+.welcome-role .nav-text {
+  flex: 1;
+  align-items: flex-start;
+}
+.welcome-role-emoji {
+  font-size: 22px;
+}
+.welcome-check {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--dd-border);
+  font-weight: 800;
+}
+.welcome-role.on .welcome-check {
+  background: var(--dd-accent);
+  border-color: var(--dd-accent);
+  color: var(--dd-accent-text);
+}
+.welcome-actions {
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+.welcome-rule-number {
+  width: 24px;
+  flex: none;
+  color: var(--dd-text-faint);
+  font-weight: 700;
+}
+.welcome-role-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.welcome-role-edit > input:not(.welcome-emoji-input) {
+  flex: 1 1 160px;
+}
+.welcome-emoji-input {
+  width: 52px;
+  text-align: center;
+}
+.nav-item.welcome-link.needs-agree {
+  color: var(--dd-warning);
+  font-weight: 700;
+}
