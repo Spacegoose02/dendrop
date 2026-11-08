@@ -717,6 +717,64 @@ export const MIGRATIONS: string[] = [
   CREATE UNIQUE INDEX server_sounds_name ON server_sounds(server_id, name COLLATE NOCASE);
   `,
   `
+  -- Two-step sign-in. An authenticator app's secret (enabled_at is null until the first code is
+  -- checked; last_step stops a code being used twice), one-time recovery codes (hashed), and
+  -- passkeys (WebAuthn credentials: the public key and its signature counter).
+  CREATE TABLE user_totp (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    secret TEXT NOT NULL,
+    enabled_at TEXT,
+    last_step INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE user_recovery_codes (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash TEXT NOT NULL,
+    used_at TEXT,
+    PRIMARY KEY (user_id, code_hash)
+  );
+
+  CREATE TABLE user_passkeys (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    public_key TEXT NOT NULL,
+    counter INTEGER NOT NULL DEFAULT 0,
+    transports TEXT NOT NULL DEFAULT '[]',
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT
+  );
+  CREATE INDEX user_passkeys_user ON user_passkeys(user_id);
+
+  -- Short-lived sign-in state: a password that still needs its second step ('login'), and
+  -- passkey challenges ('passkey-login', 'passkey-add'). attempts counts wrong codes.
+  CREATE TABLE auth_challenges (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    challenge TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT NOT NULL
+  );
+
+  -- Who did what: a server's moderators' actions (server_id set) and the super admins' actions
+  -- on the whole instance (server_id null). Names are copied in so entries still read well
+  -- after the person, role or channel is gone.
+  CREATE TABLE audit_log (
+    id INTEGER PRIMARY KEY,
+    server_id INTEGER REFERENCES servers(id) ON DELETE CASCADE,
+    actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    actor_name TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    target_name TEXT,
+    details TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX audit_log_server ON audit_log(server_id, id);
+  `,
+  `
   -- Replies, @mentions and per-conversation notification settings.
   ALTER TABLE messages ADD COLUMN reply_to_id INTEGER REFERENCES messages(id) ON DELETE SET NULL;
   ALTER TABLE messages ADD COLUMN mentions_everyone INTEGER NOT NULL DEFAULT 0;

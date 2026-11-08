@@ -1,8 +1,11 @@
 import "./privileges.js";
 import { buildApp } from "./app.js";
+import { restoreIfAsked } from "./backup.js";
 import { loadConfig } from "./config.js";
 
 const config = loadConfig();
+// A backup dropped in as <data>/restore.tar.gz is restored before the database opens.
+await restoreIfAsked(config.dataDir);
 const { app } = await buildApp(config);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

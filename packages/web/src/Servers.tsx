@@ -14,8 +14,10 @@ import {
   type ScheduledEvent,
   type ServerTimeout,
   type VoiceChannelState,
+  type ServerPermission,
 } from "@dendrop/shared";
 import { api, ApiError } from "./api.ts";
+import { AuditLogTab } from "./Audit.tsx";
 import { AutomodTab, ModLogTab } from "./Automod.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { ProfileLink, StatusLine } from "./Profile.tsx";
@@ -52,6 +54,8 @@ export function ServerIcon({ server, size = 48 }: { server: Pick<ChatServerSumma
 }
 
 export const isMod = (s: ChatServer) => s.myRole === "owner" || s.myRole === "admin";
+/** Any of these lets someone read the server's audit log (the server checks the same). */
+const AUDIT_PERMISSIONS: ServerPermission[] = ["manageServer", "manageChannels", "manageRoles", "manageAutomod", "kickMembers", "timeoutMembers", "deleteMessages"];
 export const canInvite = (s: ChatServer) => can(s, "createInvites") || s.memberInvites;
 export const inviteUrl = (code: string) => `${location.origin}/invite/${code}`;
 
@@ -798,7 +802,7 @@ export function ChannelDialog({
   );
 }
 
-export type SettingsTab = "profile" | "members" | "levels" | "welcome" | "roles" | "emoji" | "stickers" | "sounds" | "invites" | "bans" | "automod" | "modlog" | "webhooks" | "bots";
+export type SettingsTab = "profile" | "members" | "levels" | "welcome" | "roles" | "emoji" | "stickers" | "sounds" | "invites" | "bans" | "automod" | "modlog" | "audit" | "webhooks" | "bots";
 
 /** Server settings: profile and pictures, members and roles, invites, bans, automod, and leaving. */
 export function ServerSettings({
@@ -832,6 +836,7 @@ export function ServerSettings({
         ]
       : []),
     ...(isMod(server) ? [{ id: "webhooks" as const, label: "Webhooks" }, { id: "bots" as const, label: "Bots" }] : []),
+    ...(AUDIT_PERMISSIONS.some((p) => can(server, p)) ? [{ id: "audit" as const, label: "Audit log" }] : []),
   ];
   const [tab, setTab] = useState<SettingsTab>(initialTab && tabs.some((t) => t.id === initialTab) ? initialTab : "profile");
   return (
@@ -855,6 +860,7 @@ export function ServerSettings({
       {tab === "bans" && <BansTab server={server} />}
       {tab === "automod" && <AutomodTab server={server} />}
       {tab === "modlog" && <ModLogTab server={server} />}
+      {tab === "audit" && <AuditLogTab server={server} />}
       {tab === "webhooks" && <WebhooksTab server={server} />}
       {tab === "bots" && <BotsTab server={server} />}
     </Modal>

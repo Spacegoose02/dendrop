@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@sapphi-red/web-noise-suppressor": "^0.4.1",
+    "@simplewebauthn/browser": "^13.3.0",
     "livekit-client": "^2.23.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"

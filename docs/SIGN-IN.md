@@ -28,6 +28,36 @@ never matched to accounts by email: they have to be linked first, from inside th
 
 Kid accounts under a parent can't change their own sign-in; their parents set the password.
 
+## Two-step sign-in
+
+In **Settings → Sign-in → Two-step sign-in → Set up**, scan the QR code with an authenticator
+app (Google Authenticator, Microsoft Authenticator, Aegis, 1Password, Bitwarden and so on) and
+type the code it shows. From then on, signing in with a password also asks for a code from the
+app. Setting it up signs out your other devices.
+
+You get **ten recovery codes** once, when you turn it on: download or copy them somewhere safe.
+Each gets you in once if you lose your phone. **New recovery codes** makes a fresh set (the old
+ones stop working); **Turn off** needs a code from the app.
+
+Five wrong codes in a row and you start again from the password. A code works only once.
+
+Two-step sign-in protects the password. TinyAuth and Google have their own (turn it on there),
+so signing in through them doesn't ask for a Dendrop code.
+
+## Passkeys
+
+A passkey signs you in with your fingerprint, face, phone, Windows Hello or a security key,
+with no password to type or steal. **Settings → Sign-in → Add a passkey**, then **Sign in with
+a passkey** on the sign-in page. With two-step sign-in on, a passkey also works instead of the
+code.
+
+Passkeys need Dendrop on an `https://` address with a name (like `chat.example.com` or a
+Tailscale `*.ts.net` name). Browsers don't allow them on `http://` or on a bare IP address such
+as `https://192.168.1.10:8080`. A passkey belongs to the address it was made on: if
+`DENDROP_PUBLIC_URL` changes, add them again.
+
+Kid accounts under a parent can't add either; their parent looks after their sign-in.
+
 ## The admin's master control
 
 Super admins have a **Sign-in** section in **Instance admin** (Find a server → Instance admin):
@@ -48,8 +78,10 @@ once you change one in the app, the app's setting wins. Dendrop won't let you sw
 only way *you* can sign in.
 
 Below the switches is every account with how it signs in. You can unlink someone's Google or
-TinyAuth (a lost or shared account) and set a new password for someone who's locked out, which
-signs them out everywhere.
+TinyAuth (a lost or shared account), set a new password for someone who's locked out, and
+**Reset two-step** for someone who lost their phone (it turns off their authenticator app and
+removes their passkeys). Each signs them out everywhere, and shows in the instance's
+[audit log](AUDIT-LOG.md).
 
 ## Setting up Google
 

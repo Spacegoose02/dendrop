@@ -461,6 +461,8 @@ export interface AuthInfo {
   google: { enabled: boolean };
   localLogin: boolean;
   signup: boolean;
+  /** "Sign in with a passkey" can work here (an https:// address). */
+  passkeys?: boolean;
 }
 
 /** The super admin's switches for how people sign in and get accounts. */
@@ -513,6 +515,10 @@ export interface AdminAccount {
   tinyauth: boolean;
   google: string | null;
   createdAt: string;
+  /** An authenticator app is set up for password sign-ins. */
+  twoFactor?: boolean;
+  /** How many passkeys the account has. */
+  passkeys?: number;
 }
 
 /** GET /api/server: what this server allows, for signed-in clients. */
@@ -1772,3 +1778,143 @@ export const isHexColor = (s: unknown): s is string => typeof s === "string" && 
 
 export const isUsername = (s: unknown): s is string =>
   typeof s === "string" && s.length >= 2 && s.length <= LIMITS.usernameLength && /^[\w.-]+$/.test(s);
+
+// ---- Two-step sign-in, passkeys, the audit log and backups ------------------------------
+
+/** POST /api/auth/login answers with this instead of the account when a second step is needed. */
+export interface TwoFactorChallenge {
+  twoFactor: {
+    /** Sent back with the code or passkey; good for 5 minutes. */
+    ticket: string;
+    /** An authenticator app code (or a recovery code) works. */
+    totp: boolean;
+    /** One of the account's passkeys works. */
+    passkey: boolean;
+  };
+}
+
+export interface PasskeyInfo {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+/** Settings → Sign-in: two-step sign-in and passkeys. */
+export interface MyTwoFactor {
+  /** An authenticator app is set up: password sign-ins ask for a code. */
+  totp: boolean;
+  /** Unused recovery codes. */
+  recoveryCodesLeft: number;
+  passkeys: PasskeyInfo[];
+  /** Passkeys work on this server (it needs an https:// address, or localhost). */
+  passkeysAvailable: boolean;
+}
+
+/** POST /api/me/2fa/totp/start: scan the QR code, or type the secret into the app. */
+export interface TotpSetup {
+  secret: string;
+  uri: string;
+  /** The otpauth:// address as an SVG QR code. */
+  qrSvg: string;
+}
+
+export interface AuditEntry {
+  id: number;
+  /** The server it happened in; null for the whole instance (super admin actions). */
+  serverId: number | null;
+  actor: { id: number | null; name: string };
+  /** e.g. "member.ban", "role.update", "signin.update". See AUDIT_ACTIONS for the wording. */
+  action: string;
+  target: { userId: number | null; name: string | null };
+  details: string;
+  createdAt: string;
+}
+
+/** How each audit action reads, for the log's list. */
+export const AUDIT_ACTIONS: Record<string, string> = {
+  "server.update": "changed the server settings",
+  "server.image": "changed the server picture",
+  "server.delete": "deleted a server",
+  "server.transfer": "handed the server to",
+  "member.role": "changed the rank of",
+  "member.roles": "changed the roles of",
+  "member.kick": "removed",
+  "member.ban": "banned",
+  "member.unban": "unbanned",
+  "member.timeout": "timed out",
+  "member.untimeout": "ended the timeout of",
+  "levels.reset": "reset levels",
+  "welcome.update": "changed the welcome screen",
+  "role.create": "made a role",
+  "role.update": "changed a role",
+  "role.delete": "deleted a role",
+  "role.reorder": "reordered the roles",
+  "channel.create": "made a channel",
+  "channel.update": "changed a channel",
+  "channel.delete": "deleted a channel",
+  "channel.reorder": "reordered the channels",
+  "message.delete": "deleted a message by",
+  "message.pin": "pinned a message by",
+  "message.unpin": "unpinned a message by",
+  "thread.update": "changed a thread",
+  "thread.delete": "deleted a thread",
+  "automod.update": "changed automod",
+  "invite.create": "made an invite link",
+  "emoji.add": "added an emoji",
+  "emoji.update": "renamed an emoji",
+  "emoji.delete": "deleted an emoji",
+  "sticker.add": "added a sticker",
+  "sticker.delete": "deleted a sticker",
+  "sound.add": "added a soundboard sound",
+  "sound.update": "changed a soundboard sound",
+  "sound.delete": "deleted a soundboard sound",
+  "webhook.create": "made a webhook",
+  "webhook.update": "changed a webhook",
+  "webhook.reset": "made a new webhook link",
+  "webhook.delete": "deleted a webhook",
+  "bot.add": "added a bot",
+  "bot.remove": "removed a bot",
+  "event.create": "scheduled an event",
+  "event.update": "changed an event",
+  "event.delete": "cancelled an event",
+  "signin.update": "changed the sign-in switches",
+  "account.password": "set a new password for",
+  "account.unlink": "unlinked a sign-in from",
+  "account.reset2fa": "turned off two-step sign-in for",
+  "creator.allow": "let make servers:",
+  "creator.deny": "stopped making servers:",
+  "family.link": "linked a parent and kid:",
+  "gifs.update": "changed GIF search",
+  "lootden.update": "changed the LootDen link",
+  "denduty.update": "changed the Den Duty link",
+  "backup.create": "made a backup",
+  "backup.download": "downloaded a backup",
+  "backup.delete": "deleted a backup",
+  "backup.restore": "asked to restore a backup",
+  "backup.settings": "changed the backup schedule",
+};
+
+export interface BackupFile {
+  name: string;
+  size: number;
+  createdAt: string;
+}
+
+export interface BackupSettings {
+  /** Make a backup on its own every this many hours; 0 is off. */
+  everyHours: number;
+  /** How many backups to keep; older ones are deleted. */
+  keep: number;
+  /** Put uploaded files (pictures, attachments) in the backup, not only the database. */
+  includeUploads: boolean;
+}
+
+export interface BackupStatus {
+  settings: BackupSettings;
+  /** Where backups are written, inside the container (DENDROP_BACKUP_DIR). */
+  dir: string;
+  backups: BackupFile[];
+  lastError: string | null;
+  running: boolean;
+}

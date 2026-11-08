@@ -1,6 +1,10 @@
 import { useState, type FormEvent } from "react";
-import type { AuthInfo, Me } from "@dendrop/shared";
+import { startAuthentication, type PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
+import type { AuthInfo, Me, TwoFactorChallenge } from "@dendrop/shared";
 import { api } from "./api.ts";
+
+/** A passkey prompt that the person closed, rather than one that failed. */
+const cancelled = (err: unknown) => err instanceof Error && (err.name === "NotAllowedError" || err.name === "AbortError");
 
 export function Login({ info, onSignedIn }: { info: AuthInfo; onSignedIn: (me: Me) => void }) {
   const mode: "setup" | "login" | "signup" = info.needsSetup ? "setup" : "login";
@@ -10,6 +14,7 @@ export function Login({ info, onSignedIn }: { info: AuthInfo; onSignedIn: (me: M
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(new URLSearchParams(location.search).get("error"));
+  const [second, setSecond] = useState<TwoFactorChallenge["twoFactor"] | null>(null);
 
   const current = mode === "setup" ? "setup" : signup ? "signup" : "login";
 
@@ -19,13 +24,43 @@ export function Login({ info, onSignedIn }: { info: AuthInfo; onSignedIn: (me: M
     setError(null);
     try {
       const body = current === "login" ? { username, password } : { username, password, displayName };
-      onSignedIn(await api<Me>(`/api/auth/${current}`, { body }));
+      const res = await api<Me | TwoFactorChallenge>(`/api/auth/${current}`, { body });
+      if ("twoFactor" in res) setSecond(res.twoFactor);
+      else onSignedIn(res);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setBusy(false);
     }
   };
+
+  const passkeySignIn = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { challengeId, options } = await api<{ challengeId: string; options: PublicKeyCredentialRequestOptionsJSON }>("/api/auth/passkey/options", { body: {} });
+      const response = await startAuthentication({ optionsJSON: options });
+      onSignedIn(await api<Me>("/api/auth/passkey", { body: { challengeId, response } }));
+    } catch (err) {
+      if (!cancelled(err)) setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (second) {
+    return (
+      <SecondStep
+        challenge={second}
+        onSignedIn={onSignedIn}
+        onBack={(message) => {
+          setSecond(null);
+          setPassword("");
+          setError(message ?? null);
+        }}
+      />
+    );
+  }
 
   return (
     <main className="login">
@@ -46,6 +81,15 @@ export function Login({ info, onSignedIn }: { info: AuthInfo; onSignedIn: (me: M
                 <GoogleMark /> Sign in with Google
               </a>
             )}
+            {(info.localLogin || info.passkeys) && <div className="divider">or</div>}
+          </>
+        )}
+
+        {info.passkeys && current === "login" && (
+          <>
+            <button className="wide passkey-button" onClick={() => void passkeySignIn()} disabled={busy}>
+              <KeyMark /> Sign in with a passkey
+            </button>
             {info.localLogin && <div className="divider">or</div>}
           </>
         )}
@@ -87,6 +131,100 @@ export function Login({ info, onSignedIn }: { info: AuthInfo; onSignedIn: (me: M
         )}
       </div>
     </main>
+  );
+}
+
+/** After a right password, when two-step sign-in is on: a code from the app, a recovery code, or a passkey. */
+function SecondStep({ challenge, onSignedIn, onBack }: { challenge: TwoFactorChallenge["twoFactor"]; onSignedIn: (me: Me) => void; onBack: (message?: string) => void }) {
+  const [code, setCode] = useState("");
+  const [recovery, setRecovery] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const failed = (err: unknown) => {
+    const message = (err as Error).message;
+    // The ticket ran out or had too many wrong codes: back to the password.
+    if (/too long|Too many|Start again|Sign in again/.test(message)) onBack(message);
+    else setError(message);
+  };
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      onSignedIn(await api<Me>("/api/auth/2fa", { body: { ticket: challenge.ticket, code } }));
+    } catch (err) {
+      failed(err);
+      setCode("");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const passkey = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { options } = await api<{ options: PublicKeyCredentialRequestOptionsJSON }>("/api/auth/2fa/passkey/options", { body: { ticket: challenge.ticket } });
+      const response = await startAuthentication({ optionsJSON: options });
+      onSignedIn(await api<Me>("/api/auth/2fa/passkey", { body: { ticket: challenge.ticket, response } }));
+    } catch (err) {
+      if (!cancelled(err)) failed(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <main className="login">
+      <div className="login-card">
+        <img src="/favicon.svg" alt="" width={64} height={64} />
+        <h1>One more step</h1>
+        <p className="muted">{recovery ? "Type one of the recovery codes you saved. Each one works once." : "Open your authenticator app and type the 6-digit code for Dendrop."}</p>
+        <form onSubmit={(e) => void submit(e)}>
+          <label>
+            {recovery ? "Recovery code" : "Code"}
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              autoComplete="one-time-code"
+              inputMode={recovery ? "text" : "numeric"}
+              pattern={recovery ? undefined : "[0-9 ]{6,7}"}
+              placeholder={recovery ? "abcde-23456" : "123456"}
+              autoFocus
+              required
+            />
+          </label>
+          <button className="primary wide" disabled={busy}>
+            Sign in
+          </button>
+        </form>
+        {challenge.passkey && (
+          <>
+            <div className="divider">or</div>
+            <button className="wide passkey-button" onClick={() => void passkey()} disabled={busy}>
+              <KeyMark /> Use a passkey
+            </button>
+          </>
+        )}
+        {error && <p className="error">{error}</p>}
+        <button className="link" onClick={() => setRecovery(!recovery)}>
+          {recovery ? "Use a code from the app" : "Lost your phone? Use a recovery code"}
+        </button>
+        <button className="link" onClick={() => onBack()}>
+          Back
+        </button>
+      </div>
+    </main>
+  );
+}
+
+/** A key, for the passkey buttons. */
+export function KeyMark() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="15" r="4" />
+      <path d="M10.85 12.15 19 4M18 5l2 2M15 8l2 2" />
+    </svg>
   );
 }
 

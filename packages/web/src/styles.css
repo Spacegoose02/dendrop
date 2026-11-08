@@ -2142,6 +2142,18 @@ h5.md-h {
 .header-tools ~ .header-actions {
   margin-left: 0;
 }
+/* Passkeys and two-step sign-in */
+.passkey-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.login-card .link + .link {
+  margin-left: 12px;
+}
+
 /* Soundboard (VoicePanel) */
 .soundboard-anchor {
   position: relative;

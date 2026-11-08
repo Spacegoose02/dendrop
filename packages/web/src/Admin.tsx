@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { GIF_RATINGS, type AdminServer, type ChannelRef, type ChatServer, type DendutyStatus, type GifRating, type GifSettings, type WatchSettings, type LinkPreviewSettings, type LootdenStatus, type ServerCreatorRequest } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { refreshPreviewSettings } from "./LinkPreview.tsx";
+import { BackupSection, InstanceAuditSection } from "./Audit.tsx";
 import { Modal } from "./Modal.tsx";
 import { AdminSignInSection } from "./SignIns.tsx";
 import { ServerIcon } from "./Servers.tsx";
@@ -94,6 +95,8 @@ export function AdminDialog({ onClose, version }: { onClose: () => void; version
       <LinkPreviewSection />
       <LootdenSection />
       <DendutySection />
+      <BackupSection />
+      <InstanceAuditSection />
     </Modal>
   );
 }
