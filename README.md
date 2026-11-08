@@ -9,7 +9,8 @@ See [the roadmap](docs/ROADMAP.md) for what's planned and in what order, and
 [docs/DENDUTY.md](docs/DENDUTY.md) for linking Den Duty, the family chore tracker,
 [docs/BOTS.md](docs/BOTS.md) for bots that post with buttons and answer clicks,
 [docs/EVENTS.md](docs/EVENTS.md) for scheduled events with RSVPs and stage channels,
-[docs/EXPRESSIONS.md](docs/EXPRESSIONS.md) for custom emoji, stickers, reactions and GIFs, and
+[docs/EXPRESSIONS.md](docs/EXPRESSIONS.md) for custom emoji, stickers, reactions and GIFs,
+[docs/WATCH-AND-OVERLAY.md](docs/WATCH-AND-OVERLAY.md) for watching videos together in voice and the PC app's in-game overlay,
 [docs/COUPLES.md](docs/COUPLES.md) for the couples kit, a private corner of a chat between two adults,
 [docs/SIGN-IN.md](docs/SIGN-IN.md) for accounts, two-step sign-in and passkeys,
 [docs/AUDIT-LOG.md](docs/AUDIT-LOG.md) for who-did-what logs, and
@@ -108,6 +109,12 @@ so there's nothing to run on Unraid. Notifications say only "new message" or "in
 If your own ntfy server is on the home network over plain `http://`, set
 `DENDROP_PUSH_ALLOW_HTTP=true`.
 
+The iPhone app gets notifications and rings calls on iOS's own call screen through Apple, which
+only works with a push key from the Apple developer account that builds the app. Put the key file
+in `/data` and set `DENDROP_APNS_KEY_FILE`, `DENDROP_APNS_KEY_ID` and `DENDROP_APNS_TEAM_ID`
+(see [packages/ios/README.md](packages/ios/README.md)). Apple only ever carries the fixed words
+"You have a new message" or a bare "call".
+
 ## Developing
 
 Node 22 or newer.
@@ -129,3 +136,4 @@ npm test
 | `packages/web` | React client |
 | `packages/desktop` | Electron app for Windows 11 and Linux, wrapping the web client ([README](packages/desktop/README.md)) |
 | `packages/android` | Capacitor Android app (Phase 2) |
+| `packages/ios` | Capacitor iPhone app, with CallKit calls and APNs notifications ([README](packages/ios/README.md)) |

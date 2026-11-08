@@ -423,6 +423,8 @@ export interface ServerInfo {
   lootdenUrl: string | null;
   /** GIF search is set up here (kids also need their parents to allow GIFs: KidRules.gifs). GIF links show as GIFs. */
   gifs: boolean;
+  /** YouTube videos can be watched together in voice channels. */
+  watchYoutube: boolean;
 }
 
 /** A call in a conversation. Calls live in memory on the server while they last. */
@@ -784,6 +786,94 @@ export interface VoiceChannelState {
   /** A stage channel: only speakers talk, everyone else listens. */
   stage: boolean;
   members: VoiceMember[];
+  /** A video everyone in the channel is watching together, or null. */
+  watch: WatchSession | null;
+}
+
+// ---- Watch together ---------------------------------------------------------------------
+
+/**
+ * Where a watch-together video comes from:
+ * - file: a video someone posted in the voice channel's own chat, streamed from this server.
+ * - link: a direct link to a video file (.mp4, .webm…) on another site, played by each device.
+ * - youtube: a YouTube video, only when a super admin has turned YouTube on (it's an outside service).
+ */
+export type WatchSourceKind = "file" | "link" | "youtube";
+
+export interface WatchItem {
+  /** Random, so a "this one ended" from a slow device can't skip the next one. */
+  id: string;
+  kind: WatchSourceKind;
+  /** file: the stream address on this server; link: the video's address; youtube: the 11-character video id. */
+  src: string;
+  title: string;
+  addedBy: number;
+}
+
+/**
+ * What's playing in a voice channel. Each device works out where the video should be from
+ * `position` and `updatedAt` (and the server's clock, GET /api/time), and catches up if it drifts.
+ */
+export interface WatchSession {
+  current: WatchItem;
+  /** Up next, in order. */
+  queue: WatchItem[];
+  playing: boolean;
+  /** Seconds into the video at updatedAt. */
+  position: number;
+  /** Server time in milliseconds when position was set. */
+  updatedAt: number;
+}
+
+/** Video types a channel's own files can be watched as (the ones browsers play). */
+export const WATCH_VIDEO_TYPES = ["video/mp4", "video/webm", "video/ogg", "video/quicktime"];
+
+/** Where a watch-together video should be in seconds, at server time `serverNow`. */
+export function watchPosition(w: Pick<WatchSession, "playing" | "position" | "updatedAt">, serverNow: number): number {
+  return w.playing ? Math.max(0, w.position + (serverNow - w.updatedAt) / 1000) : w.position;
+}
+
+/**
+ * Reads a pasted watch-together link: a YouTube video (any of its usual address shapes) or a
+ * link to a video file. Returns null for anything that isn't an http(s) address.
+ */
+export function parseWatchLink(input: string): { kind: "youtube"; videoId: string } | { kind: "link"; url: string } | null {
+  let u: URL;
+  try {
+    u = new URL(input.trim());
+  } catch {
+    return null;
+  }
+  if ((u.protocol !== "https:" && u.protocol !== "http:") || u.username || u.password || input.length > 2000) return null;
+  const host = u.hostname.toLowerCase().replace(/^(www|m|music)\./, "");
+  const id = /^[A-Za-z0-9_-]{11}$/;
+  let videoId: string | undefined;
+  if (host === "youtu.be") videoId = u.pathname.slice(1).split("/")[0];
+  else if (host === "youtube.com" || host === "youtube-nocookie.com") {
+    if (u.pathname === "/watch") videoId = u.searchParams.get("v") ?? undefined;
+    else {
+      const m = /^\/(?:embed|shorts|live|v)\/([^/?#]+)/.exec(u.pathname);
+      videoId = m?.[1];
+    }
+    if (!videoId || !id.test(videoId)) return null;
+  }
+  if (videoId !== undefined) return id.test(videoId) ? { kind: "youtube", videoId } : null;
+  return { kind: "link", url: u.toString() };
+}
+
+/** Watch together settings for the whole Dendrop server (super admins). */
+export interface WatchSettings {
+  /** YouTube videos can be watched together. Off by default: each device then loads YouTube's player. */
+  youtube: boolean;
+}
+
+/** A video posted in a voice channel's chat, ready to watch together. */
+export interface WatchVideo {
+  attachmentId: string;
+  name: string;
+  size: number;
+  postedBy: number;
+  postedAt: string;
 }
 
 /** What a client needs to join a voice channel's LiveKit room. */
@@ -1455,6 +1545,9 @@ export const INLINE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "imag
 /** Limits that the server and clients both check. */
 export const LIMITS = {
   messageLength: 4000,
+  /** Videos waiting in a voice channel's watch-together queue. */
+  watchQueue: 20,
+  watchTitle: 120,
   groupMembers: 10,
   attachmentsPerMessage: 10,
   usernameLength: 32,

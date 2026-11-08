@@ -1336,3 +1336,113 @@ select {
   gap: 8px;
   margin: 8px 0 12px;
 }
+
+/* ---- Watch together ---------------------------------------------------------------- */
+.watch-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+  background: var(--dd-bg-raised);
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius);
+  padding: 6px;
+}
+.watch-panel:fullscreen {
+  background: #000;
+  border-radius: 0;
+  padding: 0;
+}
+.watch-screen {
+  position: relative;
+  background: #000;
+  border-radius: var(--dd-radius-sm);
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  max-height: min(55vh, 640px);
+  width: 100%;
+}
+.watch-panel:fullscreen .watch-screen {
+  max-height: none;
+  flex: 1;
+  aspect-ratio: auto;
+}
+.watch-screen video,
+.watch-screen iframe {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  border: 0;
+}
+.watch-hidden {
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  text-align: center;
+  background: var(--dd-bg-sidebar);
+}
+.watch-error {
+  position: absolute;
+  inset: auto 8px 8px 8px;
+  margin: 0;
+}
+.watch-join-in {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.watch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 4px;
+  min-width: 0;
+}
+.watch-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.watch-queue {
+  margin: 0;
+  padding: 0 4px 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.watch-queue li,
+.watch-videos li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.watch-videos {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 40vh;
+  overflow: auto;
+}
+.watch-link {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.watch-link label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

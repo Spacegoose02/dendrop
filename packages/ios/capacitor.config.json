@@ -1,0 +1,15 @@
+{
+  "appId": "io.github.spacegoose02.dendrop",
+  "appName": "Dendrop",
+  "webDir": "www",
+  "backgroundColor": "#20242a",
+  "ios": {
+    "path": "ios",
+    "scheme": "Dendrop",
+    "handleApplicationNotifications": false,
+    "contentInset": "never"
+  },
+  "server": {
+    "errorPath": "dendrop-offline.html"
+  }
+}

@@ -5,7 +5,7 @@ import { build } from "esbuild";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
-for (const entry of ["main", "preload"]) {
+for (const entry of ["main", "preload", "overlay-preload"]) {
   await build({
     entryPoints: [path.join(root, "src", `${entry}.ts`)],
     bundle: true,

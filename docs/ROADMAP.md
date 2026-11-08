@@ -39,6 +39,7 @@ packages/server   # Fastify API, WebSocket gateway, SQLite, TinyAuth OIDC
 packages/web      # React client, also wrapped by the desktop and Android apps
 packages/desktop  # Electron app for Windows 11 and Linux
 packages/android  # Capacitor app (APK)
+packages/ios      # Capacitor iPhone app (TestFlight), CallKit calls, APNs pushes
 ```
 
 ---
@@ -211,6 +212,8 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Sounds | Incoming call / message notifications | 2 | Missing |
 | Automod | Automod settings | 6 | Done (blocked words, spam and mentions, links, new accounts; block, alert, timeout; exempt roles and channels; mod log) |
 | Servers | Scheduled events and stage channels | 4 | Done: events with RSVPs, reminders and weekly repeats; stage channels with raised hands ([EVENTS.md](EVENTS.md)) |
+| Voice | Watch together | 4 | Done: synced videos in voice and stage channels from the channel's chat or a link, with a queue; YouTube when a super admin turns it on; kids get chat videos only ([WATCH-AND-OVERLAY.md](WATCH-AND-OVERLAY.md)) |
+| Systems | In-game overlay (PC app) | 2, 8 | Done: who's in voice and talking, last messages, quick chat on Alt+\`; shows while LootDen says you're playing (or whenever in voice) ([WATCH-AND-OVERLAY.md](WATCH-AND-OVERLAY.md)) |
 | Look alike | Layout reference 1 (settings) | 1, 7 | Missing |
 | Look alike | Layout reference 2 (main chat) | 1, 7 | Missing |
 

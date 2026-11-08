@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 export interface ServerConfig {
@@ -19,6 +19,11 @@ export interface ServerConfig {
   maxUploadBytes: number;
   /** Allow http:// push endpoints, for a ntfy server on the home network. */
   pushAllowHttp: boolean;
+  /**
+   * iPhone notifications through Apple (APNs), with a token key (.p8) from the Apple developer
+   * account that signs the iOS app. Null: iPhones can sign up, but get no pushes.
+   */
+  apns: ApnsConfig | null;
   /**
    * Serve HTTPS directly, without a reverse proxy: PEM files for the certificate (with any
    * chain) and its private key. Null: plain HTTP, for running behind a proxy that does HTTPS.
@@ -42,6 +47,15 @@ export interface ServerConfig {
   };
   /** "Sign in with Google": an OAuth client from Google Cloud. Off unless both are set. */
   google: { clientId: string; clientSecret: string };
+}
+
+export interface ApnsConfig {
+  /** The .p8 key's PEM text. */
+  key: string;
+  keyId: string;
+  teamId: string;
+  /** The app's bundle id, which is the APNs topic (and, with ".voip", the call topic). */
+  bundleId: string;
 }
 
 /** The LiveKit server shipped in the Docker image, started and stopped by Dendrop. */
@@ -76,6 +90,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     signup: bool(env.DENDROP_SIGNUP, false),
     maxUploadBytes: Math.max(1, Number(env.DENDROP_MAX_UPLOAD_MB) || 25) * 1024 * 1024,
     pushAllowHttp: bool(env.DENDROP_PUSH_ALLOW_HTTP, false),
+    apns: apnsConfig(env),
     tls: tlsConfig(env),
     livekit: livekitConfig(env),
     oidc: {
@@ -108,6 +123,21 @@ function tlsConfig(env: NodeJS.ProcessEnv): ServerConfig["tls"] {
     return { cert: path.join(dir, "self-signed.crt"), key: path.join(dir, "self-signed.key") };
   }
   return null;
+}
+
+/**
+ * DENDROP_APNS_KEY_FILE (or DENDROP_APNS_KEY, the file's text), DENDROP_APNS_KEY_ID and
+ * DENDROP_APNS_TEAM_ID: an APNs key from the Apple developer account. DENDROP_APNS_BUNDLE_ID
+ * only needs setting if you changed the iOS app's bundle id.
+ */
+function apnsConfig(env: NodeJS.ProcessEnv): ServerConfig["apns"] {
+  const file = (env.DENDROP_APNS_KEY_FILE ?? "").trim();
+  let key = (env.DENDROP_APNS_KEY ?? "").trim().replace(/\\n/g, "\n");
+  if (!key && file) key = readFileSync(file, "utf8").trim();
+  const keyId = (env.DENDROP_APNS_KEY_ID ?? "").trim();
+  const teamId = (env.DENDROP_APNS_TEAM_ID ?? "").trim();
+  if (!key || !keyId || !teamId) return null;
+  return { key, keyId, teamId, bundleId: (env.DENDROP_APNS_BUNDLE_ID ?? "").trim() || "io.github.spacegoose02.dendrop" };
 }
 
 const port = (v: string | undefined, fallback: number): number => {

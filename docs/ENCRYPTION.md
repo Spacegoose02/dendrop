@@ -2,7 +2,7 @@
 
 Direct messages and group DMs are end-to-end encrypted: text, file names and file contents are
 encrypted on your device, and the server only ever stores ciphertext. It's built on the
-browser's WebCrypto, so the web, desktop (Electron) and Android (Capacitor) apps share it.
+browser's WebCrypto, so the web, desktop (Electron), Android and iPhone (Capacitor) apps share it.
 The code is in `packages/web/src/e2ee.ts`.
 
 Browsers only offer WebCrypto on a secure address (`https://`, or `localhost`), so the web

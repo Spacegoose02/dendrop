@@ -144,6 +144,9 @@ export function authRoutes(app: FastifyInstance, ctx: Context): void {
 
   app.get("/api/server", async (req): Promise<ServerInfo> => {
     requireUser(req);
-    return { maxUploadBytes: config.maxUploadBytes, calls: callsEnabled(config), lootdenUrl: ctx.lootden.settings().url || null, gifs: ctx.gifs.settings().enabled };
+    return { maxUploadBytes: config.maxUploadBytes, calls: callsEnabled(config), lootdenUrl: ctx.lootden.settings().url || null, gifs: ctx.gifs.settings().enabled, watchYoutube: ctx.watch.get().youtube };
   });
+
+  /** The server's clock, so watch together plays at the same point on every device. */
+  app.get("/api/time", async () => ({ now: Date.now() }));
 }

@@ -10,6 +10,11 @@ body,
   height: 100%;
   margin: 0;
 }
+/* Phones with a notch or home bar (the iPhone app, or Safari's Add to Home Screen) draw the page
+   under them; keep the app clear. All zeros everywhere else. */
+#root {
+  padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+}
 body {
   background: var(--dd-bg-main);
   color: var(--dd-text);
