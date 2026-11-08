@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { isExternalLink, onOrigin, permissionAllowed } from "../src/links.js";
 import { normalizeServerUrl, originOf } from "../src/serverUrl.js";
 import { defaultSettings, SettingsStore } from "../src/settings.js";
-import { compareVersions, installKind, parseChecksums, pickUpdate } from "../src/updater.js";
+import { compareVersions, findUpdate, installKind, parseChecksums, pickUpdate } from "../src/updater.js";
 
 test("server addresses are normalized", () => {
   assert.equal(normalizeServerUrl("tower:8080"), "http://tower:8080");
@@ -60,6 +60,10 @@ test("updates pick the newest build of the same kind", () => {
     { name: "Dendrop-0.10.0-linux-amd64.deb", size: 5 },
   ];
   assert.equal(pickUpdate(files, "0.1.0", "installer")?.file, "Dendrop-Setup-0.10.0.exe");
+  assert.equal(
+    pickUpdate(files, "0.1.0", "installer", "v0.10.0")?.url,
+    "https://github.com/Spacegoose02/dendrop/releases/download/v0.10.0/Dendrop-Setup-0.10.0.exe",
+  );
   assert.equal(pickUpdate(files, "0.1.0", "portable")?.file, "Dendrop-0.10.0-portable.exe");
   assert.equal(pickUpdate(files, "0.1.0", "appimage")?.file, "Dendrop-0.10.0-linux-x86_64.AppImage");
   assert.equal(pickUpdate(files, "0.10.0", "installer"), null);
@@ -71,4 +75,31 @@ test("updates pick the newest build of the same kind", () => {
   assert.equal(installKind({}, "linux"), "other");
   const sums = parseChecksums(`${"a".repeat(64)}  Dendrop-Setup-0.10.0.exe\n`);
   assert.equal(sums.get("Dendrop-Setup-0.10.0.exe"), "a".repeat(64));
+});
+
+test("updates come from the latest GitHub release", async () => {
+  const asked: string[] = [];
+  const release = {
+    tag_name: "v0.7.0",
+    assets: [
+      { name: "Dendrop-Setup-0.7.0.exe", size: 10 },
+      { name: "Dendrop-0.7.0-portable.exe", size: 11 },
+      { name: "SHA256SUMS", size: 1 },
+    ],
+  };
+  const fake = async (url: string) => {
+    asked.push(url);
+    return new Response(JSON.stringify(release), { status: 200 });
+  };
+  const found = await findUpdate(fake, "0.6.1", "installer");
+  assert.equal(asked[0], "https://api.github.com/repos/Spacegoose02/dendrop/releases/latest");
+  assert.deepEqual(found, {
+    version: "0.7.0",
+    file: "Dendrop-Setup-0.7.0.exe",
+    size: 10,
+    url: "https://github.com/Spacegoose02/dendrop/releases/download/v0.7.0/Dendrop-Setup-0.7.0.exe",
+  });
+  assert.equal(await findUpdate(fake, "0.7.0", "installer"), null);
+  assert.equal(await findUpdate(async () => new Response("", { status: 404 }), "0.6.1", "portable"), null);
+  await assert.rejects(findUpdate(async () => new Response("", { status: 500 }), "0.6.1", "portable"), /GitHub answered 500/);
 });

@@ -26,7 +26,7 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-/** The app file names the release workflow produces, per install kind (see package.json build). The server lists them at /api/clients. */
+/** The app file names the release workflow produces, per install kind (see package.json build). */
 const PATTERNS: Record<Exclude<InstallKind, "other">, RegExp> = {
   installer: /^Dendrop-Setup-(\d+(?:\.\d+){1,3})\.exe$/i,
   portable: /^Dendrop-(\d+(?:\.\d+){1,3})-portable\.exe$/i,
@@ -37,25 +37,66 @@ export interface AvailableUpdate {
   version: string;
   file: string;
   size: number;
+  /** Where to download it: the file on its GitHub release. */
+  url: string;
 }
 
 /**
- * The newest app build on the server that this copy can update itself with, when it's newer
- * than the running version. Builds of other kinds (a .deb, an installer for a portable copy)
- * are ignored.
+ * The newest app build in a release's files that this copy can update itself with, when it's
+ * newer than the running version. Builds of other kinds (a .deb, an installer for a portable copy)
+ * are ignored. tag is the release's tag, which names where the files download from.
  */
-export function pickUpdate(files: Array<{ name: string; size: number }>, current: string, kind: InstallKind): AvailableUpdate | null {
+export function pickUpdate(
+  files: Array<{ name: string; size: number }>,
+  current: string,
+  kind: InstallKind,
+  tag = "",
+  repo = RELEASE_REPO,
+): AvailableUpdate | null {
   if (kind === "other") return null;
   let best: AvailableUpdate | null = null;
   for (const f of files) {
     const v = f.name.match(PATTERNS[kind])?.[1];
     if (!v || compareVersions(v, current) <= 0) continue;
-    if (!best || compareVersions(v, best.version) > 0) best = { version: v, file: f.name, size: f.size };
+    if (!best || compareVersions(v, best.version) > 0) {
+      const at = tag || `v${v}`;
+      best = { version: v, file: f.name, size: f.size, url: `https://github.com/${repo}/releases/download/${encodeURIComponent(at)}/${encodeURIComponent(f.name)}` };
+    }
   }
   return best;
 }
 
-/** Downloads an app build from the server into dir, reporting bytes. headers carries the sign-in cookie. */
+/**
+ * Asks GitHub for the newest published release (drafts and pre-releases aren't "latest") and
+ * picks the build this copy can update to. Needs no sign-in and works with any Dendrop server.
+ */
+export async function findUpdate(
+  fetchImpl: (url: string, init?: RequestInit) => Promise<Response>,
+  current: string,
+  kind: InstallKind,
+  repo = RELEASE_REPO,
+): Promise<AvailableUpdate | null> {
+  if (kind === "other") return null;
+  let res: Response;
+  try {
+    res = await fetchImpl(`https://api.github.com/repos/${repo}/releases/latest`, {
+      headers: { Accept: "application/vnd.github+json", "User-Agent": "Dendrop-desktop" },
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch {
+    throw new Error("Couldn't reach GitHub to check for updates. Try again when this PC is online.");
+  }
+  if (res.status === 404) return null; // No release published yet.
+  if (!res.ok) throw new Error(`Checking for updates failed: GitHub answered ${res.status}`);
+  const release = (await res.json()) as { tag_name?: unknown; assets?: Array<{ name?: unknown; size?: unknown }> };
+  const tag = typeof release.tag_name === "string" ? release.tag_name : "";
+  const files = (release.assets ?? [])
+    .filter((a) => typeof a.name === "string")
+    .map((a) => ({ name: a.name as string, size: typeof a.size === "number" ? a.size : 0 }));
+  return pickUpdate(files, current, kind, tag, repo);
+}
+
+/** Downloads an app build into target, reporting bytes. */
 export async function downloadUpdate(
   fetchImpl: (url: string, init?: RequestInit) => Promise<Response>,
   url: string,

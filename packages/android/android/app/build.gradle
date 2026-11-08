@@ -1,5 +1,13 @@
 apply plugin: 'com.android.application'
 
+// The release workflow sets DENDROP_VERSION from the tag (v0.7.0 -> 0.7.0), so the app knows its
+// version for update checks and each release installs over the last. Local builds stay 0.1.0.
+def dendropVersion = (System.getenv("DENDROP_VERSION") ?: "0.1.0").replaceFirst(/^v/, "")
+def dendropVersionCode = { String v ->
+    def p = (v.tokenize('.-') + ['0', '0', '0']).take(3).collect { it.isInteger() ? it.toInteger() : 0 }
+    Math.max(1, p[0] * 10000 + p[1] * 100 + p[2])
+}(dendropVersion)
+
 android {
     namespace = "io.github.spacegoose02.dendrop"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +15,8 @@ android {
         applicationId "io.github.spacegoose02.dendrop"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "0.1.0"
+        versionCode dendropVersionCode
+        versionName dendropVersion
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61

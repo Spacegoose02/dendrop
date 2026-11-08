@@ -22,8 +22,9 @@ matches the server and nothing in the web client is forked.
   show who messages are from, install updates automatically, change server, check for updates, quit.
 - **Open when the PC starts** (off by default) starts hidden in the tray. On Windows it's the
   usual Run entry (removed by the uninstaller); on Linux it's `~/.config/autostart/dendrop.desktop`.
-- **Updates.** Every few hours the app asks the server for builds at `/api/clients`, downloads a
-  newer one of the same kind (installer, portable .exe or AppImage), checks it against the
+- **Updates.** Every few hours the app looks at the latest
+  [GitHub release](https://github.com/Spacegoose02/dendrop/releases/latest), downloads a
+  newer build of the same kind (installer, portable .exe or AppImage), checks it against the
   `SHA256SUMS` on that version's GitHub release, and installs it when the window is closed or you
   choose *Restart to update*. The .deb updates through your package manager instead.
 - `window.dendrop` (from `src/preload.ts`) lets the web client read and change these settings later,
@@ -59,9 +60,5 @@ SmartScreen asks once ("More info", "Run anyway").
 
 ## Not done yet
 
-- **Server side of updates.** The server doesn't serve `/api/clients` yet; until it does, update
-  checks just report an error in the tray and nothing installs. Since the repository is private,
-  the GitHub `SHA256SUMS` check also needs either a public release or another source of trust
-  (for example a signing key), so this needs a decision before the first release.
 - Global keybinds (push-to-talk, mute, deafen) and pop-out chats wait for calls and the chat UI.
 - Opening the right conversation when you click a notification needs routes in the web client.
