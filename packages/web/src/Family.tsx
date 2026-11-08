@@ -23,6 +23,8 @@ export function alertText(a: FamilyAlert): string {
       return `${kid} used today's chat time.`;
     case "help":
       return `${kid} asked you to look at a chat.`;
+    case "profile":
+      return `${kid} changed their profile.`;
   }
 }
 
@@ -113,6 +115,10 @@ function KidView({ me, family, conversations }: { me: Me; family: FamilyInfo; co
           <li>{status.allowedNow ? "You can chat right now." : `⏰ ${status.reason}`}</li>
           {rules.choresFirst && <li>Chores first: chat opens once today's Den Duty chores are done</li>}
           <li>{rules.gifs ? "GIFs are on (rated G only)" : "GIFs are off: ask a parent if you'd like them"}</li>
+          <li>
+            {rules.profilePictures ? "You can set a profile picture and banner" : "Profile pictures are off: ask a parent if you'd like one"}. Your parents
+            hear when you change your profile.
+          </li>
           {rules.allowedFrom && rules.allowedUntil && (
             <li>
               Chat hours: {rules.allowedFrom} to {rules.allowedUntil}
@@ -407,6 +413,15 @@ function KidCard({ kid, onChanged }: { kid: FamilyKid; onChanged: () => void }) 
       setError((err as Error).message);
     }
   };
+  const clearProfile = async () => {
+    if (!confirm(`Clear ${kid.user.displayName}'s picture, banner, about me, pronouns and status?`)) return;
+    try {
+      await api(`/api/family/kids/${kid.user.id}/profile`, { method: "DELETE" });
+      onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
   const removeFriend = async (f: Friend) => {
     if (f.state === "friends" && !confirm(`Remove ${f.user.displayName} from ${kid.user.displayName}'s friends?`)) return;
     await api(`/api/family/kids/${kid.user.id}/friends/${f.user.id}`, { method: "DELETE" });
@@ -417,7 +432,7 @@ function KidCard({ kid, onChanged }: { kid: FamilyKid; onChanged: () => void }) 
   return (
     <section className="kid-card">
       <header className="family-row">
-        <Avatar name={kid.user.displayName} size={32} />
+        <Avatar name={kid.user.displayName} src={kid.user.avatar} size={32} />
         <span>
           <strong>{kid.user.displayName}</strong>
           {kid.managed && <span className="muted small"> · under your account</span>}
@@ -467,6 +482,22 @@ function KidCard({ kid, onChanged }: { kid: FamilyKid; onChanged: () => void }) 
           </span>
         </span>
       </label>
+      <label className="toggle">
+        <input type="checkbox" checked={rules.profilePictures} onChange={(e) => set({ profilePictures: e.target.checked })} />
+        <span>
+          <strong>Profile picture and banner</strong>
+          <span className="muted small">
+            Let them put up their own pictures. Their about me, pronouns and status always go through the word filter, and you get an alert when their
+            profile changes. Turning this off takes their pictures down.
+          </span>
+        </span>
+      </label>
+      <p className="muted small">
+        <button className="ghost danger" onClick={() => void clearProfile()}>
+          Clear {kid.user.displayName}'s profile
+        </button>{" "}
+        Removes their picture, banner, about me, pronouns and status.
+      </p>
       <label className="toggle">
         <input type="checkbox" checked={hours} onChange={(e) => set(e.target.checked ? { allowedFrom: "07:00", allowedUntil: "20:00" } : { allowedFrom: null, allowedUntil: null })} />
         <span>

@@ -685,6 +685,22 @@ export const MIGRATIONS: string[] = [
     UNION ALL
     SELECT t.conversation_id, t.channel_id, c.server_id, t.id FROM channel_threads t JOIN server_channels c ON c.id = t.channel_id;
   `,
+  `
+  -- Profiles: a picture, a banner (picture or color), an "about me", pronouns, and a custom
+  -- status that can clear itself. Pictures live in <data>/uploads/<file>.
+  ALTER TABLE users ADD COLUMN avatar_file TEXT;
+  ALTER TABLE users ADD COLUMN avatar_type TEXT;
+  ALTER TABLE users ADD COLUMN banner_file TEXT;
+  ALTER TABLE users ADD COLUMN banner_type TEXT;
+  ALTER TABLE users ADD COLUMN banner_color TEXT;
+  ALTER TABLE users ADD COLUMN bio TEXT NOT NULL DEFAULT '';
+  ALTER TABLE users ADD COLUMN pronouns TEXT NOT NULL DEFAULT '';
+  ALTER TABLE users ADD COLUMN status_emoji TEXT;
+  ALTER TABLE users ADD COLUMN status_text TEXT;
+  ALTER TABLE users ADD COLUMN status_expires_at TEXT;
+  -- Kids need a parent's OK for a profile picture and banner.
+  ALTER TABLE kid_rules ADD COLUMN profile_pictures INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export function now(): string {

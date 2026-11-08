@@ -18,6 +18,7 @@ import {
 import { api, ApiError } from "./api.ts";
 import { AutomodTab, ModLogTab } from "./Automod.tsx";
 import { Avatar } from "./Avatar.tsx";
+import { ProfileLink, StatusLine } from "./Profile.tsx";
 import { Modal } from "./Modal.tsx";
 import { WebhooksTab } from "./Webhooks.tsx";
 import { BotsTab } from "./Bots.tsx";
@@ -206,7 +207,7 @@ export function ServerSidebar({
                         const talking = inVoice === c.id && speaking.has(v.userId);
                         return (
                           <li key={v.userId} className={`voice-member ${talking ? "speaking" : ""}`}>
-                            <Avatar name={name} size={22} />
+                            <Avatar name={name} src={m?.user.avatar} size={22} />
                             <span className="ellipsis" style={colorsOf(memberColors(m)).name}>
                               {name}
                             </span>
@@ -240,12 +241,16 @@ export function ServerSidebar({
           const top = rolesOf(server, m)[0];
           return (
             <div key={m.user.id} className="server-member">
-              <span className="server-member-name">
-                <span className="ellipsis" style={colorsOf(memberColors(m)).name}>
-                  {m.nickname ?? m.user.displayName}
+              <ProfileLink userId={m.user.id} serverId={server.id} className="server-member-link">
+                <Avatar name={m.nickname ?? m.user.displayName} src={m.user.avatar} size={26} />
+                <span className="server-member-name">
+                  <span className="ellipsis profile-link-name" style={colorsOf(memberColors(m)).name}>
+                    {m.nickname ?? m.user.displayName}
+                  </span>
+                  <StatusLine user={m.user} />
+                  <ActivityLine userId={m.user.id} />
                 </span>
-                <ActivityLine userId={m.user.id} />
-              </span>
+              </ProfileLink>
               {m.role !== "member" ? <span className={`role-tag ${m.role}`}>{m.role}</span> : top && <RoleChip role={top} />}
               {m.user.isBot && <span className="bot-tag">bot</span>}
               <LevelBadge xp={m.xp} />

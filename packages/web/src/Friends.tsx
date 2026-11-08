@@ -4,6 +4,7 @@ import { api } from "./api.ts";
 import { ActivityLine } from "./activity.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { useColors } from "./colors.ts";
+import { ProfileLink, StatusLine } from "./Profile.tsx";
 
 export function Friends({
   friends,
@@ -71,7 +72,7 @@ export function Friends({
             <div className="section-label">Requests · {incoming.length}</div>
             {incoming.map((f) => (
               <div className="person" key={f.user.id}>
-                <Avatar name={f.user.displayName} />
+                <Avatar name={f.user.displayName} src={f.user.avatar} />
                 <PersonName u={f.user} />
                 <button className="primary" onClick={() => act(f, "accept")}>
                   Accept
@@ -88,7 +89,9 @@ export function Friends({
         {accepted.length === 0 && <p className="muted">No friends yet. Send a request to someone on this server by their username.</p>}
         {accepted.map((f) => (
           <div className="person" key={f.user.id}>
-            <Avatar name={f.user.displayName} online={online.has(f.user.id)} />
+            <ProfileLink userId={f.user.id}>
+              <Avatar name={f.user.displayName} src={f.user.avatar} online={online.has(f.user.id)} />
+            </ProfileLink>
             <PersonName u={f.user} sub={online.has(f.user.id) ? "Online" : "Offline"} activity />
             <button className="primary" onClick={() => onMessage(f.user)}>
               Message
@@ -109,7 +112,7 @@ export function Friends({
             <div className="section-label">Waiting for a parent · {held.length}</div>
             {held.map((f) => (
               <div className="person" key={f.user.id}>
-                <Avatar name={f.user.displayName} />
+                <Avatar name={f.user.displayName} src={f.user.avatar} />
                 <PersonName u={f.user} sub="A parent has to say yes before you can chat" />
                 <button className="ghost" onClick={() => act(f, "remove")}>
                   Cancel
@@ -123,7 +126,7 @@ export function Friends({
             <div className="section-label">Sent · {outgoing.length}</div>
             {outgoing.map((f) => (
               <div className="person" key={f.user.id}>
-                <Avatar name={f.user.displayName} />
+                <Avatar name={f.user.displayName} src={f.user.avatar} />
                 <PersonName u={f.user} sub="Waiting for them to accept" />
                 <button className="ghost" onClick={() => act(f, "remove")}>
                   Cancel
@@ -141,13 +144,16 @@ function PersonName({ u, sub, activity }: { u: PublicUser; sub?: string; activit
   const colorsOf = useColors();
   return (
     <span className="person-name">
-      <strong className="ellipsis" style={colorsOf(u).name}>
-        {u.displayName}
-      </strong>
+      <ProfileLink userId={u.id}>
+        <strong className="ellipsis" style={colorsOf(u).name}>
+          {u.displayName}
+        </strong>
+      </ProfileLink>
       <span className="muted small ellipsis">
         @{u.username}
         {sub ? ` · ${sub}` : ""}
       </span>
+      {activity && <StatusLine user={u} />}
       {activity && <ActivityLine userId={u.id} />}
     </span>
   );

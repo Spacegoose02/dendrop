@@ -188,6 +188,7 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Features | Activity privacy | 1 | Done: read receipts and showing what you're playing can each be turned off |
 | Features | Invite links | 3 | Done (links with expiry and use limits, and invites to friends) |
 | Features | Server chat profile / rename | 7 | Done (name, description, per-server nickname) |
+| Features | User profiles | 7 | Done: profile picture, banner, about me, pronouns and a custom status that clears itself, on a profile card with Playing now, roles and raccoon rank; kid profiles follow parents' rules ([PROFILES.md](PROFILES.md)) |
 | Features | Server chat banner | 7 | Done (icon and banner) |
 | Integrations | LootDen integration | 8 | Done: playing now, alerts through webhooks, game-link cards with Send to PC, game nights with a voice channel, family wall screenshots (kid-safe) and kid accounts from LootDen's kid profiles, LootDen bedtime and game time in kids' time rules, and "Surprise us" picks shared through a webhook (with LootDen's Share to chat button) ([LOOTDEN.md](LOOTDEN.md)) |
 | Integrations | Den Duty integration | 8 | Partial: chores line, events in channels and chat pauses from time-outs and chores ([DENDUTY.md](DENDUTY.md)); a bot still to come |

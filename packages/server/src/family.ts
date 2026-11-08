@@ -48,6 +48,7 @@ const DEFAULT_RULES: KidRules = {
   lootdenBedtime: false,
   lootdenPlayTime: false,
   gifs: false,
+  profilePictures: false,
 };
 
 /**
@@ -111,6 +112,7 @@ interface RulesRow {
   lootden_bedtime: number;
   lootden_play_time: number;
   gifs: number;
+  profile_pictures: number;
 }
 
 interface AlertRow {
@@ -311,12 +313,13 @@ export class FamilyService {
       lootdenBedtime: !!r.lootden_bedtime,
       lootdenPlayTime: !!r.lootden_play_time,
       gifs: !!r.gifs,
+      profilePictures: !!r.profile_pictures,
     };
   }
 
   setRules(kidId: number, patch: Partial<Record<keyof KidRules, unknown>>): KidRules {
     const next = { ...this.rules(kidId) };
-    const bool = (k: "profanityFilter" | "approveFriends" | "canJoinServers" | "choresFirst" | "lootdenBedtime" | "lootdenPlayTime" | "gifs") => {
+    const bool = (k: "profanityFilter" | "approveFriends" | "canJoinServers" | "choresFirst" | "lootdenBedtime" | "lootdenPlayTime" | "gifs" | "profilePictures") => {
       if (patch[k] === undefined) return;
       if (typeof patch[k] !== "boolean") throw new HttpError(400, `${k} is true or false`);
       next[k] = patch[k];
@@ -328,6 +331,7 @@ export class FamilyService {
     bool("lootdenBedtime");
     bool("lootdenPlayTime");
     bool("gifs");
+    bool("profilePictures");
     if (patch.blockedWords !== undefined) {
       if (!Array.isArray(patch.blockedWords) || patch.blockedWords.length > 200) throw new HttpError(400, "blockedWords is a list of up to 200 words");
       const words = patch.blockedWords.map((w) => (typeof w === "string" ? w.trim().toLowerCase() : ""));
@@ -362,7 +366,7 @@ export class FamilyService {
     this.db
       .prepare(
         `UPDATE kid_rules SET profanity_filter = ?, blocked_words = ?, approve_friends = ?, can_join_servers = ?,
-         allowed_from = ?, allowed_until = ?, daily_minutes = ?, timezone = ?, chores_first = ?, lootden_bedtime = ?, lootden_play_time = ?, gifs = ? WHERE kid_id = ?`,
+         allowed_from = ?, allowed_until = ?, daily_minutes = ?, timezone = ?, chores_first = ?, lootden_bedtime = ?, lootden_play_time = ?, gifs = ?, profile_pictures = ? WHERE kid_id = ?`,
       )
       .run(
         next.profanityFilter ? 1 : 0,
@@ -377,6 +381,7 @@ export class FamilyService {
         next.lootdenBedtime ? 1 : 0,
         next.lootdenPlayTime ? 1 : 0,
         next.gifs ? 1 : 0,
+        next.profilePictures ? 1 : 0,
         kidId,
       );
     return next;
@@ -565,6 +570,8 @@ export class FamilyService {
         return `${kid} used today's chat time.`;
       case "help":
         return `${kid} asked you to look at a chat.`;
+      case "profile":
+        return `${kid} changed their profile.`;
     }
   }
 

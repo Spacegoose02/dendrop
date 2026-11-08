@@ -4,7 +4,7 @@ import type { Conversation, Message, ServerEvent } from "@dendrop/shared";
 import { GatewayWatcher, notificationFor, Throttle, type SocketLike } from "../src/notify.js";
 
 const msg = (over: Partial<Message> = {}): Message => ({ id: 1, conversationId: 7, authorId: 2, body: "meet at 6, love you", createdAt: "", editedAt: null, deleted: false, attachments: [], keyVersion: null, webhook: null, buttons: null, reactions: [], ...over });
-const dm: Conversation = { id: 7, isGroup: false, name: null, members: [{ id: 1, username: "me", displayName: "Me", publicKey: null, nameColor: null, textColor: null }, { id: 2, username: "sam", displayName: "Sam", publicKey: null, nameColor: null, textColor: null }], lastMessageAt: null, createdAt: "", reads: [], e2ee: null, guardians: [] };
+const dm: Conversation = { id: 7, isGroup: false, name: null, members: [{ id: 1, username: "me", displayName: "Me", publicKey: null, nameColor: null, textColor: null, avatar: null, status: null }, { id: 2, username: "sam", displayName: "Sam", publicKey: null, nameColor: null, textColor: null, avatar: null, status: null }], lastMessageAt: null, createdAt: "", reads: [], e2ee: null, guardians: [] };
 const opts = (notifySender = false) => ({ meId: 1, notifySender, conversation: (id: number) => (id === 7 ? dm : undefined) });
 
 test("message notifications never include the message text", () => {

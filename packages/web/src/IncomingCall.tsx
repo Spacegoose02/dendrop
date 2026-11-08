@@ -54,7 +54,7 @@ export function IncomingCall({
   const title = conversation ? conversationTitle(conversation, me.id) : "Someone";
   return (
     <div className="incoming" role="alertdialog" aria-label={`Incoming call from ${caller?.displayName ?? title}`}>
-      <Avatar name={caller?.displayName ?? title} size={72} />
+      <Avatar name={caller?.displayName ?? title} src={caller?.avatar} size={72} />
       <h2>{caller?.displayName ?? title}</h2>
       <p className="muted">
         {call.video ? "Video call" : "Voice call"}

@@ -17,6 +17,7 @@ import {
 import { LIMITS, type Me } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { SignInSection } from "./SignIns.tsx";
+import { ProfileEditor } from "./Profile.tsx";
 import { AudioSettings } from "./AudioSettings.tsx";
 import { useColors } from "./colors.ts";
 import { securityCode } from "./e2ee.ts";
@@ -33,12 +34,15 @@ export function SettingsButton({
   keyState,
   onEncryption,
   onFamily,
+  picturesAllowed = true,
 }: {
   me: Me;
   onSaved: (me: Me) => void;
   keyState: KeyState;
   onEncryption: (mode: EncryptionMode) => void;
   onFamily: () => void;
+  /** Kids need a parent's OK for a profile picture and banner. */
+  picturesAllowed?: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
@@ -69,6 +73,7 @@ export function SettingsButton({
         {open && (
           <SettingsPane
             me={me}
+            picturesAllowed={picturesAllowed}
             onSaved={onSaved}
             onDone={() => setOpen(false)}
             keyState={keyState}
@@ -94,9 +99,11 @@ function SettingsPane({
   keyState,
   onEncryption,
   onFamily,
+  picturesAllowed,
 }: {
   me: Me;
   onSaved: (me: Me) => void;
+  picturesAllowed: boolean;
   onDone: () => void;
   keyState: KeyState;
   onEncryption: (mode: EncryptionMode) => void;
@@ -123,6 +130,11 @@ function SettingsPane({
       </header>
 
       <AccountSection me={me} onSaved={onSaved} />
+      <section>
+        <h3>Profile</h3>
+        <p className="muted small">What friends and the people in your chats and servers see when they click your name.</p>
+        <ProfileEditor me={me} onSaved={onSaved} picturesAllowed={picturesAllowed} />
+      </section>
       <EncryptionSection me={me} keyState={keyState} onEncryption={onEncryption} />
       <SignInSection />
       <AudioSettings />
