@@ -37,6 +37,9 @@ it without decryption failing. Files are encrypted separately; their real name, 
 travel inside the encrypted message, and the server stores them as `file` /
 `application/octet-stream`.
 
+**Couples kit.** Everything in a chat's couples kit is encrypted with the conversation key too,
+bound to the kit so it can't be passed off as a message. See [COUPLES.md](COUPLES.md).
+
 **Checking keys.** The 🔒 in a chat's header lists everyone's security code (from a hash of
 their public key). If the code you see for someone matches the one they see for themselves in
 Settings, nobody, the server included, has swapped their key.

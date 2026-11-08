@@ -169,6 +169,8 @@ export class FamilyService {
   playLimits: (kidId: number, at: Date) => LootdenKidLimits | null = () => null;
   private timer: ReturnType<typeof setInterval> | undefined;
   private chatPause: ChatPause = () => null;
+  /** Run when an account becomes a kid account (or gets another parent), before any key is shared. */
+  onLinked: ((kidId: number) => void)[] = [];
 
   constructor(
     private readonly db: Db,
@@ -257,6 +259,7 @@ export class FamilyService {
         .prepare("INSERT OR IGNORE INTO kid_rules (kid_id, timezone) VALUES (?, ?)")
         .run(kidId, isTimeZone(timezone) ? timezone : DEFAULT_RULES.timezone);
     });
+    for (const fn of this.onLinked) fn(kidId);
   }
 
   /**
