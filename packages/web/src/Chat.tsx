@@ -164,7 +164,7 @@ export function Chat({
   const lastMarked = useRef(0);
   const [showInfo, setShowInfo] = useState(false);
   // The couples kit: only for 1:1 chats between two adult accounts (the server checks too).
-  const couplesPossible = !channel && !conversation.isGroup && !me.isKid && !kid && conversation.members.length === 2 && conversation.guardians.length === 0;
+  const couplesPossible = !!me.couplesKit && !channel && !conversation.isGroup && !me.isKid && !kid && conversation.members.length === 2 && conversation.guardians.length === 0;
   const { kit: couplesKit } = useCouplesKit(conversation.id, couplesPossible);
   const showCouples = couplesPossible && !!couplesKit?.eligible;
   const couplesAsked = couplesKit?.state === "invited" && couplesKit.invitedBy !== me.id;

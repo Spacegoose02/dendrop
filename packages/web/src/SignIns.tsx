@@ -177,6 +177,11 @@ export function AdminSignInSection() {
     if (password) void act(() => api(`/api/admin/accounts/${a.user.id}/password`, { method: "PUT", body: { password } }));
   };
 
+  const setCouples = (a: AdminAccount, on: boolean) => {
+    if (!on && !confirm(`Turn off the couples kit for ${a.user.displayName}? Everything in their couples kits is deleted.`)) return;
+    void act(() => api(`/api/admin/accounts/${a.user.id}/couples`, { method: "PUT", body: { on } }));
+  };
+
   const reset2fa = (a: AdminAccount) => {
     if (!confirm(`Turn off two-step sign-in for ${a.user.displayName} and remove their passkeys? Do this when they've lost their phone. They'll be signed out everywhere.`)) return;
     void act(() => api(`/api/admin/accounts/${a.user.id}/2fa`, { method: "DELETE" }));
@@ -236,6 +241,16 @@ export function AdminSignInSection() {
             {(a.twoFactor || !!a.passkeys) && (
               <button className="ghost small-button" onClick={() => reset2fa(a)}>
                 Reset two-step
+              </button>
+            )}
+            {/* The couples kit is hidden unless switched on here. Never for kid accounts. */}
+            {!a.isKid && !a.isSuperAdmin && (
+              <button
+                className={`ghost small-button ${a.couplesKit ? "on" : ""}`}
+                title="Show the private couples kit in this account's 1:1 chats with other accounts that have it"
+                onClick={() => setCouples(a, !a.couplesKit)}
+              >
+                💞 {a.couplesKit ? "Couples kit on" : "Couples kit off"}
               </button>
             )}
             <button className="small-button" onClick={() => setPassword(a)}>

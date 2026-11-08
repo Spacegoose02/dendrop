@@ -5,7 +5,7 @@ import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { guardianIds } from "./family.js";
 import type { Gateway } from "./gateway.js";
-import type { UserRepo } from "./users.js";
+import { couplesAllowed, type UserRepo } from "./users.js";
 
 /**
  * The couples kit: private extras for a 1:1 DM between two adults (a Yes / No / Maybe list,
@@ -90,7 +90,8 @@ export class CouplesService {
    */
   private pair(cid: number, userId: number): [number, number] {
     const me = this.users.byId(userId);
-    if (!me || me.isKid || me.isBot) throw new HttpError(404, "Not found");
+    // Hidden unless a super admin switched it on for you; never there for kid accounts.
+    if (!me || !couplesAllowed(me)) throw new HttpError(404, "Not found");
     const c = this.db.prepare("SELECT kind, is_group, dm_key FROM conversations WHERE id = ?").get(cid) as
       | { kind: string; is_group: number; dm_key: string | null }
       | undefined;
@@ -100,10 +101,13 @@ export class CouplesService {
     return [userId, other];
   }
 
-  /** Whether this DM could ever have a kit: two adult, non-bot accounts. */
+  /**
+   * Whether this DM can have a kit: the other person is an adult account the kit is switched on
+   * for too (the caller already is), and no kid's parents are guardians of the chat.
+   */
   private eligible(cid: number, other: number): boolean {
     const them = this.users.byId(other);
-    return !!them && !them.isBot && !them.isKid && guardianIds(this.db, cid).length === 0;
+    return !!them && couplesAllowed(them) && guardianIds(this.db, cid).length === 0;
   }
 
   /** Why this DM can't have a kit right now, or null. */

@@ -3,7 +3,7 @@ import { createECDH, randomBytes } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
-import type { Conversation, CouplesItem, CouplesKit, FamilyLinkCode } from "@dendrop/shared";
+import type { AdminAccount, Conversation, CouplesItem, CouplesKit, FamilyLinkCode, Me } from "@dendrop/shared";
 import { account, listen, startServer, type TestServer } from "./helpers.js";
 
 const b64 = (n: number) => randomBytes(n).toString("base64url");
@@ -58,6 +58,26 @@ describe("couples kit", () => {
     group = (await req(ann, "POST", "/api/conversations", { userIds: [beaId, calId] })).json<Conversation>().id;
   });
   after(() => s.close());
+
+  it("stays hidden until a super admin switches it on for both people", async () => {
+    assert.equal((await req(bea, "GET", `/api/couples/${dm}`)).statusCode, 404, "bea doesn't have it");
+    assert.equal((await req(bea, "GET", "/api/me")).json<Me>().couplesKit, false);
+    assert.equal((await req(ann, "GET", "/api/me")).json<Me>().couplesKit, true, "super admins always have it");
+    const hidden = await kitOf(ann);
+    assert.equal(hidden.eligible, false, "ann's button stays hidden until bea has it too");
+
+    const turnOn = (c: string, uid: number, on: boolean) => req(c, "PUT", `/api/admin/accounts/${uid}/couples`, { on });
+    assert.equal((await turnOn(cal, beaId, true)).statusCode, 403, "only super admins");
+    assert.equal((await turnOn(ann, annId, false)).statusCode, 409, "super admins always have it");
+    const r = await turnOn(ann, beaId, true);
+    assert.equal(r.statusCode, 200, r.body);
+    assert.equal(r.json<AdminAccount>().couplesKit, true);
+    assert.equal((await req(bea, "GET", "/api/me")).json<Me>().couplesKit, true);
+    assert.equal((await kitOf(ann)).eligible, true);
+    assert.equal((await kitOf(bea)).eligible, true);
+    // Cal doesn't have it: nothing for cal, and nothing in a chat with cal.
+    assert.equal((await req(cal, "GET", `/api/couples/${dm}`)).statusCode, 404);
+  });
 
   it("needs end-to-end encryption first", async () => {
     const k = await kitOf(ann);
@@ -216,6 +236,13 @@ describe("couples kit", () => {
     assert.equal((await req(kit, "POST", `/api/couples/${kidDm}/invite`)).statusCode, 404);
     assert.match((await kitOf(ann, kidDm)).unavailable!, /adult/);
     assert.equal((await req(ann, "POST", `/api/couples/${kidDm}/invite`)).statusCode, 403);
+
+    // A super admin can't switch it on for a kid account either.
+    assert.equal((await req(ann, "PUT", `/api/admin/accounts/${kitId}/couples`, { on: true })).statusCode, 403);
+    s.ctx.db.prepare("UPDATE users SET couples_kit = 1 WHERE id = ?").run(kitId);
+    assert.equal((await req(kit, "GET", "/api/me")).json<Me>().couplesKit, false, "even if the database says so");
+    assert.equal((await req(kit, "GET", `/api/couples/${kidDm}`)).statusCode, 404);
+    assert.equal((await kitOf(ann, kidDm)).eligible, false);
   });
 
   it("is deleted, files and all, if either person becomes a kid account", async () => {
@@ -241,11 +268,14 @@ describe("couples kit", () => {
     const left = s.ctx.db.prepare("SELECT COUNT(*) AS n FROM couples_items").get() as { n: number };
     assert.equal(left.n, 0);
     assert.equal((await req(bea, "GET", `/api/couples/${dm}`)).statusCode, 404);
+    assert.equal(s.ctx.users.byId(beaId)!.couplesKit, false, "linking switches it off");
   });
 
   it("deletes everything when turned off", async () => {
     // Unlink bea again, so the DM is between two adults once more.
     assert.equal((await req(cal, "DELETE", `/api/family/kids/${beaId}`)).statusCode, 200);
+    assert.equal((await kitOf(ann)).eligible, false, "bea needs switching on again");
+    await req(ann, "PUT", `/api/admin/accounts/${beaId}/couples`, { on: true });
     await req(ann, "POST", `/api/couples/${dm}/invite`);
     await req(bea, "POST", `/api/couples/${dm}/accept`);
     await add(bea, { kind: "countdown" });
@@ -253,6 +283,20 @@ describe("couples kit", () => {
     const off = await req(bea, "DELETE", `/api/couples/${dm}`);
     assert.equal(off.json<CouplesKit>().state, "off");
     const left = s.ctx.db.prepare("SELECT COUNT(*) AS n FROM couples_items").get() as { n: number };
+    assert.equal(left.n, 0);
+  });
+
+  it("deletes someone's kits when a super admin switches it off for them", async () => {
+    await req(ann, "POST", `/api/couples/${dm}/invite`);
+    await req(bea, "POST", `/api/couples/${dm}/accept`);
+    await add(bea, { kind: "idea" });
+    const r = await req(ann, "PUT", `/api/admin/accounts/${beaId}/couples`, { on: false });
+    assert.equal(r.json<AdminAccount>().couplesKit, false);
+    assert.equal((await req(bea, "GET", `/api/couples/${dm}`)).statusCode, 404);
+    const k = await kitOf(ann);
+    assert.equal(k.state, "off");
+    assert.equal(k.eligible, false);
+    const left = s.ctx.db.prepare("SELECT COUNT(*) AS n FROM couples_kits").get() as { n: number };
     assert.equal(left.n, 0);
   });
 });

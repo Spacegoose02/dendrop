@@ -2175,3 +2175,6 @@ h5.md-h {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.account-actions .small-button.on {
+  color: var(--dd-accent);
+}

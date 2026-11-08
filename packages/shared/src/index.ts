@@ -93,6 +93,11 @@ export interface Me extends PublicUser {
    * can't change its own password or linked sign-ins. Null for everyone else.
    */
   managedBy: number | null;
+  /**
+   * Can use the couples kit (docs/COUPLES.md): super admins, and accounts a super admin switched
+   * it on for. Always false for kid accounts.
+   */
+  couplesKit?: boolean;
 }
 
 /** "held": both said yes, but a kid's parent still has to approve it before they can chat. */
@@ -519,6 +524,8 @@ export interface AdminAccount {
   twoFactor?: boolean;
   /** How many passkeys the account has. */
   passkeys?: number;
+  /** The couples kit is switched on for them (always false for kids; super admins always have it). */
+  couplesKit?: boolean;
 }
 
 /** GET /api/server: what this server allows, for signed-in clients. */
@@ -1882,6 +1889,8 @@ export const AUDIT_ACTIONS: Record<string, string> = {
   "account.password": "set a new password for",
   "account.unlink": "unlinked a sign-in from",
   "account.reset2fa": "turned off two-step sign-in for",
+  "account.couplesOn": "switched on the couples kit for",
+  "account.couplesOff": "switched off the couples kit for",
   "creator.allow": "let make servers:",
   "creator.deny": "stopped making servers:",
   "family.link": "linked a parent and kid:",

@@ -824,6 +824,14 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE lootden_game_nights ADD COLUMN event_id INTEGER;
   ALTER TABLE lootden_game_nights ADD COLUMN players TEXT NOT NULL DEFAULT '[]';
   `,
+  `
+  -- The couples kit is hidden until a super admin switches it on for an account (super admins
+  -- always have it; kid accounts never do). Anyone already using a kit keeps it.
+  ALTER TABLE users ADD COLUMN couples_kit INTEGER NOT NULL DEFAULT 0;
+  UPDATE users SET couples_kit = 1 WHERE id IN (
+    SELECT m.user_id FROM conversation_members m JOIN couples_kits k ON k.conversation_id = m.conversation_id
+  );
+  `,
 ];
 
 export function now(): string {
