@@ -460,6 +460,81 @@ export interface ChatServer extends ChatServerSummary {
   emojis: CustomEmoji[];
   /** The server's stickers, newest last. */
   stickers: Sticker[];
+  /** Members earn XP and raccoon ranks for chatting. Owners and admins can turn it off. */
+  levels: boolean;
+  /** What new members see first: a hello, the rules, and roles they can pick for themselves. */
+  welcome: ServerWelcome;
+  /** When you went through the welcome screen (and agreed to the rules), or null if you haven't. */
+  welcomedAt: string | null;
+}
+
+// ---- Levels -----------------------------------------------------------------------------
+
+/** How XP is earned: a random amount per message, at most once per cooldown, in text channels. */
+export const LEVEL_RULES = { xpMin: 15, xpMax: 25, cooldownSeconds: 60 } as const;
+
+export interface RaccoonRank {
+  /** The level it starts at. */
+  level: number;
+  name: string;
+  emoji: string;
+}
+
+/** The ranks levels earn, lowest first. */
+export const RACCOON_RANKS: RaccoonRank[] = [
+  { level: 0, name: "Kit", emoji: "🍼" },
+  { level: 2, name: "Scavenger", emoji: "🍂" },
+  { level: 5, name: "Bin Diver", emoji: "🗑️" },
+  { level: 10, name: "Night Prowler", emoji: "🌙" },
+  { level: 15, name: "Masked Bandit", emoji: "🎭" },
+  { level: 20, name: "Den Keeper", emoji: "🏡" },
+  { level: 30, name: "Trash Panda Legend", emoji: "🌟" },
+  { level: 50, name: "Raccoon Royalty", emoji: "👑" },
+];
+
+/** Total XP needed to reach a level: 100 for level 1, 300 for 2, 600 for 3, and so on. */
+export const xpForLevel = (level: number): number => 50 * level * (level + 1);
+
+export interface LevelProgress {
+  level: number;
+  rank: RaccoonRank;
+  /** XP earned since this level started, and how much the next level needs on top of it. */
+  into: number;
+  needed: number;
+}
+
+export function levelOf(xp: number): LevelProgress {
+  let level = Math.max(0, Math.floor((-1 + Math.sqrt(1 + (4 * Math.max(0, xp)) / 50)) / 2));
+  while (xpForLevel(level + 1) <= xp) level++;
+  while (level > 0 && xpForLevel(level) > xp) level--;
+  const rank = [...RACCOON_RANKS].reverse().find((r) => r.level <= level)!;
+  return { level, rank, into: xp - xpForLevel(level), needed: xpForLevel(level + 1) - xpForLevel(level) };
+}
+
+export interface LeaderboardEntry {
+  userId: number;
+  xp: number;
+}
+
+// ---- Welcome screen -----------------------------------------------------------------------
+
+export const WELCOME_LIMITS = { message: 1000, rules: 20, ruleLength: 200, roles: 25, roleDescription: 100, emoji: 16 } as const;
+
+/** A custom role members can give themselves on the welcome screen. Never one that moderates. */
+export interface WelcomeRole {
+  roleId: number;
+  description: string;
+  /** An emoji to show next to it, or "". */
+  emoji: string;
+}
+
+export interface ServerWelcome {
+  enabled: boolean;
+  message: string;
+  rules: string[];
+  /** Members (not the owner, admins or bots) can't post or talk until they agree to the rules. */
+  requireAgree: boolean;
+  roles: WelcomeRole[];
 }
 
 // ---- Automod --------------------------------------------------------------------------
@@ -591,6 +666,8 @@ export interface ServerMember {
   color: string | null;
   nickname: string | null;
   joinedAt: string;
+  /** Their XP here, or null while the server has levels off. */
+  xp: number | null;
 }
 
 export interface ServerInvite {
@@ -1144,6 +1221,8 @@ export type ServerEvent =
   | { type: "server.updated"; server: ChatServer }
   /** You left or were removed, or the server was deleted. */
   | { type: "server.removed"; serverId: number }
+  /** You reached a new level in a server (rankUp: and a new raccoon rank). */
+  | { type: "level.up"; serverId: number; level: number; rank: RaccoonRank; rankUp: boolean }
   /** A friend invited you to a server. */
   | { type: "server.invited"; invite: InvitePreview }
   /** Your request to make servers was approved or denied; to super admins, a new or decided request. */
