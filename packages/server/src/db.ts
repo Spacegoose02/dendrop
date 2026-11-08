@@ -774,6 +774,50 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX audit_log_server ON audit_log(server_id, id);
   `,
+  `
+  -- Replies, @mentions and per-conversation notification settings.
+  ALTER TABLE messages ADD COLUMN reply_to_id INTEGER REFERENCES messages(id) ON DELETE SET NULL;
+  ALTER TABLE messages ADD COLUMN mentions_everyone INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE message_mentions (
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (message_id, user_id)
+  );
+  CREATE INDEX message_mentions_user ON message_mentions(user_id, message_id);
+
+  -- scope is 'conversation' (a DM, channel or thread) or 'server'; level is a NotifyLevel.
+  CREATE TABLE notification_settings (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    scope TEXT NOT NULL,
+    target_id INTEGER NOT NULL,
+    level TEXT NOT NULL,
+    PRIMARY KEY (user_id, scope, target_id)
+  );
+
+  -- Full-text search over plain messages only. End-to-end encrypted messages never get here:
+  -- the server can't read them, so they're searched on the device.
+  CREATE VIRTUAL TABLE messages_fts USING fts5(body, tokenize = 'unicode61 remove_diacritics 2');
+  INSERT INTO messages_fts (rowid, body) SELECT id, body FROM messages WHERE key_version IS NULL AND deleted_at IS NULL AND body != '';
+  CREATE TRIGGER messages_fts_insert AFTER INSERT ON messages WHEN new.key_version IS NULL AND new.deleted_at IS NULL AND new.body != '' BEGIN
+    INSERT INTO messages_fts (rowid, body) VALUES (new.id, new.body);
+  END;
+  CREATE TRIGGER messages_fts_update AFTER UPDATE OF body, key_version, deleted_at ON messages BEGIN
+    DELETE FROM messages_fts WHERE rowid = old.id;
+    INSERT INTO messages_fts (rowid, body) SELECT new.id, new.body WHERE new.key_version IS NULL AND new.deleted_at IS NULL AND new.body != '';
+  END;
+  CREATE TRIGGER messages_fts_delete AFTER DELETE ON messages BEGIN
+    DELETE FROM messages_fts WHERE rowid = old.id;
+  END;
+
+  -- Link previews the server fetched, by URL. image is a file in <data>/link-previews.
+  CREATE TABLE link_previews (
+    url TEXT PRIMARY KEY,
+    data TEXT,
+    image_id TEXT,
+    fetched_at TEXT NOT NULL
+  );
+  ALTER TABLE kid_rules ADD COLUMN link_previews INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export function now(): string {

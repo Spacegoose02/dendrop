@@ -204,6 +204,76 @@ export interface Message {
   game?: Game | null;
   /** Set when the message is a raccoon nudge. */
   nudge?: NudgeKind | null;
+  /** Set on a reply: the message it answers (see ReplyRef). */
+  replyTo?: ReplyRef | null;
+  /** People pinged with <@id> (and a reply's author, unless the reply said not to). */
+  mentions?: number[];
+  /** Pinged @everyone, by someone allowed to. */
+  mentionsEveryone?: boolean;
+}
+
+/**
+ * The message a reply answers, small enough to show above it. `body` is its text as stored:
+ * ciphertext when `keyVersion` is set (the client decrypts it like any message), and cut to
+ * LIMITS.replyExcerpt characters when plain.
+ */
+export interface ReplyRef {
+  id: number;
+  authorId: number;
+  body: string;
+  keyVersion: number | null;
+  deleted: boolean;
+  /** Set when an incoming webhook posted it. */
+  webhookName: string | null;
+}
+
+/** <@123> pings someone. Group 1 is the user id. */
+export const MENTION_RE = /<@(\d{1,12})>/g;
+/** @everyone, as a word of its own. */
+export const EVERYONE_RE = /(?<![\w@])@everyone\b/;
+
+/**
+ * How much someone hears about a conversation or a whole server. "mentions": only when pinged
+ * or replied to. "nothing": muted (pings still show a badge in the app, but nothing pops up).
+ */
+export type NotifyLevel = "all" | "mentions" | "nothing";
+export const NOTIFY_LEVELS: NotifyLevel[] = ["all", "mentions", "nothing"];
+
+/** Your notification settings: per conversation (DMs, channels, threads) and per server. Missing means "all". */
+export interface NotificationSettings {
+  conversations: Record<number, NotifyLevel>;
+  servers: Record<number, NotifyLevel>;
+}
+
+/** One message found by search. The client knows the conversations, so it names the place. */
+export interface SearchHit {
+  message: Message;
+  /** Set for a server channel or thread. */
+  serverId: number | null;
+  channelId: number | null;
+  threadId: number | null;
+}
+
+export interface SearchResults {
+  hits: SearchHit[];
+  /** Pass as `before` for the next page, or null at the end. */
+  next: number | null;
+}
+
+/** A link's preview card, fetched by the server. Pictures always come through Dendrop. */
+export interface LinkPreview {
+  url: string;
+  /** The site's own name, or its host. */
+  site: string;
+  title: string;
+  description: string;
+  /** /api/link-previews/image/<id> when the page has a picture, else null. */
+  image: string | null;
+}
+
+/** Super admin settings for link previews: off by default, since the server fetches outside pages. */
+export interface LinkPreviewSettings {
+  enabled: boolean;
 }
 
 /**
@@ -503,7 +573,8 @@ export type ServerPermission =
   | "createInvites"
   | "manageExpressions"
   | "manageEvents"
-  | "pinMessages";
+  | "pinMessages"
+  | "mentionEveryone";
 
 export const SERVER_PERMISSIONS: ServerPermission[] = [
   "manageServer",
@@ -517,11 +588,12 @@ export const SERVER_PERMISSIONS: ServerPermission[] = [
   "manageExpressions",
   "manageEvents",
   "pinMessages",
+  "mentionEveryone",
 ];
 
 /** Permissions that let someone moderate other people. Kid accounts can't hold them (or be admins). */
 export const MODERATION_PERMISSIONS: ServerPermission[] = SERVER_PERMISSIONS.filter(
-  (p) => p !== "createInvites" && p !== "manageExpressions" && p !== "manageEvents" && p !== "pinMessages",
+  (p) => p !== "createInvites" && p !== "manageExpressions" && p !== "manageEvents" && p !== "pinMessages" && p !== "mentionEveryone",
 );
 
 /**
@@ -1012,6 +1084,8 @@ export interface KidRules {
    * them down. The kid's bio, pronouns and status always go through the family filter.
    */
   profilePictures: boolean;
+  /** Sees preview cards (title, text, picture) under links. Off until a parent turns it on. */
+  linkPreviews: boolean;
 }
 
 /** The kid's LootDen play limits, when LootDen is linked and their profile is matched. */
@@ -1608,12 +1682,28 @@ export const LIMITS = {
   serverImageBytes: 5 * 1024 * 1024,
   /** Ciphertext of a full-length message, with room for file names. */
   encryptedBodyLength: 32_000,
+  /** How much of a plain message a reply shows above itself. */
+  replyExcerpt: 200,
+  /** People one message can ping. */
+  mentionsPerMessage: 50,
+  /** Search words, and results per page. */
+  searchQuery: 200,
+  searchPage: 25,
+  /** Links per message that get a preview card. */
+  previewsPerMessage: 3,
 } as const;
 
 /** Events the server pushes over the WebSocket gateway at /api/gateway. */
 export type ServerEvent =
   | { type: "ready"; user: Me }
-  | { type: "message.created"; message: Message }
+  /**
+   * A new message. `notify` says whether this person's settings want a notification for it
+   * (missing from older servers: treat as true), `mentioned` whether it pings them, and `muted`
+   * whether they muted the conversation (no unread dot).
+   */
+  | { type: "message.created"; message: Message; notify?: boolean; mentioned?: boolean; muted?: boolean }
+  /** Your notification settings changed (on another device). */
+  | { type: "notifications.updated"; settings: NotificationSettings }
   | { type: "message.updated"; message: Message }
   /** Someone added or took back a reaction: the message's reactions now. */
   | { type: "message.reactions"; conversationId: number; messageId: number; reactions: Reaction[] }

@@ -72,6 +72,11 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
   const levels = new LevelService(db, servers, gateway, push);
   ctx.levels = levels;
   ctx.voiceCount = (channelId) => voice.state(channelId)?.members.length ?? 0;
+  // @everyone in a channel or thread pings everyone only for people with Mention @everyone.
+  ctx.canMentionEveryone = (conversationId, userId) => {
+    const place = db.prepare("SELECT server_id FROM channel_conversations WHERE conversation_id = ?").get(conversationId) as { server_id: number } | undefined;
+    return !place || servers.can(place.server_id, userId, "mentionEveryone");
+  };
   ctx.voiceMembers = (channelId) => voice.state(channelId)?.members.map((m) => m.userId) ?? [];
   const superAdmins = () => (db.prepare("SELECT id FROM users WHERE is_super_admin = 1").all() as { id: number }[]).map((r) => r.id);
 
@@ -93,6 +98,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     manageExpressions: "Manage emoji & stickers",
     pinMessages: "Pin messages",
     manageEvents: "Manage events",
+    mentionEveryone: "Mention @everyone",
   };
   /** A 404 if they aren't in the server, a 403 if none of their roles allow any of `perms`. */
   const allowed = (serverId: number, user: UserRecord, ...perms: ServerPermission[]) => {

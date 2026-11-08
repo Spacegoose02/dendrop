@@ -119,6 +119,7 @@ function KidView({ me, family, conversations }: { me: Me; family: FamilyInfo; co
             {rules.profilePictures ? "You can set a profile picture and banner" : "Profile pictures are off: ask a parent if you'd like one"}. Your parents
             hear when you change your profile.
           </li>
+          <li>{rules.linkPreviews ? "Link previews are on" : "Link previews are off: links show as plain links"}</li>
           {rules.allowedFrom && rules.allowedUntil && (
             <li>
               Chat hours: {rules.allowedFrom} to {rules.allowedUntil}
@@ -470,6 +471,13 @@ function KidCard({ kid, onChanged }: { kid: FamilyKid; onChanged: () => void }) 
         <span>
           <strong>Chat servers</strong>
           <span className="muted small">Let them join or make chat servers.</span>
+        </span>
+      </label>
+      <label className="toggle">
+        <input type="checkbox" checked={rules.linkPreviews} onChange={(e) => set({ linkPreviews: e.target.checked })} />
+        <span>
+          <strong>Link previews</strong>
+          <span className="muted small">Show a card with the page's title, a line of text and a picture under links. Words their filter blocks are hidden in the card. Off: links show as plain links.</span>
         </span>
       </label>
       <label className="toggle">

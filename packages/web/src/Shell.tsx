@@ -54,6 +54,8 @@ import { ChannelDialog, CreateServer, Directory, InviteDialog, InviteLinkDialog,
 import { can } from "./roles.ts";
 import { ExpressionsContext } from "./expressions.tsx";
 import { patchUser, ProfileCard, ProfileContext, ProfileEditorDialog, StatusLine, type ProfileTarget } from "./Profile.tsx";
+import { setNotificationSettings } from "./notify.tsx";
+import { closeSearch, openSearch, requestJump, SearchPanel, useSearchOpen } from "./Search.tsx";
 import { playSoundboard } from "./soundboard.ts";
 
 // The call code (LiveKit) is big, so it only loads when a call starts.
@@ -347,11 +349,16 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             return { ...t, [m.conversationId]: forConv };
           });
           const v = viewRef.current;
+          // Muted conversations don't get an unread dot (unless you're pinged).
+          if (e.muted && !e.mentioned) break;
           if ((m.authorId !== me.id || m.webhook) && !(viewConversation(v, serversRef.current) === m.conversationId && document.hasFocus())) {
             setUnread((u) => new Set(u).add(m.conversationId));
           }
           break;
         }
+        case "notifications.updated":
+          setNotificationSettings(e.settings);
+          break;
         case "message.updated": {
           const m = e.message;
           void reveal(m).then((shown) =>
@@ -697,7 +704,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   };
 
   /** A server channel or thread shown through Chat. */
-  const channelChat = (conversation: Conversation, info: ChannelInfo, onBack: () => void = () => setShowMain(false)) => (
+  const channelChat = (conversation: Conversation, info: ChannelInfo, onBack: () => void = () => setShowMain(false)) => {
+    const sv = servers.find((x) => x.id === info.serverId);
+    return (
     <Chat
       key={conversation.id}
       me={meInServer}
@@ -715,9 +724,10 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       keyState={keyState}
       onEncryption={() => {}}
       kid={kidRules}
-      channel={info}
+      channel={{ serverName: sv?.name, canMentionEveryone: !!sv && can(sv, "mentionEveryone"), ...info }}
     />
-  );
+    );
+  };
 
   /** A thread: beside its channel, or in place of a forum's list of posts. */
   const threadChat = (sv: ChatServer, ch: Channel, t: Thread) => {
@@ -757,6 +767,33 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       },
       closeThread,
     );
+  };
+
+  // Search: Ctrl+F (or Ctrl+K) searches what's open; the 🔍 in a chat's header does too.
+  const searchScope = useSearchOpen();
+  const searchHere = () => {
+    const cid = viewConversation(viewRef.current, serversRef.current);
+    const v = viewRef.current;
+    openSearch(v.kind === "channel" ? { serverId: v.serverId, conversationId: cid ?? undefined } : cid ? { conversationId: cid } : {});
+  };
+  const searchHereRef = useRef(searchHere);
+  searchHereRef.current = searchHere;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === "f" || e.key === "k")) {
+        e.preventDefault();
+        searchHereRef.current();
+      }
+    };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, []);
+  const openHit = (hit: { conversationId: number; messageId: number; serverId: number | null; channelId: number | null; threadId: number | null }) => {
+    closeSearch();
+    if (hit.serverId && hit.threadId) void startThread(hit.serverId, 0, hit.threadId);
+    else if (hit.serverId && hit.channelId) open({ kind: "channel", serverId: hit.serverId, channelId: hit.channelId });
+    else open({ kind: "conversation", id: hit.conversationId });
+    requestJump(hit.conversationId, hit.messageId);
   };
 
   const shell = (
@@ -1039,6 +1076,17 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           />
         )}
       </main>
+      {searchScope && (
+        <SearchPanel
+          me={me}
+          scope={searchScope}
+          conversations={conversations}
+          servers={servers}
+          filter={kidRules?.rules.profanityFilter ? kidRules.rules.blockedWords : null}
+          onOpen={openHit}
+          onClose={closeSearch}
+        />
+      )}
       {showFamily && (
         <FamilyDialog
           me={me}

@@ -6,7 +6,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { INLINE_IMAGE_TYPES, isUsername, LIMITS, type E2eeSetup, type KeyBackup } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
 import { CallService } from "../calls.js";
-import { ConversationRepo, type NewAttachment } from "../conversations.js";
+import { ConversationRepo, type NewAttachment, type SendOptions } from "../conversations.js";
 import { HttpError } from "../errors.js";
 import { livekitUrl } from "../livekit.js";
 import { FriendRepo } from "../friends.js";
@@ -150,19 +150,35 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
    * Reads a message from JSON ({ body }) or multipart (a "body" field plus files). Files are
    * streamed to the uploads folder; on any error the ones already written are removed.
    */
-  const readMessage = async (req: FastifyRequest): Promise<{ body: unknown; files: NewAttachment[]; keyVersion: number | null }> => {
+  const readMessage = async (req: FastifyRequest): Promise<{ body: unknown; files: NewAttachment[]; keyVersion: number | null; extras: SendOptions }> => {
     if (!req.isMultipart()) {
-      const json = req.body as { body?: unknown; keyVersion?: unknown } | undefined;
-      return { body: json?.body, files: [], keyVersion: keyVersion(json?.keyVersion) };
+      const json = req.body as { body?: unknown; keyVersion?: unknown; replyToId?: unknown; replyPing?: unknown; mentions?: unknown; mentionsEveryone?: unknown } | undefined;
+      return {
+        body: json?.body,
+        files: [],
+        keyVersion: keyVersion(json?.keyVersion),
+        extras: { replyToId: json?.replyToId, replyPing: json?.replyPing, mentions: json?.mentions, mentionsEveryone: json?.mentionsEveryone },
+      };
     }
     const files: NewAttachment[] = [];
     let body: unknown;
     let kv: number | null = null;
+    const extras: SendOptions = {};
     try {
-      for await (const part of req.parts({ limits: { fileSize: config.maxUploadBytes, files: LIMITS.attachmentsPerMessage, fields: 4 } })) {
+      for await (const part of req.parts({ limits: { fileSize: config.maxUploadBytes, files: LIMITS.attachmentsPerMessage, fields: 8 } })) {
         if (part.type === "field") {
           if (part.fieldname === "body") body = part.value;
           if (part.fieldname === "keyVersion") kv = keyVersion(part.value);
+          if (part.fieldname === "replyToId") extras.replyToId = part.value;
+          if (part.fieldname === "replyPing") extras.replyPing = part.value !== "false";
+          if (part.fieldname === "mentionsEveryone") extras.mentionsEveryone = part.value === "true";
+          if (part.fieldname === "mentions") {
+            try {
+              extras.mentions = JSON.parse(String(part.value));
+            } catch {
+              throw new HttpError(400, "mentions is a list of user ids");
+            }
+          }
           continue;
         }
         if (files.length >= LIMITS.attachmentsPerMessage) throw new HttpError(400, `Up to ${LIMITS.attachmentsPerMessage} files per message`);
@@ -185,7 +201,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     }
     // Encrypted files carry their real name and type inside the message, so store neither.
     if (kv) for (const f of files) Object.assign(f, { name: "file", contentType: "application/octet-stream" });
-    return { body, files, keyVersion: kv };
+    return { body, files, keyVersion: kv, extras };
   };
 
   app.post<{ Params: { id: string } }>("/api/conversations/:id/messages", async (req) => {
@@ -198,21 +214,17 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     try {
       // Server channels: automod checks it first (and may block it or time the sender out).
       ctx.automod.checkMessage(cid, me, body);
-      m = convos.send(cid, me.id, body, files, msg.keyVersion);
+      const canMentionEveryone = ctx.canMentionEveryone?.(cid, me.id) ?? true;
+      m = convos.send(cid, me.id, body, files, msg.keyVersion, null, null, { ...msg.extras, canMentionEveryone });
     } catch (err) {
       removeFiles(files.map((f) => f.id));
       throw err;
     }
-    const memberIds = convos.memberIds(cid);
     // First, so clients learn a thread exists before its messages arrive.
     for (const fn of ctx.onMessageCreated) fn(m);
-    gateway.send(memberIds, { type: "message.created", message: m });
+    // Everyone gets it, marked with whether their notification settings want a heads-up.
+    ctx.notifications.deliver(m, convos.memberIds(cid), me.id);
     ctx.levels?.award(cid, me);
-    // Phones of people with nothing open get a wake-up that says only "message".
-    void ctx.push.notify(
-      memberIds.filter((u) => u !== me.id && !gateway.isOnline(u)),
-      "message",
-    );
     return m;
   });
 
@@ -280,10 +292,13 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     return { ok: true };
   });
 
-  app.patch<{ Params: { id: string }; Body: { body?: unknown; keyVersion?: unknown } }>("/api/messages/:id", async (req) => {
+  app.patch<{ Params: { id: string }; Body: { body?: unknown; keyVersion?: unknown; mentions?: unknown; mentionsEveryone?: unknown } }>("/api/messages/:id", async (req) => {
     const me = requireUser(req);
-    ctx.automod.checkEdit(id(req.params.id), me, req.body?.body);
-    const m = convos.edit(id(req.params.id), me.id, req.body?.body, keyVersion(req.body?.keyVersion));
+    const mid = id(req.params.id);
+    ctx.automod.checkEdit(mid, me, req.body?.body);
+    const cid = convos.message(mid)?.conversationId;
+    const canMentionEveryone = cid ? (ctx.canMentionEveryone?.(cid, me.id) ?? true) : false;
+    const m = convos.edit(mid, me.id, req.body?.body, keyVersion(req.body?.keyVersion), { mentions: req.body?.mentions, mentionsEveryone: req.body?.mentionsEveryone, canMentionEveryone });
     gateway.send(convos.memberIds(m.conversationId), { type: "message.updated", message: m });
     return m;
   });

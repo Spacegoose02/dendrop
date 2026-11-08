@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { previewsInEncrypted, setPreviewsInEncrypted } from "./LinkPreview.tsx";
 import {
   APP_ICONS,
   appIconSvg,
@@ -297,6 +298,7 @@ function AccountSection({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) 
       </div>
       {adjusted && <p className="muted small">Adjusted a little so it reads well on this theme.</p>}
       <h3>Privacy</h3>
+      <EncryptedPreviewsToggle />
       <label className="toggle">
         <input
           type="checkbox"
@@ -417,5 +419,29 @@ function ThemeCard({ theme, selected, onPick }: { theme: Theme; selected: boolea
         {selected && <span className="tick">✓</span>}
       </span>
     </button>
+  );
+}
+
+/** Link previews in encrypted chats: kept on this device, since asking shows the server the link. */
+function EncryptedPreviewsToggle() {
+  const [on, setOn] = useState(previewsInEncrypted);
+  return (
+    <label className="toggle">
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={(e) => {
+          setPreviewsInEncrypted(e.target.checked);
+          setOn(e.target.checked);
+        }}
+      />
+      <span>
+        <strong>Link previews in encrypted chats</strong>
+        <span className="muted small">
+          Off by default: to fetch a preview, this device has to send the link to your Dendrop server, which otherwise can't read encrypted chats. Only applies on this
+          device.
+        </span>
+      </span>
+    </label>
   );
 }

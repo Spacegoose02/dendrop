@@ -1,4 +1,4 @@
-import { LIMITS, type Attachment, type MessageButton, type Conversation, type ConversationE2ee, type Message, type NudgeKind, type ReadState, type ThreadRef, type WrappedKey } from "@dendrop/shared";
+import { EVERYONE_RE, LIMITS, MENTION_RE, type Attachment, type ReplyRef, type MessageButton, type Conversation, type ConversationE2ee, type Message, type NudgeKind, type ReadState, type ThreadRef, type WrappedKey } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { ExpressionRepo } from "./expressions.js";
@@ -29,6 +29,21 @@ interface MessageRow {
   webhook_name: string | null;
   buttons: string | null;
   nudge: string | null;
+  reply_to_id: number | null;
+  mentions_everyone: number;
+}
+
+/** Extras for a new message: what it replies to, and who it pings. */
+export interface SendOptions {
+  /** The message this one answers (same conversation). */
+  replyToId?: unknown;
+  /** false: don't ping the author of the message being answered. */
+  replyPing?: unknown;
+  /** Encrypted messages only: the server can't read them, so the client says who they ping. */
+  mentions?: unknown;
+  mentionsEveryone?: unknown;
+  /** Whether the author may ping @everyone here (checked by the caller). */
+  canMentionEveryone?: boolean;
 }
 
 interface AttachmentRow {
@@ -70,6 +85,19 @@ export function cleanBody(body: unknown, allowEmpty = false): string {
   if (!text && !allowEmpty) throw new HttpError(400, "A message needs text");
   if (text.length > LIMITS.messageLength) throw new HttpError(400, `Messages can be up to ${LIMITS.messageLength} characters`);
   return text;
+}
+
+/** A reply's view of the message it answers. */
+function replyRef(p: MessageRow): ReplyRef {
+  const deleted = !!p.deleted_at;
+  return {
+    id: p.id,
+    authorId: p.author_id,
+    body: deleted ? "" : p.key_version ? p.body : p.body.slice(0, LIMITS.replyExcerpt),
+    keyVersion: deleted ? null : p.key_version,
+    deleted,
+    webhookName: p.webhook_name,
+  };
 }
 
 export class ConversationRepo {
@@ -298,6 +326,17 @@ export class ConversationRepo {
     );
     const polls = this.fun.polls(ids);
     const games = this.fun.games(ids);
+    const mentions = new Map<number, number[]>();
+    for (const x of this.db.prepare(`SELECT message_id, user_id FROM message_mentions WHERE message_id IN (${marks}) ORDER BY rowid`).all(...ids) as { message_id: number; user_id: number }[]) {
+      mentions.set(x.message_id, [...(mentions.get(x.message_id) ?? []), x.user_id]);
+    }
+    const replyIds = [...new Set(rows.flatMap((r) => (r.reply_to_id ? [r.reply_to_id] : [])))];
+    const replies = new Map(
+      (replyIds.length
+        ? (this.db.prepare(`SELECT * FROM messages WHERE id IN (${replyIds.map(() => "?").join(",")})`).all(...replyIds) as unknown as MessageRow[])
+        : []
+      ).map((p): [number, ReplyRef] => [p.id, replyRef(p)]),
+    );
     return rows.map((r) => ({
       id: r.id,
       conversationId: r.conversation_id,
@@ -317,6 +356,9 @@ export class ConversationRepo {
       poll: r.deleted_at ? null : (polls.get(r.id) ?? null),
       game: r.deleted_at ? null : (games.get(r.id) ?? null),
       nudge: r.deleted_at ? null : ((r.nudge as NudgeKind | null) ?? null),
+      replyTo: r.deleted_at || !r.reply_to_id ? null : (replies.get(r.reply_to_id) ?? null),
+      mentions: r.deleted_at ? [] : (mentions.get(r.id) ?? []),
+      mentionsEveryone: !r.deleted_at && !!r.mentions_everyone,
     }));
   }
 
@@ -350,16 +392,22 @@ export class ConversationRepo {
     keyVersion: number | null = null,
     webhook: { id: number | null; name: string } | null = null,
     buttons: MessageButton[] | null = null,
+    opts: SendOptions = {},
   ): Message {
     if (files.length > LIMITS.attachmentsPerMessage) throw new HttpError(400, `Up to ${LIMITS.attachmentsPerMessage} files per message`);
     const version = this.checkCrypto(conversationId, keyVersion, body);
     const text = version ? (body as string) : cleanBody(body, files.length > 0);
+    const reply = this.replyTarget(conversationId, opts.replyToId);
+    const pings = this.pings(conversationId, authorId, version ? null : text, opts, reply && opts.replyPing !== false && !reply.webhook_name ? reply.author_id : null);
     const id = tx(this.db, () => {
       const t = now();
       const res = this.db
-        .prepare("INSERT INTO messages (conversation_id, author_id, body, created_at, key_version, webhook_id, webhook_name, buttons) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(conversationId, authorId, text, t, version, webhook?.id ?? null, webhook?.name ?? null, buttons?.length ? JSON.stringify(buttons) : null);
+        .prepare(
+          "INSERT INTO messages (conversation_id, author_id, body, created_at, key_version, webhook_id, webhook_name, buttons, reply_to_id, mentions_everyone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(conversationId, authorId, text, t, version, webhook?.id ?? null, webhook?.name ?? null, buttons?.length ? JSON.stringify(buttons) : null, reply?.id ?? null, pings.everyone ? 1 : 0);
       const mid = Number(res.lastInsertRowid);
+      this.saveMentions(mid, pings.ids);
       const add = this.db.prepare(
         "INSERT INTO attachments (id, message_id, conversation_id, name, size, content_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
       );
@@ -399,6 +447,45 @@ export class ConversationRepo {
     return this.message(id)!;
   }
 
+  /** The message a reply answers: in the same conversation, and not deleted. */
+  private replyTarget(conversationId: number, replyToId: unknown): MessageRow | null {
+    if (replyToId === undefined || replyToId === null || replyToId === "") return null;
+    const n = Number(replyToId);
+    if (!Number.isInteger(n) || n <= 0) throw new HttpError(400, "Bad replyToId");
+    const r = this.db.prepare("SELECT * FROM messages WHERE id = ? AND conversation_id = ?").get(n, conversationId) as MessageRow | undefined;
+    if (!r) throw new HttpError(404, "The message you're replying to isn't here");
+    if (r.deleted_at) throw new HttpError(409, "The message you're replying to was deleted");
+    return r;
+  }
+
+  /**
+   * Who a message pings: <@id> tokens in plain text, or the list an encrypted message's client
+   * sends, kept to people in the conversation (never the author). @everyone only counts for
+   * people allowed to use it. `replyAuthor` is pinged too, unless it's the author.
+   */
+  private pings(conversationId: number, authorId: number, text: string | null, opts: SendOptions, replyAuthor: number | null): { ids: number[]; everyone: boolean } {
+    let wanted: number[];
+    let everyone: boolean;
+    if (text !== null) {
+      wanted = [...text.matchAll(MENTION_RE)].map((m) => Number(m[1]));
+      everyone = EVERYONE_RE.test(text);
+    } else {
+      if (opts.mentions !== undefined && opts.mentions !== null && !Array.isArray(opts.mentions)) throw new HttpError(400, "mentions is a list of user ids");
+      wanted = ((opts.mentions as unknown[] | undefined) ?? []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+      everyone = opts.mentionsEveryone === true;
+    }
+    if (replyAuthor !== null) wanted.push(replyAuthor);
+    const members = new Set(this.memberIds(conversationId));
+    const ids = [...new Set(wanted)].filter((id) => id !== authorId && members.has(id)).slice(0, LIMITS.mentionsPerMessage);
+    return { ids, everyone: everyone && opts.canMentionEveryone === true };
+  }
+
+  private saveMentions(messageId: number, ids: number[]): void {
+    this.db.prepare("DELETE FROM message_mentions WHERE message_id = ?").run(messageId);
+    const add = this.db.prepare("INSERT INTO message_mentions (message_id, user_id) VALUES (?, ?)");
+    for (const id of ids) add.run(messageId, id);
+  }
+
   /** Moves someone's read marker forward (never back). Returns the new marker if it moved. */
   markRead(conversationId: number, userId: number, messageId: number): number | null {
     const msg = this.db.prepare("SELECT id FROM messages WHERE id = ? AND conversation_id = ?").get(messageId, conversationId);
@@ -420,16 +507,22 @@ export class ConversationRepo {
     return r;
   }
 
-  edit(messageId: number, userId: number, body: unknown, keyVersion: number | null = null): Message {
+  edit(messageId: number, userId: number, body: unknown, keyVersion: number | null = null, opts: SendOptions = {}): Message {
     const r = this.own(messageId, userId);
     if (r.nudge || this.fun.polls([messageId]).size || this.fun.games([messageId]).size) throw new HttpError(400, "Polls, games and nudges can't be edited");
     const version = this.checkCrypto(r.conversation_id, keyVersion, body);
     const hasFiles = !!this.db.prepare("SELECT 1 FROM attachments WHERE message_id = ?").get(messageId);
     // An encrypted message's files are described inside its ciphertext, so a plain edit would lose them.
     if (!version && r.key_version) throw new HttpError(400, "Edits of an encrypted message must be encrypted");
-    this.db
-      .prepare("UPDATE messages SET body = ?, edited_at = ?, key_version = ? WHERE id = ?")
-      .run(version ? (body as string) : cleanBody(body, hasFiles), now(), version, messageId);
+    const text = version ? (body as string) : cleanBody(body, hasFiles);
+    // A reply keeps pinging whoever it pinged before; the words' pings are worked out again.
+    const reply = r.reply_to_id ? (this.db.prepare("SELECT author_id FROM messages WHERE id = ?").get(r.reply_to_id) as { author_id: number } | undefined) : undefined;
+    const keptReplyPing = reply && this.db.prepare("SELECT 1 FROM message_mentions WHERE message_id = ? AND user_id = ?").get(messageId, reply.author_id) ? reply.author_id : null;
+    const pings = this.pings(r.conversation_id, userId, version ? null : text, opts, keptReplyPing);
+    tx(this.db, () => {
+      this.db.prepare("UPDATE messages SET body = ?, edited_at = ?, key_version = ?, mentions_everyone = ? WHERE id = ?").run(text, now(), version, pings.everyone ? 1 : 0, messageId);
+      this.saveMentions(messageId, pings.ids);
+    });
     return this.message(messageId)!;
   }
 
@@ -455,7 +548,8 @@ export class ConversationRepo {
       this.db.prepare("DELETE FROM attachments WHERE message_id = ?").run(messageId);
       this.expressions.clearReactions(messageId);
       this.db.prepare("DELETE FROM message_pins WHERE message_id = ?").run(messageId);
-      this.db.prepare("UPDATE messages SET body = '', key_version = NULL, buttons = NULL, deleted_at = ? WHERE id = ?").run(now(), messageId);
+      this.db.prepare("UPDATE messages SET body = '', key_version = NULL, buttons = NULL, mentions_everyone = 0, deleted_at = ? WHERE id = ?").run(now(), messageId);
+      this.db.prepare("DELETE FROM message_mentions WHERE message_id = ?").run(messageId);
       return ids;
     });
     return { message: this.message(messageId)!, removedFiles };

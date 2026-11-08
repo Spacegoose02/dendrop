@@ -49,6 +49,7 @@ const DEFAULT_RULES: KidRules = {
   lootdenPlayTime: false,
   gifs: false,
   profilePictures: false,
+  linkPreviews: false,
 };
 
 /**
@@ -113,6 +114,7 @@ interface RulesRow {
   lootden_play_time: number;
   gifs: number;
   profile_pictures: number;
+  link_previews: number;
 }
 
 interface AlertRow {
@@ -314,12 +316,13 @@ export class FamilyService {
       lootdenPlayTime: !!r.lootden_play_time,
       gifs: !!r.gifs,
       profilePictures: !!r.profile_pictures,
+      linkPreviews: !!r.link_previews,
     };
   }
 
   setRules(kidId: number, patch: Partial<Record<keyof KidRules, unknown>>): KidRules {
     const next = { ...this.rules(kidId) };
-    const bool = (k: "profanityFilter" | "approveFriends" | "canJoinServers" | "choresFirst" | "lootdenBedtime" | "lootdenPlayTime" | "gifs" | "profilePictures") => {
+    const bool = (k: "profanityFilter" | "approveFriends" | "canJoinServers" | "choresFirst" | "lootdenBedtime" | "lootdenPlayTime" | "gifs" | "profilePictures" | "linkPreviews") => {
       if (patch[k] === undefined) return;
       if (typeof patch[k] !== "boolean") throw new HttpError(400, `${k} is true or false`);
       next[k] = patch[k];
@@ -332,6 +335,7 @@ export class FamilyService {
     bool("lootdenPlayTime");
     bool("gifs");
     bool("profilePictures");
+    bool("linkPreviews");
     if (patch.blockedWords !== undefined) {
       if (!Array.isArray(patch.blockedWords) || patch.blockedWords.length > 200) throw new HttpError(400, "blockedWords is a list of up to 200 words");
       const words = patch.blockedWords.map((w) => (typeof w === "string" ? w.trim().toLowerCase() : ""));
@@ -366,7 +370,7 @@ export class FamilyService {
     this.db
       .prepare(
         `UPDATE kid_rules SET profanity_filter = ?, blocked_words = ?, approve_friends = ?, can_join_servers = ?,
-         allowed_from = ?, allowed_until = ?, daily_minutes = ?, timezone = ?, chores_first = ?, lootden_bedtime = ?, lootden_play_time = ?, gifs = ?, profile_pictures = ? WHERE kid_id = ?`,
+         allowed_from = ?, allowed_until = ?, daily_minutes = ?, timezone = ?, chores_first = ?, lootden_bedtime = ?, lootden_play_time = ?, gifs = ?, profile_pictures = ?, link_previews = ? WHERE kid_id = ?`,
       )
       .run(
         next.profanityFilter ? 1 : 0,
@@ -382,6 +386,7 @@ export class FamilyService {
         next.lootdenPlayTime ? 1 : 0,
         next.gifs ? 1 : 0,
         next.profilePictures ? 1 : 0,
+        next.linkPreviews ? 1 : 0,
         kidId,
       );
     return next;

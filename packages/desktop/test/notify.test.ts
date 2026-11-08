@@ -15,6 +15,13 @@ test("message notifications never include the message text", () => {
   }
 });
 
+test("follows the server's word on notification settings (muted, mentions only)", () => {
+  assert.equal(notificationFor({ type: "message.created", message: msg(), notify: false, muted: true }, opts()), null);
+  assert.ok(notificationFor({ type: "message.created", message: msg(), notify: true, mentioned: true }, opts()));
+  // Older servers don't say: notify.
+  assert.ok(notificationFor({ type: "message.created", message: msg() }, opts()));
+});
+
 test("sender is named only when asked", () => {
   assert.equal(notificationFor({ type: "message.created", message: msg() }, opts())?.body, "New message");
   assert.equal(notificationFor({ type: "message.created", message: msg() }, opts(true))?.body, "New message from Sam");
