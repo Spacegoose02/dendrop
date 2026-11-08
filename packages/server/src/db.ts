@@ -702,6 +702,21 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE kid_rules ADD COLUMN profile_pictures INTEGER NOT NULL DEFAULT 0;
   `,
   `
+  -- Soundboard: short sounds uploaded per server, played to everyone in a voice channel.
+  CREATE TABLE server_sounds (
+    id INTEGER PRIMARY KEY,
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    emoji TEXT NOT NULL DEFAULT '',
+    volume INTEGER NOT NULL DEFAULT 100,
+    file TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX server_sounds_name ON server_sounds(server_id, name COLLATE NOCASE);
+  `,
+  `
   -- Replies, @mentions and per-conversation notification settings.
   ALTER TABLE messages ADD COLUMN reply_to_id INTEGER REFERENCES messages(id) ON DELETE SET NULL;
   ALTER TABLE messages ADD COLUMN mentions_everyone INTEGER NOT NULL DEFAULT 0;

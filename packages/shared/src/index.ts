@@ -395,7 +395,44 @@ export const EXPRESSION_LIMITS = {
   stickerDescription: 100,
   /** Different emoji on one message. */
   reactionsPerMessage: 20,
+  /** Soundboard sounds per server, and how big each can be (about 5 seconds of MP3 or Ogg). */
+  sounds: 24,
+  soundBytes: 512 * 1024,
+  /** Longest a soundboard sound can play, checked by the app when it's added. */
+  soundSeconds: 5,
 } as const;
+
+/** A soundboard sound uploaded to a server. Plays to everyone in a voice channel with you. */
+export interface ServerSound {
+  id: number;
+  serverId: number;
+  name: string;
+  /** An emoji shown on its button. */
+  emoji: string;
+  /** How loud it plays, 0 to 100, set when it's added. */
+  volume: number;
+  url: string;
+  createdBy: number | null;
+  createdAt: string;
+}
+
+/** Sounds every voice channel has, made by the app on the spot (no files). */
+export const BUILTIN_SOUNDS = [
+  { id: "badum", name: "Ba dum tss", emoji: "🥁" },
+  { id: "tada", name: "Ta-da", emoji: "🎉" },
+  { id: "boing", name: "Boing", emoji: "🦘" },
+  { id: "sad", name: "Sad trombone", emoji: "😢" },
+  { id: "airhorn", name: "Horn", emoji: "📯" },
+  { id: "ding", name: "Ding", emoji: "🔔" },
+] as const;
+export type BuiltinSoundId = (typeof BUILTIN_SOUNDS)[number]["id"];
+export const isBuiltinSound = (s: unknown): s is BuiltinSoundId => BUILTIN_SOUNDS.some((b) => b.id === s);
+
+/** A soundboard sound someone played: a built-in one, or one of the server's. */
+export type SoundboardPlay = { builtin: BuiltinSoundId } | { sound: ServerSound };
+
+/** How long one person waits between soundboard sounds. */
+export const SOUNDBOARD_COOLDOWN_MS = 2000;
 
 /** Custom emoji names: letters, numbers and underscores. */
 export const isEmojiName = (s: unknown): s is string => typeof s === "string" && /^[A-Za-z0-9_]{2,32}$/.test(s);
@@ -604,6 +641,8 @@ export interface ChatServer extends ChatServerSummary {
   emojis: CustomEmoji[];
   /** The server's stickers, newest last. */
   stickers: Sticker[];
+  /** The server's soundboard sounds (the built-in ones aren't listed). */
+  sounds: ServerSound[];
   /** Members earn XP and raccoon ranks for chatting. Owners and admins can turn it off. */
   levels: boolean;
   /** What new members see first: a hello, the rules, and roles they can pick for themselves. */
@@ -1689,6 +1728,8 @@ export type ServerEvent =
   | { type: "server.request"; request: ServerCreatorRequest }
   /** Someone joined, left or changed state in a voice channel you can see (or you were taken out of one). */
   | { type: "voice.updated"; voice: VoiceChannelState }
+  /** Someone in your voice channel played a soundboard sound. */
+  | { type: "voice.sound"; channelId: number; userId: number; play: SoundboardPlay }
   /** An event you can see was made, changed, started, or moved on to next week. Each viewer gets their own view. */
   | { type: "event.updated"; event: ScheduledEvent }
   /** An event ended (and doesn't repeat), was canceled, or you can't see it any more. */

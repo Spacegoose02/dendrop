@@ -6,6 +6,7 @@ import {
   isUnicodeEmoji,
   type CustomEmoji,
   type Reaction,
+  type ServerSound,
   type Sticker,
 } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
@@ -26,6 +27,29 @@ interface StickerRow extends EmojiRow {
   description: string;
   emoji: string;
 }
+
+interface SoundRow {
+  id: number;
+  server_id: number;
+  name: string;
+  emoji: string;
+  volume: number;
+  file: string;
+  content_type: string;
+  created_by: number | null;
+  created_at: string;
+}
+
+const toSound = (r: SoundRow): ServerSound => ({
+  id: r.id,
+  serverId: r.server_id,
+  name: r.name,
+  emoji: r.emoji,
+  volume: r.volume,
+  url: `/api/sounds/${r.id}`,
+  createdBy: r.created_by,
+  createdAt: r.created_at,
+});
 
 interface ReactionRow {
   message_id: number;
@@ -112,6 +136,20 @@ function gifFrames(buf: Buffer): number {
     } else break;
   }
   return frames;
+}
+
+/** The sound types the soundboard takes, found from the bytes. */
+export type SoundType = "audio/mpeg" | "audio/ogg" | "audio/wav";
+
+/** What a sound really is: MP3 (with or without an ID3 tag), Ogg (Opus or Vorbis) or WAV. */
+export function sniffSound(buf: Buffer): SoundType | undefined {
+  if (buf.length < 12) return undefined;
+  if (buf.subarray(0, 4).toString("latin1") === "OggS") return "audio/ogg";
+  if (buf.subarray(0, 4).toString("latin1") === "RIFF" && buf.subarray(8, 12).toString("latin1") === "WAVE") return "audio/wav";
+  if (buf.subarray(0, 3).toString("latin1") === "ID3") return "audio/mpeg";
+  // An MPEG audio frame: 11 sync bits, then a layer that isn't "reserved".
+  if (buf[0] === 0xff && (buf[1]! & 0xe0) === 0xe0 && (buf[1]! & 0x06) !== 0) return "audio/mpeg";
+  return undefined;
 }
 
 const cleanName = (name: unknown): string => {
@@ -225,17 +263,78 @@ export class ExpressionRepo {
     return r.file;
   }
 
-  /** Every emoji and sticker file of a server, for when it's deleted. */
+  // ---- Soundboard ----------------------------------------------------------------------
+
+  sounds(serverId: number): ServerSound[] {
+    return (this.db.prepare("SELECT * FROM server_sounds WHERE server_id = ? ORDER BY id").all(serverId) as unknown as SoundRow[]).map(toSound);
+  }
+
+  soundRow(id: number): SoundRow | undefined {
+    return this.db.prepare("SELECT * FROM server_sounds WHERE id = ?").get(id) as SoundRow | undefined;
+  }
+
+  sound(id: number): ServerSound | undefined {
+    const r = this.soundRow(id);
+    return r && toSound(r);
+  }
+
+  private soundFields(input: { emoji?: unknown; volume?: unknown }, current?: SoundRow): { emoji: string; volume: number } {
+    let emoji = current?.emoji ?? "";
+    let volume = current?.volume ?? 100;
+    if (input.emoji !== undefined) {
+      if (input.emoji !== "" && !isUnicodeEmoji(input.emoji)) throw new HttpError(400, "Pick one emoji for the sound's button");
+      emoji = input.emoji as string;
+    }
+    if (input.volume !== undefined && input.volume !== "") {
+      const v = Number(input.volume);
+      if (!Number.isInteger(v) || v < 1 || v > 100) throw new HttpError(400, "Volume is 1 to 100");
+      volume = v;
+    }
+    return { emoji, volume };
+  }
+
+  addSound(serverId: number, by: number, input: { name?: unknown; emoji?: unknown; volume?: unknown }, file: string, type: SoundType): ServerSound {
+    const name = cleanName(input.name);
+    const { emoji, volume } = this.soundFields(input);
+    const count = (this.db.prepare("SELECT COUNT(*) AS n FROM server_sounds WHERE server_id = ?").get(serverId) as { n: number }).n;
+    if (count >= EXPRESSION_LIMITS.sounds) throw new HttpError(400, `A server can have up to ${EXPRESSION_LIMITS.sounds} sounds`);
+    this.nameFree("server_sounds", serverId, name);
+    const res = this.db
+      .prepare("INSERT INTO server_sounds (server_id, name, emoji, volume, file, content_type, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(serverId, name, emoji, volume, file, type, by, now());
+    return toSound(this.soundRow(Number(res.lastInsertRowid))!);
+  }
+
+  updateSound(serverId: number, id: number, input: { name?: unknown; emoji?: unknown; volume?: unknown }): ServerSound {
+    const r = this.soundRow(id);
+    if (!r || r.server_id !== serverId) throw new HttpError(404, "No such sound");
+    const name = input.name === undefined ? r.name : cleanName(input.name);
+    if (name.toLowerCase() !== r.name.toLowerCase()) this.nameFree("server_sounds", serverId, name);
+    const { emoji, volume } = this.soundFields(input, r);
+    this.db.prepare("UPDATE server_sounds SET name = ?, emoji = ?, volume = ? WHERE id = ?").run(name, emoji, volume, id);
+    return toSound(this.soundRow(id)!);
+  }
+
+  deleteSound(serverId: number, id: number): string {
+    const r = this.soundRow(id);
+    if (!r || r.server_id !== serverId) throw new HttpError(404, "No such sound");
+    this.db.prepare("DELETE FROM server_sounds WHERE id = ?").run(id);
+    return r.file;
+  }
+
+  /** Every emoji, sticker and sound file of a server, for when it's deleted. */
   files(serverId: number): string[] {
     return [
       ...(this.db.prepare("SELECT file FROM server_emojis WHERE server_id = ?").all(serverId) as { file: string }[]),
       ...(this.db.prepare("SELECT file FROM server_stickers WHERE server_id = ?").all(serverId) as { file: string }[]),
+      ...(this.db.prepare("SELECT file FROM server_sounds WHERE server_id = ?").all(serverId) as { file: string }[]),
     ].map((r) => r.file);
   }
 
-  private nameFree(table: "server_emojis" | "server_stickers", serverId: number, name: string): void {
+  private nameFree(table: "server_emojis" | "server_stickers" | "server_sounds", serverId: number, name: string): void {
     if (this.db.prepare(`SELECT 1 FROM ${table} WHERE server_id = ? AND name = ? COLLATE NOCASE`).get(serverId, name)) {
-      throw new HttpError(409, `This server already has ${table === "server_emojis" ? "an emoji" : "a sticker"} called ${name}`);
+      const what = table === "server_emojis" ? "an emoji" : table === "server_stickers" ? "a sticker" : "a sound";
+      throw new HttpError(409, `This server already has ${what} called ${name}`);
     }
   }
 

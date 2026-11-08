@@ -56,6 +56,7 @@ import { ExpressionsContext } from "./expressions.tsx";
 import { patchUser, ProfileCard, ProfileContext, ProfileEditorDialog, StatusLine, type ProfileTarget } from "./Profile.tsx";
 import { setNotificationSettings } from "./notify.tsx";
 import { closeSearch, openSearch, requestJump, SearchPanel, useSearchOpen } from "./Search.tsx";
+import { playSoundboard } from "./soundboard.ts";
 
 // The call code (LiveKit) is big, so it only loads when a call starts.
 const CallPanel = lazy(() => import("./CallPanel.tsx").then((m) => ({ default: m.CallPanel })));
@@ -408,6 +409,10 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           setInVoice((cur) => (cur && cur.voice.channelId === v.channelId && !v.members.some((m) => m.userId === me.id) ? null : cur));
           break;
         }
+        case "voice.sound":
+          // Only people in that voice channel get these.
+          playSoundboard(e.play);
+          break;
         case "server.updated":
           setServers((list) =>
             list.some((x) => x.id === e.server.id) ? list.map((x) => (x.id === e.server.id ? e.server : x)) : [...list, e.server],

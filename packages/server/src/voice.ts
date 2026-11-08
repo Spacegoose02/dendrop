@@ -1,4 +1,4 @@
-import type { VoiceChannelState, VoiceJoin, VoiceMember, WatchItem, WatchSession } from "@dendrop/shared";
+import { SOUNDBOARD_COOLDOWN_MS, type SoundboardPlay, type VoiceChannelState, type VoiceJoin, type VoiceMember, type WatchItem, type WatchSession } from "@dendrop/shared";
 import { callsEnabled, type ServerConfig } from "./config.js";
 import { now } from "./db.js";
 import { HttpError } from "./errors.js";
@@ -33,6 +33,8 @@ export interface VoiceChannelRef {
  */
 export class VoiceService {
   private channels = new Map<number, { ref: VoiceChannelRef; members: VoiceMember[]; watch: WatchSession | null }>();
+  /** When each person last played a soundboard sound. */
+  private lastSound = new Map<number, number>();
 
   constructor(
     private readonly config: ServerConfig,
@@ -138,6 +140,27 @@ export class VoiceService {
     if (!m.speaker) Object.assign(m, { muted: true, video: false, screen: false });
     this.broadcast(id);
     return this.state(id)!;
+  }
+
+  /**
+   * Plays a soundboard sound to everyone in this person's voice channel (them included). The
+   * caller checks the sound belongs to the channel's server. Stage listeners and deafened people
+   * can't play sounds, and there's a short wait between sounds so nobody spams the room.
+   */
+  playSound(userId: number, play: SoundboardPlay, at = Date.now()): void {
+    const id = this.channelOf(userId);
+    if (id === undefined) throw new HttpError(400, "You aren't in a voice channel");
+    const c = this.channels.get(id)!;
+    const m = c.members.find((x) => x.userId === userId)!;
+    if (!m.speaker) throw new HttpError(403, "Only speakers can play sounds on a stage");
+    if (m.deafened) throw new HttpError(400, "Undeafen to play sounds");
+    const last = this.lastSound.get(userId) ?? 0;
+    if (at - last < SOUNDBOARD_COOLDOWN_MS) throw new HttpError(429, "One sound at a time: wait a moment");
+    this.lastSound.set(userId, at);
+    this.gateway.send(
+      c.members.map((x) => x.userId),
+      { type: "voice.sound", channelId: id, userId, play },
+    );
   }
 
   // ---- Watch together ----------------------------------------------------------------

@@ -20,7 +20,7 @@ const NUDGE_SENT: Record<NudgeKind, string> = {
 };
 
 /** Closes a popover on a click outside it or Escape. */
-function useDismiss(onClose: () => void) {
+export function useDismiss(onClose: () => void) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const down = (e: MouseEvent) => {
