@@ -1,11 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 import { comboFromEvent, comboLabel, hasBackgroundPtt, hasGlobalShortcuts, saveKeybinds, setRecording, useKeybinds, type Combo, type VoiceAction } from "./keybinds.ts";
 import { applyOutput, canPickOutput, micConstraints, micError, playSound, saveAudio, useAudioPrefs, VoiceGate, type AudioPrefs, type NoiseLevel } from "./audio.ts";
+import type { Track } from "livekit-client";
+import { canProcessMic, MicProcessor, micContext } from "./micProcessor.ts";
+import { playBuiltinSound } from "./soundboard.ts";
+
+const isFirefox = typeof navigator !== "undefined" && /firefox/i.test(navigator.userAgent);
 
 const NOISE: { id: NoiseLevel; label: string; detail: string }[] = [
   { id: "off", label: "Off", detail: "Your mic as it is." },
-  { id: "standard", label: "Standard", detail: "Takes out fans, hum and hiss." },
-  { id: "strong", label: "Strong", detail: "Also isolates your voice, where this browser can." },
+  {
+    id: "smart",
+    label: "Smart",
+    detail: "Dendrop's own noise suppression (RNNoise). Takes out keyboards, fans, hum, dogs and background chatter, and works the same in every browser.",
+  },
+  {
+    id: "browser",
+    label: "Browser's own",
+    detail: isFirefox
+      ? "Firefox's built-in suppression: lighter, and Firefox has no voice isolation. Smart usually sounds better here."
+      : "Your browser's built-in suppression, plus voice isolation where it has it.",
+  },
 ];
 
 /** Settings, Voice and audio: mic and speakers, a mic check, input sensitivity, cleanup, sounds. Saved on this device. */
@@ -148,6 +163,17 @@ export function AudioSettings() {
           <span className="muted small">Evens out your volume when you lean in or move away.</span>
         </span>
       </label>
+      <h3>Soundboard</h3>
+      <label className="range-row">
+        <span>Soundboard volume</span>
+        <input type="range" min={0} max={100} value={prefs.soundboardVolume} onChange={(e) => set({ soundboardVolume: Number(e.target.value) })} />
+        <span className="range-value">{prefs.soundboardVolume ? `${prefs.soundboardVolume}%` : "Off"}</span>
+        <button type="button" disabled={!prefs.soundboardVolume} onClick={() => playBuiltinSound("ding", prefs)}>
+          Test
+        </button>
+      </label>
+      <p className="muted small">How loud sounds others play from the soundboard are for you. Set it to off to not hear them at all.</p>
+
       <label className="toggle">
         <input type="checkbox" checked={prefs.sounds} onChange={(e) => set({ sounds: e.target.checked })} />
         <span>
@@ -167,35 +193,73 @@ function MicCheck({ prefs, onAllowed }: { prefs: AudioPrefs; onAllowed: () => vo
   const [threshold, setThreshold] = useState(-100);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const echo = useRef<HTMLAudioElement>(null);
   const prefsRef = useRef(prefs);
   prefsRef.current = prefs;
   const constraints = JSON.stringify(micConstraints(prefs));
+  const smart = prefs.noiseSuppression === "smart";
 
   useEffect(() => {
     if (!on) return;
     let stream: MediaStream | null = null;
     let gate: VoiceGate | null = null;
+    let ctx: AudioContext | null = null;
+    let proc: MicProcessor | null = null;
     let cancelled = false;
     setError(null);
+    setNote(null);
+    const onLevel = (isOpen: boolean, l: number, t: number) => {
+      setLevel(l);
+      setThreshold(t);
+      setOpen(isOpen);
+    };
     navigator.mediaDevices
       .getUserMedia({ audio: JSON.parse(constraints) as MediaTrackConstraints })
-      .then((s) => {
+      .then(async (s) => {
         if (cancelled) return s.getTracks().forEach((t) => t.stop());
         stream = s;
         onAllowed();
         const track = s.getAudioTracks()[0]!;
-        gate = new VoiceGate(
-          track,
-          () => prefsRef.current.sensitivity,
-          (isOpen, l, t) => {
-            setLevel(l);
-            setThreshold(t);
-            setOpen(isOpen);
-            track.enabled = isOpen;
-          },
-        );
-        if (echo.current) echo.current.srcObject = s;
+        // The same pipeline as in voice, so what you hear here is what others hear.
+        if (canProcessMic()) {
+          try {
+            ctx = micContext();
+            const p = new MicProcessor(smart);
+            await p.init({ kind: "audio" as Track.Kind.Audio, track, audioContext: ctx });
+            if (cancelled) return;
+            proc = p;
+            if (smart && !p.denoising) setNote("Smart noise suppression can't run with this mic here, so calls use the browser's own.");
+          } catch {
+            proc = null;
+            void ctx?.close();
+            ctx = null;
+            if (smart) setNote("Smart noise suppression couldn't start in this browser, so calls use the browser's own.");
+          }
+        }
+        if (cancelled) return;
+        if (proc) {
+          const p = proc;
+          gate = new VoiceGate(
+            () => p.level(),
+            () => prefsRef.current.sensitivity,
+            (isOpen, l, t) => {
+              onLevel(isOpen, l, t);
+              p.setOpen(isOpen);
+            },
+          );
+          if (echo.current && p.processedTrack) echo.current.srcObject = new MediaStream([p.processedTrack]);
+        } else {
+          gate = new VoiceGate(
+            track,
+            () => prefsRef.current.sensitivity,
+            (isOpen, l, t) => {
+              onLevel(isOpen, l, t);
+              track.enabled = isOpen;
+            },
+          );
+          if (echo.current) echo.current.srcObject = s;
+        }
       })
       .catch((err: Error) => {
         setError(micError(err));
@@ -204,12 +268,14 @@ function MicCheck({ prefs, onAllowed }: { prefs: AudioPrefs; onAllowed: () => vo
     return () => {
       cancelled = true;
       gate?.close();
+      void proc?.destroy();
+      void ctx?.close().catch(() => {});
       stream?.getTracks().forEach((t) => t.stop());
       if (echo.current) echo.current.srcObject = null;
     };
     // Restart when the mic or its cleanup changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [on, constraints]);
+  }, [on, constraints, smart]);
 
   useEffect(() => {
     if (echo.current) applyOutput(echo.current, prefs);
@@ -240,6 +306,7 @@ function MicCheck({ prefs, onAllowed }: { prefs: AudioPrefs; onAllowed: () => vo
         </>
       )}
       <audio ref={echo} autoPlay muted={!hear} />
+      {note && <p className="warning-note">{note}</p>}
       {error && <p className="error">{error}</p>}
     </div>
   );
