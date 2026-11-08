@@ -20,6 +20,7 @@ import { Gateway } from "./gateway.js";
 import { GifService, type GifFetch } from "./gifs.js";
 import { DendutyLink, type DendutyFetch } from "./denduty.js";
 import { EventService } from "./events.js";
+import type { LevelService } from "./levels.js";
 import { builtinLivekit } from "./livekit.js";
 import { LootdenLink, type LootdenFetch } from "./lootden.js";
 import { PushService } from "./push.js";
@@ -73,6 +74,8 @@ export interface Context {
   events: EventService;
   /** Set by the server routes: sends a server's members its new state (and prunes voice). */
   serverChanged?: (serverId: number) => void;
+  /** Set by the server routes: XP and raccoon ranks. */
+  levels?: LevelService;
   /** Set by the server routes: how many people are in a voice channel. */
   voiceCount?: (channelId: number) => number;
   /** Set by the server routes: who is in a voice channel. */

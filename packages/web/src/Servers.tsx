@@ -26,6 +26,8 @@ import { MemberRoles, RoleChip, RolesTab } from "./Roles.tsx";
 import { byRank, can, memberColors, outranks, rolesOf } from "./roles.ts";
 import { EmojiTab, StickersTab } from "./ServerExpressions.tsx";
 import { CHANNEL_KINDS, channelMark, channelTitle } from "./channels.ts";
+import { LevelBadge, LevelsTab } from "./Levels.tsx";
+import { mustAgree, WelcomeTab } from "./Welcome.tsx";
 import "./servers.css";
 
 /** A server's picture, or its initials on a rounded square. */
@@ -73,6 +75,7 @@ export function ServerSidebar({
   onModLog,
   events = [],
   onEvents,
+  onWelcome,
 }: {
   server: ChatServer;
   activeChannel: number | null;
@@ -94,6 +97,8 @@ export function ServerSidebar({
   /** The server's events you can see. */
   events?: ScheduledEvent[];
   onEvents?: () => void;
+  /** Opens the welcome screen again. */
+  onWelcome?: () => void;
 }) {
   const colorsOf = useColors();
   const mod = can(server, "manageChannels");
@@ -116,6 +121,14 @@ export function ServerSidebar({
             </span>
             Automod alerts
             <span className="badge">{automodAlerts}</span>
+          </button>
+        )}
+        {server.welcome.enabled && onWelcome && (
+          <button className={`nav-item welcome-link ${mustAgree(server) ? "needs-agree" : ""}`} onClick={onWelcome}>
+            <span className="nav-icon" aria-hidden>
+              🦝
+            </span>
+            {mustAgree(server) ? "Agree to the rules to chat" : "Welcome & rules"}
           </button>
         )}
         {canInvite(server) && (
@@ -233,6 +246,7 @@ export function ServerSidebar({
               </span>
               {m.role !== "member" ? <span className={`role-tag ${m.role}`}>{m.role}</span> : top && <RoleChip role={top} />}
               {m.user.isBot && <span className="bot-tag">bot</span>}
+              <LevelBadge xp={m.xp} />
             </div>
           );
         })}
@@ -764,7 +778,7 @@ export function ChannelDialog({
   );
 }
 
-export type SettingsTab = "profile" | "members" | "roles" | "emoji" | "stickers" | "invites" | "bans" | "automod" | "modlog" | "webhooks" | "bots";
+export type SettingsTab = "profile" | "members" | "levels" | "welcome" | "roles" | "emoji" | "stickers" | "invites" | "bans" | "automod" | "modlog" | "webhooks" | "bots";
 
 /** Server settings: profile and pictures, members and roles, invites, bans, automod, and leaving. */
 export function ServerSettings({
@@ -783,6 +797,8 @@ export function ServerSettings({
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "profile", label: "Profile" },
     { id: "members", label: "Members" },
+    ...(server.levels || can(server, "manageServer") ? [{ id: "levels" as const, label: "Levels" }] : []),
+    ...(can(server, "manageServer") ? [{ id: "welcome" as const, label: "Welcome" }] : []),
     ...(can(server, "manageRoles") || server.roles.length ? [{ id: "roles" as const, label: "Roles" }] : []),
     ...(can(server, "manageExpressions") || server.emojis.length ? [{ id: "emoji" as const, label: "Emoji" }] : []),
     ...(can(server, "manageExpressions") || server.stickers.length ? [{ id: "stickers" as const, label: "Stickers" }] : []),
@@ -808,6 +824,8 @@ export function ServerSettings({
       </div>
       {tab === "profile" && <ProfileTab me={me} server={server} onGone={onGone} />}
       {tab === "members" && <MembersTab me={me} server={server} />}
+      {tab === "levels" && <LevelsTab me={me} server={server} />}
+      {tab === "welcome" && <WelcomeTab me={me} server={server} />}
       {tab === "roles" && <RolesTab me={me} server={server} />}
       {tab === "emoji" && <EmojiTab server={server} />}
       {tab === "stickers" && <StickersTab server={server} />}
