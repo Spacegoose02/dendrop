@@ -1,0 +1,17 @@
+{
+  "name": "@dendrop/ios",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dendrop for iPhone: a Capacitor shell that opens your Dendrop server's web client.",
+  "scripts": {
+    "build:www": "node scripts/build-www.mjs",
+    "sync": "npm run build:www && cap sync ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.6.0",
+    "@capacitor/ios": "8.6.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.0"
+  }
+}

@@ -103,6 +103,12 @@ so there's nothing to run on Unraid. Notifications say only "new message" or "in
 If your own ntfy server is on the home network over plain `http://`, set
 `DENDROP_PUSH_ALLOW_HTTP=true`.
 
+The iPhone app gets notifications and rings calls on iOS's own call screen through Apple, which
+only works with a push key from the Apple developer account that builds the app. Put the key file
+in `/data` and set `DENDROP_APNS_KEY_FILE`, `DENDROP_APNS_KEY_ID` and `DENDROP_APNS_TEAM_ID`
+(see [packages/ios/README.md](packages/ios/README.md)). Apple only ever carries the fixed words
+"You have a new message" or a bare "call".
+
 ## Developing
 
 Node 22 or newer.
@@ -124,3 +130,4 @@ npm test
 | `packages/web` | React client |
 | `packages/desktop` | Electron app for Windows 11 and Linux, wrapping the web client ([README](packages/desktop/README.md)) |
 | `packages/android` | Capacitor Android app (Phase 2) |
+| `packages/ios` | Capacitor iPhone app, with CallKit calls and APNs notifications ([README](packages/ios/README.md)) |

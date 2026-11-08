@@ -1,6 +1,7 @@
-// The Android app's own page: pick the server and turn on notifications.
+// The Android and iPhone apps' own page: pick the server and turn on notifications.
 // Shown on first launch, from the "Server settings" shortcut (#settings), and when the server
-// can't be reached (as dendrop-offline.html). Talks to DendropPlugin.java.
+// can't be reached (as dendrop-offline.html). Talks to DendropPlugin.java on Android and
+// DendropPlugin.swift on iOS (packages/ios builds this same page).
 "use strict";
 
 (function () {
@@ -47,6 +48,7 @@
   }
 
   function renderPush(push) {
+    if (state.platform === "ios") return renderPushIos(push);
     const status = $("push-status");
     const actions = $("push-actions");
     actions.replaceChildren();
@@ -108,10 +110,62 @@
     });
   }
 
+  // iPhones get pushes from Apple: no extra app to install, and calls ring on iOS's own call screen.
+  function renderPushIos(push) {
+    $("push-intro").textContent =
+      "Notifications come through Apple, and calls ring like a phone call, even when the iPhone is locked. " +
+      "A notification only says that something arrived, never what was said or who said it.";
+    const status = $("push-status");
+    const actions = $("push-actions");
+    actions.replaceChildren();
+    status.className = "status";
+    const button = (label, primary, onClick) => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      if (primary) b.className = "primary";
+      b.addEventListener("click", onClick);
+      actions.append(b);
+    };
+
+    if (!push.enabled) {
+      status.textContent = "Off";
+      button("Turn on notifications", true, enablePush);
+      return;
+    }
+    if (!push.notificationsAllowed) {
+      status.textContent = "iOS is blocking Dendrop's notifications. Allow them in Settings, Dendrop, Notifications.";
+      status.classList.add("warn");
+    } else if (!push.hasEndpoint) {
+      status.textContent = "Waiting for Apple…";
+      startPolling();
+    } else if (push.serverStatus === "synced") {
+      status.textContent = "On. This iPhone gets notifications and calls.";
+      status.classList.add("ok");
+    } else if (push.serverStatus === "server-no-apns") {
+      status.textContent = "Ready on this iPhone, but your server doesn't have an Apple push key yet, so nothing arrives. Whoever runs the server can add one (see the iPhone app's README).";
+      status.classList.add("warn");
+    } else if (push.serverStatus === "server-unsupported") {
+      status.textContent = "Ready on this iPhone, but your server doesn't send iPhone notifications yet. They'll start once it's updated.";
+      status.classList.add("warn");
+    } else if (push.serverStatus === "error") {
+      status.textContent = "Ready on this iPhone. Couldn't tell your server yet; the app will keep trying.";
+      status.classList.add("warn");
+    } else {
+      status.textContent = "Ready on this iPhone. Sign in to Dendrop to finish.";
+    }
+    button("Turn off", false, async () => {
+      await native("disablePush");
+      await refresh();
+    });
+  }
+
   async function enablePush() {
     const result = await native("enablePush");
     if (!result.ok && result.reason === "permission-denied") {
-      $("push-status").textContent = "Notifications weren't allowed. You can turn them on later in Android's settings for Dendrop.";
+      $("push-status").textContent =
+        state.platform === "ios"
+          ? "Notifications weren't allowed. You can turn them on later in Settings, Dendrop, Notifications."
+          : "Notifications weren't allowed. You can turn them on later in Android's settings for Dendrop.";
       $("push-status").className = "status warn";
       return;
     }

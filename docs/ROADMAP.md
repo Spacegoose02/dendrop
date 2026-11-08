@@ -39,6 +39,7 @@ packages/server   # Fastify API, WebSocket gateway, SQLite, TinyAuth OIDC
 packages/web      # React client, also wrapped by the desktop and Android apps
 packages/desktop  # Electron app for Windows 11 and Linux
 packages/android  # Capacitor app (APK)
+packages/ios      # Capacitor iPhone app (TestFlight), CallKit calls, APNs pushes
 ```
 
 ---

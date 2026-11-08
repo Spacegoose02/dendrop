@@ -34,6 +34,7 @@ import { excerptOf, ReminderTray, type FiredReminder } from "./Fun.tsx";
 import { Friends } from "./Friends.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { IncomingCall } from "./IncomingCall.tsx";
+import { connectNativeCalls, reportCallState, type NativeAnswer } from "./native.ts";
 import { PlayTogetherCard } from "./PlayTogether.tsx";
 import { COUPLES_EVENT, LoveNotePopup, type CouplesEventDetail } from "./Couples.tsx";
 import { LevelUpCard } from "./Levels.tsx";
@@ -574,6 +575,46 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   // Ring for a call that's ringing this person, unless they're already in one.
   const ringing = Object.values(calls).find((c) => c.ringing.includes(me.id) && c.conversationId !== inCall?.call.conversationId);
 
+  // In the iPhone app, iOS's own call screen rings and answers (CallKit); the page joins the call.
+  const [nativeRinging, setNativeRinging] = useState(false);
+  const callsRef = useRef(calls);
+  callsRef.current = calls;
+  const startCallRef = useRef(startCall);
+  startCallRef.current = startCall;
+  const nativeAnswer = useRef<{ pending: NativeAnswer | null; last: { cid: number; at: number } | null }>({ pending: null, last: null });
+  const joinNativeAnswer = useCallback(() => {
+    const a = nativeAnswer.current.pending;
+    if (!a) return;
+    const cid = a.conversationId ?? Object.values(callsRef.current).find((c) => c.ringing.includes(me.id))?.conversationId;
+    if (cid === undefined) return; // Not loaded yet; tried again when calls arrive.
+    nativeAnswer.current.pending = null;
+    const last = nativeAnswer.current.last;
+    if (last && last.cid === cid && Date.now() - last.at < 10_000) return;
+    nativeAnswer.current.last = { cid, at: Date.now() };
+    void startCallRef.current(cid, a.video);
+  }, [me.id]);
+  useEffect(() => {
+    void connectNativeCalls({
+      onAnswered: (a) => {
+        nativeAnswer.current.pending = a;
+        joinNativeAnswer();
+      },
+      onEnded: (cid) => {
+        setInCall((c) => (c?.call.conversationId === cid ? null : c));
+        setCalls((cs) => (cs[cid] ? { ...cs, [cid]: { ...cs[cid]!, ringing: cs[cid]!.ringing.filter((id) => id !== me.id) } } : cs));
+      },
+    }).then((r) => setNativeRinging(r.ringsNatively));
+  }, [joinNativeAnswer, me.id]);
+  useEffect(joinNativeAnswer, [calls, joinNativeAnswer]);
+  const reportedCall = useRef<number | null>(null);
+  const inCallId = inCall?.call.conversationId ?? null;
+  useEffect(() => {
+    if (inCallId === reportedCall.current) return;
+    if (reportedCall.current !== null) reportCallState(reportedCall.current, false);
+    if (inCallId !== null) reportCallState(inCallId, true);
+    reportedCall.current = inCallId;
+  }, [inCallId]);
+
   const kidRules = me.isKid && family?.rules && family.status ? { rules: family.rules, status: family.status } : null;
   /** A kid's word filter, for other people's statuses and profiles. */
   const profileFilter = kidRules?.rules.profanityFilter ? kidRules.rules.blockedWords : null;
@@ -990,7 +1031,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       {encryptionDialog && (
         <EncryptionDialog me={me} mode={encryptionDialog} setMode={setEncryptionDialog} onDone={onUnlocked} onClose={() => setEncryptionDialog(null)} />
       )}
-      {ringing && !dialog && (
+      {ringing && !dialog && !nativeRinging && (
         <IncomingCall
           me={me}
           call={ringing}
