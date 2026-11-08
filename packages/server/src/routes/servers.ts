@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream, mkdirSync, rmSync, statSync } from
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { AUTOMOD_LIMITS, INLINE_IMAGE_TYPES, isBuiltinSound, isVoiceKind, LIMITS, type ServerPermission } from "@dendrop/shared";
+import { AUTOMOD_LIMITS, INLINE_IMAGE_TYPES, isBuiltinSound, isVoiceKind, LIMITS, parseWatchLink, WATCH_VIDEO_TYPES, type ServerPermission, type WatchVideo } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
 import { ConversationRepo } from "../conversations.js";
 import { ExpressionRepo } from "../expressions.js";
@@ -14,6 +14,7 @@ import { LevelService } from "../levels.js";
 import { ServerRepo, type ImageKind } from "../servers.js";
 import { ThreadRepo } from "../threads.js";
 import { VoiceService } from "../voice.js";
+import { cleanPosition, cleanWatchTitle, titleFromUrl } from "../watch.js";
 import type { UserRecord } from "../users.js";
 
 const id = (v: unknown): number => {
@@ -561,6 +562,123 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
   app.post("/api/voice/leave", async (req) => {
     voice.leave(requireUser(req).id);
     return { ok: true };
+  });
+
+  // ---- Watch together -------------------------------------------------------------------
+  // A video everyone in a voice channel watches at the same time. The server keeps what's on and
+  // where it's up to; each device plays it and keeps itself in step.
+
+  const watchFile = (conversationId: number, attachmentId: unknown) => {
+    const a = typeof attachmentId === "string" && /^[0-9a-f]{32}$/.test(attachmentId) ? convos.attachmentIn(attachmentId, conversationId) : undefined;
+    if (!a || !WATCH_VIDEO_TYPES.includes(a.contentType)) throw new HttpError(404, "No such video in this channel's chat");
+    return a;
+  };
+
+  /** Videos posted in a voice channel's chat, newest first, to pick one to watch. */
+  app.get<{ Params: { id: string; channelId: string } }>("/api/servers/:id/channels/:channelId/watch/videos", async (req): Promise<WatchVideo[]> => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    member(sid, me);
+    const c = servers.channelById(id(req.params.channelId));
+    if (!c || c.serverId !== sid || !convos.isMember(c.conversationId, me.id)) throw new HttpError(404, "No such channel");
+    const rows = db
+      .prepare(
+        `SELECT a.id, a.name, a.size, m.author_id, a.created_at FROM attachments a JOIN messages m ON m.id = a.message_id
+          WHERE a.conversation_id = ? AND m.deleted_at IS NULL AND m.key_version IS NULL
+            AND a.content_type IN (${WATCH_VIDEO_TYPES.map(() => "?").join(", ")})
+          ORDER BY a.created_at DESC, a.rowid DESC LIMIT 50`,
+      )
+      .all(c.conversationId, ...WATCH_VIDEO_TYPES) as { id: string; name: string; size: number; author_id: number; created_at: string }[];
+    return rows.map((r) => ({ attachmentId: r.id, name: r.name, size: r.size, postedBy: r.author_id, postedAt: r.created_at }));
+  });
+
+  /**
+   * Puts a video on in the voice channel you're in, or queues it: { attachmentId } for a video
+   * from the channel's chat, or { url } for a link (a video file, or YouTube when it's on).
+   * Kid accounts can only put on videos from the chat.
+   */
+  app.post<{ Body: { attachmentId?: unknown; url?: unknown; title?: unknown } }>("/api/voice/watch", async (req) => {
+    const me = requireUser(req);
+    const b = req.body ?? {};
+    const ref = voice.watchChannel(me.id);
+    if (b.attachmentId !== undefined) {
+      const a = watchFile(ref.conversationId, b.attachmentId);
+      return voice.watchAdd(me.id, {
+        kind: "file",
+        src: `/api/voice/watch/${ref.channelId}/files/${a.id}`,
+        title: cleanWatchTitle(b.title, a.name.replace(/\.[a-z0-9]{2,5}$/i, "")),
+      });
+    }
+    const link = typeof b.url === "string" ? parseWatchLink(b.url) : null;
+    if (!link) throw new HttpError(400, "Paste a link to a video, or pick one from the chat");
+    if (me.isKid) throw new HttpError(403, "Kid accounts can watch videos shared in the chat, not links from other sites");
+    if (link.kind === "youtube") {
+      if (!ctx.watch.get().youtube) throw new HttpError(403, "YouTube isn't turned on for this Dendrop server. A super admin can turn it on in Admin.");
+      return voice.watchAdd(me.id, { kind: "youtube", src: link.videoId, title: cleanWatchTitle(b.title, "YouTube video") });
+    }
+    return voice.watchAdd(me.id, { kind: "link", src: link.url, title: cleanWatchTitle(b.title, titleFromUrl(link.url)) });
+  });
+
+  /** Play, pause or jump: { playing?: boolean, position?: seconds }. */
+  app.post<{ Body: { playing?: unknown; position?: unknown } }>("/api/voice/watch/control", async (req) => {
+    const me = requireUser(req);
+    const b = req.body ?? {};
+    if (b.playing !== undefined && typeof b.playing !== "boolean") throw new HttpError(400, "playing is true or false");
+    return voice.watchControl(me.id, { playing: b.playing as boolean | undefined, position: b.position === undefined ? undefined : cleanPosition(b.position) });
+  });
+
+  /** Skips to the next video: { itemId } when a video ended, so it moves on once however many devices say so. */
+  app.post<{ Body: { itemId?: unknown } }>("/api/voice/watch/next", async (req) => {
+    const me = requireUser(req);
+    const itemId = req.body?.itemId;
+    if (itemId !== undefined && typeof itemId !== "string") throw new HttpError(400, "Bad item");
+    return voice.watchNext(me.id, itemId);
+  });
+
+  app.delete<{ Params: { itemId: string } }>("/api/voice/watch/queue/:itemId", async (req) => voice.watchRemove(requireUser(req).id, req.params.itemId));
+
+  /** Stops the video for everyone. */
+  app.delete("/api/voice/watch", async (req) => voice.watchStop(requireUser(req).id));
+
+  /**
+   * Streams a video from a voice channel's chat, with ranges so it can be skipped through.
+   * Anyone who can see the channel can stream its videos (same as downloading them).
+   */
+  app.get<{ Params: { channelId: string; attachmentId: string } }>("/api/voice/watch/:channelId/files/:attachmentId", async (req, reply) => {
+    const me = requireUser(req);
+    const c = servers.channelById(id(req.params.channelId));
+    if (!c || !isVoiceKind(c.kind) || !convos.isMember(c.conversationId, me.id)) throw new HttpError(404, "No such channel");
+    const a = watchFile(c.conversationId, req.params.attachmentId);
+    const file = path.join(uploads, a.id);
+    const size = statSync(file).size;
+    void reply
+      .header("content-type", a.contentType)
+      .header("accept-ranges", "bytes")
+      .header("x-content-type-options", "nosniff")
+      .header("content-security-policy", "default-src 'none'; sandbox")
+      .header("cache-control", "private, max-age=31536000, immutable");
+    const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
+    if (!range || (!range[1] && !range[2])) return reply.header("content-length", size).send(createReadStream(file));
+    let start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+    let end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+    if (start >= size || start > end) return reply.code(416).header("content-range", `bytes */${size}`).send();
+    start = Math.max(0, start);
+    end = Math.max(start, end);
+    return reply
+      .code(206)
+      .header("content-range", `bytes ${start}-${end}/${size}`)
+      .header("content-length", end - start + 1)
+      .send(createReadStream(file, { start, end }));
+  });
+
+  app.get("/api/admin/watch", async (req) => {
+    if (!requireUser(req).isSuperAdmin) throw new HttpError(403, "Only super admins can do that");
+    return ctx.watch.get();
+  });
+
+  app.put<{ Body: { youtube?: unknown } }>("/api/admin/watch", async (req) => {
+    if (!requireUser(req).isSuperAdmin) throw new HttpError(403, "Only super admins can do that");
+    return ctx.watch.set(req.body ?? {});
   });
 
   /** People with Delete messages (and the owner and admins) can delete anyone's message in the server's channels. */

@@ -10,6 +10,7 @@ import { SoundboardButton } from "./SoundboardMenu.tsx";
 import { setSoundboardDeafened } from "./soundboard.ts";
 import { canShareScreen, ScreenTile, ShareDialog, shareOptions, type ShareQuality } from "./ScreenShare.tsx";
 import { can } from "./roles.ts";
+import { WatchDialog, WatchPanel } from "./WatchTogether.tsx";
 
 /**
  * The voice channel you're in: connects to its LiveKit room and has the controls. Like a call,
@@ -29,6 +30,7 @@ export function VoicePanel({
   onOpen,
   onLeft,
   onSpeakers,
+  watchYoutube = false,
 }: {
   me: Me;
   join: VoiceJoin;
@@ -43,6 +45,8 @@ export function VoicePanel({
   onLeft: () => void;
   /** Who is talking right now, for the channel list. */
   onSpeakers: (userIds: number[]) => void;
+  /** YouTube is turned on for watch together. */
+  watchYoutube?: boolean;
 }) {
   const [room, setRoom] = useState<Room | null>(null);
   const [, setVersion] = useState(0);
@@ -72,6 +76,8 @@ export function VoicePanel({
   const speaker = !isStage || mine?.speaker !== false;
   const moderator = !!server && (can(server, "manageChannels") || can(server, "manageEvents"));
   const [stageNote, setStageNote] = useState<string | null>(null);
+  const [watchDialog, setWatchDialog] = useState(false);
+  const watch = live ? live.watch : (join.voice.watch ?? null);
 
   const report = (state: Partial<Pick<VoiceMember, "muted" | "deafened" | "video" | "screen">>) =>
     void api("/api/voice/state", { body: state }).catch(() => {});
@@ -318,6 +324,11 @@ export function VoicePanel({
           </button>
         )
       )}
+      {!compact && (
+        <button className={watch ? "sharing" : ""} onClick={() => setWatchDialog(true)} title="Watch a video together">
+          📺 {watch ? "Queue a video" : "Watch together"}
+        </button>
+      )}
       {!compact && status === "connected" && <SoundboardButton server={server} disabled={deafened} onError={setError} />}
       {isStage && !compact && (
         <button onClick={() => setSpeakerOf(me.id, false)} title="Stop speaking and listen with everyone else">
@@ -338,6 +349,7 @@ export function VoicePanel({
         <button className="link ellipsis" onClick={onOpen}>
           {isStage ? `${speaker ? "On stage" : "Listening"}: 🎙️ ${event?.name ?? name}` : `In voice: 🔊 ${name}`}
           {server ? <span className="muted"> · {server.name}</span> : null}
+          {watch ? <span className="muted"> · 📺 {watch.current.title}</span> : null}
         </button>
         {controls}
       </div>
@@ -361,6 +373,9 @@ export function VoicePanel({
             · {members.length - audience.length} speaking · {audience.length} listening
           </span>
         </div>
+      )}
+      {watch && (
+        <WatchPanel watch={watch} canControl={speaker} isKid={!!me.isKid} nameOf={memberName} onAdd={() => setWatchDialog(true)} />
       )}
       {stage && (
         <div className="voice-stage">
@@ -451,6 +466,17 @@ export function VoicePanel({
         {error && <span className="error">{error}</span>}
       </div>
       {controls}
+      {watchDialog && (
+        <WatchDialog
+          serverId={join.voice.serverId}
+          channelId={join.voice.channelId}
+          playing={!!watch}
+          youtube={watchYoutube}
+          isKid={!!me.isKid}
+          nameOf={memberName}
+          onClose={() => setWatchDialog(false)}
+        />
+      )}
       {sharing === "picking" && <ShareDialog onClose={() => setSharing("no")} onShare={(q, a) => void startShare(q, a)} />}
     </div>
   );

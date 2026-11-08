@@ -1,9 +1,10 @@
-import { SOUNDBOARD_COOLDOWN_MS, type SoundboardPlay, type VoiceChannelState, type VoiceJoin, type VoiceMember } from "@dendrop/shared";
+import { SOUNDBOARD_COOLDOWN_MS, type SoundboardPlay, type VoiceChannelState, type VoiceJoin, type VoiceMember, type WatchItem, type WatchSession } from "@dendrop/shared";
 import { callsEnabled, type ServerConfig } from "./config.js";
 import { now } from "./db.js";
 import { HttpError } from "./errors.js";
 import type { Gateway } from "./gateway.js";
 import { livekitToken, removeFromRoom, setCanPublish } from "./livekit.js";
+import { newWatchItem, Watch } from "./watch.js";
 
 /** Where a voice channel is: which server, and the conversation whose members can see it. */
 export interface VoiceChannelRef {
@@ -25,9 +26,13 @@ export interface VoiceChannelRef {
  * routes) come in as speakers, everyone else as a listener whose LiveKit token can't publish.
  * Listeners raise a hand; a moderator lets them speak, which the call server is told about
  * straight away (setCanPublish), and can move them back to the audience the same way.
+ *
+ * Watch together: anyone who can talk in the channel (everyone in a voice channel, speakers on
+ * a stage) can put on a video, queue more, play, pause and skip. The video's state rides along
+ * in voice.updated, so it goes when the last person leaves.
  */
 export class VoiceService {
-  private channels = new Map<number, { ref: VoiceChannelRef; members: VoiceMember[] }>();
+  private channels = new Map<number, { ref: VoiceChannelRef; members: VoiceMember[]; watch: WatchSession | null }>();
   /** When each person last played a soundboard sound. */
   private lastSound = new Map<number, number>();
 
@@ -36,6 +41,8 @@ export class VoiceService {
     private readonly gateway: Gateway,
     /** Who can see a channel right now: its conversation's members. */
     private readonly viewers: (conversationId: number) => number[],
+    /** The server's clock in milliseconds; tests pass their own. */
+    private readonly clock: () => number = Date.now,
   ) {}
 
   get enabled(): boolean {
@@ -48,7 +55,7 @@ export class VoiceService {
 
   state(channelId: number): VoiceChannelState | undefined {
     const c = this.channels.get(channelId);
-    return c && { ...c.ref, members: c.members };
+    return c && { ...c.ref, members: c.members, watch: c.watch };
   }
 
   /** Voice channels with people in them that this person can see. */
@@ -74,7 +81,7 @@ export class VoiceService {
     const current = this.channelOf(user.id);
     if (current !== undefined && current !== ref.channelId) this.leave(user.id);
     let c = this.channels.get(ref.channelId);
-    if (!c) this.channels.set(ref.channelId, (c = { ref, members: [] }));
+    if (!c) this.channels.set(ref.channelId, (c = { ref, members: [], watch: null }));
     let m = c.members.find((x) => x.userId === user.id);
     if (!m) {
       const speaker = !ref.stage || moderator;
@@ -156,6 +163,60 @@ export class VoiceService {
     );
   }
 
+  // ---- Watch together ----------------------------------------------------------------
+
+  /** The channel someone is in, checking they can run the video there (they can talk). */
+  private watcher(userId: number) {
+    const id = this.channelOf(userId);
+    if (id === undefined) throw new HttpError(400, "Join the voice channel first");
+    const c = this.channels.get(id)!;
+    if (!c.members.find((m) => m.userId === userId)!.speaker) throw new HttpError(403, "Only speakers can pick what's on");
+    return { id, c };
+  }
+
+  /** The voice channel this person is in and could put a video on in, for the routes' own checks. */
+  watchChannel(userId: number): VoiceChannelRef {
+    return this.watcher(userId).c.ref;
+  }
+
+  private changeWatch(userId: number, change: (w: WatchSession | null, at: number) => WatchSession | null): VoiceChannelState {
+    const { id, c } = this.watcher(userId);
+    c.watch = change(c.watch, this.clock());
+    this.broadcast(id);
+    return this.state(id)!;
+  }
+
+  private changePlaying(userId: number, change: (w: WatchSession, at: number) => WatchSession | null): VoiceChannelState {
+    return this.changeWatch(userId, (w, at) => {
+      if (!w) throw new HttpError(400, "Nothing's playing");
+      return change(w, at);
+    });
+  }
+
+  /** Puts a video on, or adds it to the queue when one is playing. */
+  watchAdd(userId: number, item: Omit<WatchItem, "id" | "addedBy">): VoiceChannelState {
+    return this.changeWatch(userId, (w, at) => Watch.add(w, newWatchItem({ ...item, addedBy: userId }), at));
+  }
+
+  /** Play, pause, or jump to a time (seconds). */
+  watchControl(userId: number, patch: { playing?: boolean; position?: number }): VoiceChannelState {
+    return this.changePlaying(userId, (w, at) => Watch.control(w, patch, at));
+  }
+
+  /** Skips to the next video. With itemId (from a device whose video ended), only if that one's still on. */
+  watchNext(userId: number, itemId?: string): VoiceChannelState {
+    return this.changePlaying(userId, (w, at) => Watch.next(w, at, itemId));
+  }
+
+  watchRemove(userId: number, itemId: string): VoiceChannelState {
+    return this.changePlaying(userId, (w) => Watch.remove(w, itemId));
+  }
+
+  /** Stops watching for everyone. */
+  watchStop(userId: number): VoiceChannelState {
+    return this.changeWatch(userId, () => null);
+  }
+
   /** Leaves whatever voice channel this person is in. */
   leave(userId: number): void {
     const id = this.channelOf(userId);
@@ -183,7 +244,7 @@ export class VoiceService {
       // The people taken out hear about it too, so their app hangs up.
       this.gateway.send(
         out.map((m) => m.userId),
-        { type: "voice.updated", voice: { ...c.ref, members: c.members } },
+        { type: "voice.updated", voice: { ...c.ref, members: c.members, watch: c.watch } },
       );
       if (c.members.length === 0) this.channels.delete(id);
     }

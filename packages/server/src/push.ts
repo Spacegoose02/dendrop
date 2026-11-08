@@ -1,4 +1,6 @@
 import webpush from "web-push";
+import { APNS_TOKEN, ApnsClient, type ApnsEnvironment, type ApnsSend } from "./apns.js";
+import type { ApnsConfig } from "./config.js";
 import { now, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 
@@ -19,17 +21,36 @@ interface Row {
   auth: string | null;
 }
 
-/** Sends content-free wake-ups to phones (UnifiedPush, or any Web Push endpoint). */
+/**
+ * What an iPhone shows for each kind. The text is fixed here, so Apple only ever carries these
+ * words, never anything from the chat. (Android writes the same words on the phone.)
+ */
+const APNS_ALERTS: Record<Exclude<PushKind, "call">, { title: string; body: string }> = {
+  message: { title: "Dendrop", body: "You have a new message" },
+  event: { title: "Event starting", body: "An event you're going to is starting soon" },
+};
+
+/**
+ * iPhone endpoints, made up by the iOS app from its APNs tokens:
+ * apns://production/<token> for alerts and apns-voip://production/<token> for the call screen
+ * (sandbox instead of production for builds run from Xcode).
+ */
+const APNS_ENDPOINT = /^(apns|apns-voip):\/\/(production|sandbox)\/([0-9a-f]+)$/;
+
+/** Sends content-free wake-ups to phones (UnifiedPush, any Web Push endpoint, or Apple's APNs for iPhones). */
 export class PushService {
   readonly vapidPublicKey: string;
   private readonly vapidPrivateKey: string;
+  private readonly apns: ApnsClient | null;
 
   constructor(
     private readonly db: Db,
-    private readonly options: { publicUrl: string; allowHttp: boolean },
+    private readonly options: { publicUrl: string; allowHttp: boolean; apns?: ApnsConfig | null },
     /** Replaced in tests. */
     private readonly post: (url: string, body: Buffer | string, headers: Record<string, string>) => Promise<number> = defaultPost,
+    apnsSend?: ApnsSend,
   ) {
+    this.apns = options.apns ? new ApnsClient(options.apns, apnsSend) : null;
     const saved = db.prepare("SELECT value FROM server_settings WHERE key = 'vapid'").get() as { value: string } | undefined;
     let keys = saved ? (JSON.parse(saved.value) as { publicKey: string; privateKey: string }) : undefined;
     if (!keys) {
@@ -40,8 +61,17 @@ export class PushService {
     this.vapidPrivateKey = keys.privateKey;
   }
 
+  /** What the iOS app needs to know: whether this server can reach iPhones, and for which app. */
+  get apnsInfo(): { enabled: boolean; bundleId: string | null } {
+    return { enabled: !!this.apns, bundleId: this.apns?.bundleId ?? null };
+  }
+
   subscribe(userId: number, input: PushSubscriptionInput): void {
     const endpoint = typeof input.endpoint === "string" ? input.endpoint.trim() : "";
+    if (endpoint.startsWith("apns")) {
+      this.subscribeApns(userId, endpoint, input);
+      return;
+    }
     let url: URL;
     try {
       url = new URL(endpoint);
@@ -57,6 +87,21 @@ export class PushService {
     if (!!p256dh !== !!auth) throw new HttpError(400, "keys needs both p256dh and auth");
     const provider = typeof input.provider === "string" ? input.provider.slice(0, 40) : "webpush";
     const deviceName = typeof input.deviceName === "string" ? input.deviceName.slice(0, 100) : null;
+    this.save(endpoint, userId, p256dh, auth, provider, deviceName);
+  }
+
+  /**
+   * An iPhone: an APNs token, saved even while this server has no APNs key yet, so pushes
+   * start as soon as one is added.
+   */
+  private subscribeApns(userId: number, endpoint: string, input: PushSubscriptionInput): void {
+    const m = APNS_ENDPOINT.exec(endpoint);
+    if (!m || !APNS_TOKEN.test(m[3]!)) throw new HttpError(400, "endpoint must be apns://production/<token>, apns://sandbox/<token> or the same with apns-voip://");
+    const deviceName = typeof input.deviceName === "string" ? input.deviceName.slice(0, 100) : null;
+    this.save(endpoint, userId, null, null, m[1]!, deviceName);
+  }
+
+  private save(endpoint: string, userId: number, p256dh: string | null, auth: string | null, provider: string, deviceName: string | null): void {
     // Keyed by endpoint: a phone that signs in as someone else moves to them.
     this.db
       .prepare(
@@ -88,7 +133,12 @@ export class PushService {
     const ttl = kind === "call" ? 45 : kind === "event" ? 3600 : 24 * 3600;
     try {
       let status: number;
-      if (r.p256dh && r.auth) {
+      const apns = APNS_ENDPOINT.exec(r.endpoint);
+      if (apns) {
+        const s = await this.sendApns(apns[1] === "apns-voip", apns[2] as ApnsEnvironment, apns[3]!, kind, ttl);
+        if (s === null) return;
+        status = s;
+      } else if (r.p256dh && r.auth) {
         const req = webpush.generateRequestDetails({ endpoint: r.endpoint, keys: { p256dh: r.p256dh, auth: r.auth } }, payload, {
           TTL: ttl,
           urgency,
@@ -107,6 +157,18 @@ export class PushService {
     } catch {
       // The push service is down or unreachable; try again with the next message.
     }
+  }
+
+  /**
+   * An iPhone has two tokens: calls go to its VoIP token, which rings the native call screen,
+   * and everything else to its alert token. Null when there's nothing to send.
+   */
+  private async sendApns(voip: boolean, env: ApnsEnvironment, token: string, kind: PushKind, ttl: number): Promise<number | null> {
+    if (!this.apns || voip !== (kind === "call")) return null;
+    if (voip) return this.apns.push(env, token, true, { type: "call" }, { ttlSeconds: ttl });
+    const alert = APNS_ALERTS[kind as Exclude<PushKind, "call">];
+    // Same collapse id per kind, so a burst of messages is one notification, like on Android.
+    return this.apns.push(env, token, false, { aps: { alert, sound: "default", "thread-id": kind }, type: kind }, { ttlSeconds: ttl, collapseId: kind });
   }
 }
 

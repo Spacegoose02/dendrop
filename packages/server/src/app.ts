@@ -18,6 +18,7 @@ import { openDb, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { FamilyService, type WebhookPost } from "./family.js";
 import { Gateway } from "./gateway.js";
+import { WatchSettingsStore } from "./watch.js";
 import { GifService, type GifFetch } from "./gifs.js";
 import { DendutyLink, type DendutyFetch } from "./denduty.js";
 import { EventService } from "./events.js";
@@ -82,6 +83,8 @@ export interface Context {
   couples: CouplesService;
   /** Profiles: pictures, banners, bios and custom statuses, and who can see them. */
   profiles: ProfileService;
+  /** Watch together's server-wide settings (YouTube on or off). */
+  watch: WatchSettingsStore;
   /** Set by the server routes: sends a server's members its new state (and prunes voice). */
   serverChanged?: (serverId: number) => void;
   /** Set by the server routes: XP and raccoon ranks. */
@@ -109,7 +112,7 @@ export interface BuiltApp {
 export async function buildApp(
   config: ServerConfig,
   db: Db = openDb(path.join(config.dataDir, "dendrop.db")),
-  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2]; webhookPost?: WebhookPost; lootdenFetch?: LootdenFetch; dendutyFetch?: DendutyFetch; botFetch?: BotFetch; gifFetch?: GifFetch } = {},
+  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2]; apnsSend?: ConstructorParameters<typeof PushService>[3]; webhookPost?: WebhookPost; lootdenFetch?: LootdenFetch; dendutyFetch?: DendutyFetch; botFetch?: BotFetch; gifFetch?: GifFetch } = {},
 ): Promise<BuiltApp> {
   const logger = process.env.NODE_ENV === "test" ? false : { level: process.env.DENDROP_LOG_LEVEL ?? "info" };
   // Built-in HTTPS (config.tls) is the same app on an https server; the types are the plain one's.
@@ -122,7 +125,7 @@ export async function buildApp(
   const signin = new SignInService(db, config);
   const gateway = new Gateway();
   const family = new FamilyService(db, users, gateway, { publicUrl: config.publicUrl }, options.webhookPost);
-  const push = new PushService(db, { publicUrl: config.publicUrl, allowHttp: config.pushAllowHttp }, options.pushPost);
+  const push = new PushService(db, { publicUrl: config.publicUrl, allowHttp: config.pushAllowHttp, apns: config.apns }, options.pushPost, options.apnsSend);
   const automod = new AutomodService(db, users, gateway, { publicUrl: config.publicUrl });
   const ctx: Context = {
     config,
@@ -141,6 +144,7 @@ export async function buildApp(
     bots: new BotService(db, users, gateway, automod, family, push, options.botFetch, (msg, err) => app.log.warn({ err }, msg)),
     gifs: new GifService(db, family, config.dataDir, options.gifFetch),
     events: new EventService(db, users, gateway, push),
+    watch: new WatchSettingsStore(db),
     couples: new CouplesService(db, users, gateway, path.join(config.dataDir, "uploads"), (ids) => void push.notify(ids, "message")),
     profiles: new ProfileService(db, users, gateway, path.join(config.dataDir, "uploads")),
     onClientEvent: [],
