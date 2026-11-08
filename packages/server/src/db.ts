@@ -533,6 +533,48 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE server_members ADD COLUMN welcomed_at TEXT;
   `,
   `
+  -- Couples kit: private extras for a 1:1 DM between two adult accounts, once both opt in.
+  -- Never available when either account is a kid account, and wiped if one becomes one.
+  -- invited_by asked; accepted_at is set once the other person said yes.
+  CREATE TABLE couples_kits (
+    conversation_id INTEGER PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+    invited_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    accepted_at TEXT
+  );
+
+  -- What's in a kit. body is ciphertext (the conversation key, like messages); the server
+  -- only knows the kind. file is a view-once photo's encrypted bytes in <data>/uploads/<file>,
+  -- removed once it's opened. deliver_at holds a love note back until then.
+  CREATE TABLE couples_items (
+    id INTEGER PRIMARY KEY,
+    conversation_id INTEGER NOT NULL REFERENCES couples_kits(conversation_id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    key_version INTEGER NOT NULL,
+    file TEXT,
+    file_size INTEGER,
+    deliver_at TEXT,
+    notified_at TEXT,
+    opened_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX couples_items_conversation ON couples_items(conversation_id, id);
+  CREATE INDEX couples_items_deliver ON couples_items(deliver_at) WHERE deliver_at IS NOT NULL AND notified_at IS NULL;
+
+  -- Answers to ideas (yes / no / maybe) and questions (an option's number). Only ever shown
+  -- to the other person as a mutual match, or once both have answered a question.
+  CREATE TABLE couples_votes (
+    item_id INTEGER NOT NULL REFERENCES couples_items(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    vote TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (item_id, user_id)
+  );
+  `,
+  `
   -- Polls: one per poll message. In an encrypted chat question and options are NULL (they're
   -- in the encrypted body) and only option_count is known.
   CREATE TABLE polls (

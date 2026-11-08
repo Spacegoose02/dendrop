@@ -1,0 +1,230 @@
+/* Couples kit */
+.modal:has(> .couples-kit) {
+  max-width: 640px;
+}
+.couples-kit .section-label {
+  margin: 18px 0 6px;
+}
+.couples-kit form input,
+.couples-kit form textarea {
+  margin-top: 6px;
+}
+.couples-kit .notice {
+  padding: 10px 12px;
+  border-radius: var(--dd-radius);
+  background: var(--dd-bg-raised);
+}
+.couples-footer {
+  margin: 16px 0 0;
+  text-align: center;
+}
+.couples-tabs {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 2px;
+  margin-bottom: 12px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--dd-border);
+}
+.couples-tabs button {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 2px;
+  background: none;
+  color: var(--dd-text-muted);
+  font-size: 18px;
+}
+.couples-tabs button.active {
+  background: var(--dd-bg-hover);
+  color: var(--dd-text);
+}
+.couples-tab-label {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+}
+.couples-kit form + .couples-list,
+.couples-kit .row + .couples-list {
+  margin-top: 12px;
+}
+.couples-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.couples-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-bg-main);
+}
+.couples-row .grow {
+  flex: 1;
+  margin: 0;
+}
+.couples-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-wrap: anywhere;
+}
+.couples-row > .couples-text,
+.couples-row > .couples-status {
+  display: block;
+  flex: 1;
+}
+.vote-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.vote-buttons .chip {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+.couples-card {
+  padding: 10px 12px;
+  border-radius: var(--dd-radius);
+  background: var(--dd-bg-main);
+  border: 1px solid var(--dd-border);
+}
+.couples-card.from-them {
+  border-color: var(--dd-accent);
+}
+.couples-card .chips {
+  margin: 8px 0 6px;
+}
+.couples-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.chip.theirs {
+  border-color: var(--dd-accent);
+  color: var(--dd-text);
+}
+.prompt-card,
+.spinner-face {
+  display: grid;
+  place-items: center;
+  min-height: 140px;
+  margin: 8px 0 12px;
+  padding: 20px;
+  border-radius: var(--dd-radius-lg);
+  background: var(--dd-bg-raised);
+  border: 1px solid var(--dd-border);
+  font-size: 20px;
+  font-weight: 700;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.spinner-face.spinning {
+  color: var(--dd-text-muted);
+}
+.spinner-face.landed {
+  border-color: var(--dd-accent);
+  box-shadow: 0 0 0 2px var(--dd-accent) inset;
+}
+.deck-input {
+  max-width: 120px;
+}
+.emoji-input {
+  max-width: 56px;
+  text-align: center;
+}
+.countdown-form input[type="date"] {
+  max-width: 160px;
+}
+.note-when {
+  align-items: center;
+  margin-top: 8px;
+}
+.note-when .toggle {
+  flex-shrink: 0;
+}
+.note-when .toggle input {
+  width: auto;
+  margin: 0;
+}
+.note-text {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.love-note {
+  font-size: 17px;
+  margin-bottom: 16px;
+}
+.countdown {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--dd-radius);
+  background: var(--dd-bg-main);
+}
+.countdown-emoji {
+  font-size: 24px;
+}
+.countdown-days {
+  font-weight: 800;
+  color: var(--dd-accent);
+  white-space: nowrap;
+}
+.view-once {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  background: rgb(0 0 0 / 92%);
+  color: #fff;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.view-once img {
+  max-width: 100%;
+  max-height: calc(100vh - 120px);
+  object-fit: contain;
+  pointer-events: none;
+}
+.couples-button {
+  position: relative;
+}
+.couples-button .dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dd-accent);
+}
+@media (max-width: 560px) {
+  .couples-tab-label {
+    display: none;
+  }
+  .couples-row {
+    flex-wrap: wrap;
+  }
+  .countdown-form,
+  .note-when {
+    flex-wrap: wrap;
+  }
+}

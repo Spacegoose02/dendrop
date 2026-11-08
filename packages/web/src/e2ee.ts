@@ -415,3 +415,46 @@ export async function decryptFile(m: ChatMessage, a: Attachment, meta: FileMeta,
   const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(meta.iv), additionalData: fileAad(m.conversationId) }, key, await res.arrayBuffer());
   return new Blob([plain], { type: meta.ty });
 }
+
+// ---- Couples kit ------------------------------------------------------------------
+
+/**
+ * Couples kit items use the conversation key too, bound to the kit, its conversation, the
+ * author and the kind, so the server can't pass one off as a message or as another kind.
+ */
+const kitAad = (cid: number, authorId: number, kind: string) => enc.encode(`dendrop:couples:${cid}:${authorId}:${kind}`);
+const kitPhotoAad = (cid: number) => enc.encode(`dendrop:couples-photo:${cid}`);
+
+export async function encryptKitItem(cid: number, authorId: number, kind: string, version: number, data: unknown): Promise<string> {
+  const key = await keyring.key(cid, version);
+  if (!key) throw new Error("This device doesn't have the conversation key");
+  const iv = random(12);
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: kitAad(cid, authorId, kind) }, key, enc.encode(JSON.stringify(data)));
+  return `${b64(iv)}.${b64(ct)}`;
+}
+
+/** Opens a kit item's body. Throws if it can't be opened on this device. */
+export async function decryptKitItem<T>(item: { conversationId: number; authorId: number; kind: string; keyVersion: number; body: string }): Promise<T> {
+  if (!keyring.identity) throw new Error("Unlock encryption on this device to see it");
+  const key = await keyring.key(item.conversationId, item.keyVersion);
+  if (!key) throw new Error("Made before your keys were reset, so it can't be opened");
+  const [iv, ct] = item.body.split(".").map(unb64) as [Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>];
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv, additionalData: kitAad(item.conversationId, item.authorId, item.kind) }, key, ct);
+  return JSON.parse(dec.decode(plain)) as T;
+}
+
+/** Encrypts a view-once photo. Its type, size and IV go inside the item's encrypted body. */
+export async function encryptKitPhoto(cid: number, version: number, file: File): Promise<{ blob: Blob; meta: FileMeta }> {
+  const key = await keyring.key(cid, version);
+  if (!key) throw new Error("This device doesn't have the conversation key");
+  const iv = random(12);
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: kitPhotoAad(cid) }, key, await file.arrayBuffer());
+  return { blob: new Blob([ct], { type: "application/octet-stream" }), meta: { n: "photo", ty: file.type || "image/jpeg", s: file.size, iv: b64(iv) } };
+}
+
+export async function decryptKitPhoto(cid: number, version: number, meta: FileMeta, data: ArrayBuffer): Promise<Blob> {
+  const key = await keyring.key(cid, version);
+  if (!key) throw new Error("No key for this photo");
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(meta.iv), additionalData: kitPhotoAad(cid) }, key, data);
+  return new Blob([plain], { type: meta.ty });
+}

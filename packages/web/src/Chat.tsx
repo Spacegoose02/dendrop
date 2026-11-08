@@ -37,6 +37,7 @@ import { AudioPlayer, FunMenu, GameCard, NudgeCard, PollCard, PollDialog, Remind
 import { Avatar } from "./Avatar.tsx";
 import { decryptFile, encryptFile, encryptMessage, keyring, reveal, type ChatMessage, type FileMeta } from "./e2ee.ts";
 import { EncryptionInfo } from "./EncryptionInfo.tsx";
+import { CouplesKitDialog, useCouplesKit } from "./Couples.tsx";
 import { useColors } from "./colors.ts";
 import { conversationTitle, upsert, type History } from "./util.ts";
 
@@ -132,6 +133,12 @@ export function Chat({
   const [dragging, setDragging] = useState(false);
   const lastMarked = useRef(0);
   const [showInfo, setShowInfo] = useState(false);
+  // The couples kit: only for 1:1 chats between two adult accounts (the server checks too).
+  const couplesPossible = !channel && !conversation.isGroup && !me.isKid && !kid && conversation.members.length === 2 && conversation.guardians.length === 0;
+  const { kit: couplesKit } = useCouplesKit(conversation.id, couplesPossible);
+  const showCouples = couplesPossible && !!couplesKit?.eligible;
+  const couplesAsked = couplesKit?.state === "invited" && couplesKit.invitedBy !== me.id;
+  const [couplesOpen, setCouplesOpen] = useState(false);
   /** Messages whose filtered words were already reported to the kid's parents. */
   const reported = useRef(new Set<number>());
   const [helpSent, setHelpSent] = useState(false);
@@ -548,22 +555,34 @@ export function Chat({
             </button>
           </span>
         )}
-        {callsEnabled && !inThisCall && (
+        {(showCouples || (callsEnabled && !inThisCall)) && (
           <span className="header-actions">
-            {call && call.joined.length > 0 ? (
-              <button className="accept small-button" onClick={() => onCall(false)}>
-                Join call ({call.joined.length})
+            {showCouples && (
+              <button
+                className="ghost icon couples-button"
+                onClick={() => setCouplesOpen(true)}
+                title={couplesAsked ? `${others[0]?.displayName} asked to turn on the couples kit` : "Couples kit"}
+                aria-label="Couples kit"
+              >
+                💞{couplesAsked && <span className="dot" />}
               </button>
-            ) : (
-              <>
-                <button className="ghost icon" onClick={() => onCall(false)} title="Voice call" aria-label="Voice call">
-                  📞
-                </button>
-                <button className="ghost icon" onClick={() => onCall(true)} title="Video call" aria-label="Video call">
-                  🎥
-                </button>
-              </>
             )}
+            {callsEnabled &&
+              !inThisCall &&
+              (call && call.joined.length > 0 ? (
+                <button className="accept small-button" onClick={() => onCall(false)}>
+                  Join call ({call.joined.length})
+                </button>
+              ) : (
+                <>
+                  <button className="ghost icon" onClick={() => onCall(false)} title="Voice call" aria-label="Voice call">
+                    📞
+                  </button>
+                  <button className="ghost icon" onClick={() => onCall(true)} title="Video call" aria-label="Video call">
+                    🎥
+                  </button>
+                </>
+              ))}
           </span>
         )}
       </header>
@@ -916,6 +935,7 @@ export function Chat({
       </footer>
       {showInfo && <EncryptionInfo me={me} conversation={conversation} onClose={() => setShowInfo(false)} />}
       {pollDraft && <PollDialog encrypted={!channel && !!conversation.e2ee} initial={pollDraft} onCreate={createPoll} onClose={() => setPollDraft(null)} />}
+      {couplesOpen && showCouples && <CouplesKitDialog me={me} conversation={conversation} onClose={() => setCouplesOpen(false)} />}
     </section>
   );
 }
