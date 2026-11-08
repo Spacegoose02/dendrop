@@ -8,6 +8,10 @@ export interface UserRecord {
   email: string | null;
   passwordHash: string | null;
   oidcSubject: string | null;
+  googleSubject: string | null;
+  googleEmail: string | null;
+  /** The parent who made this kid account under theirs. */
+  managedBy: number | null;
   isSuperAdmin: boolean;
   readReceipts: boolean;
   shareActivity: boolean;
@@ -30,6 +34,9 @@ interface Row {
   email: string | null;
   password_hash: string | null;
   oidc_subject: string | null;
+  google_subject: string | null;
+  google_email: string | null;
+  managed_by: number | null;
   is_super_admin: number;
   read_receipts: number;
   share_activity: number;
@@ -50,6 +57,9 @@ const fromRow = (r: Row): UserRecord => ({
   email: r.email,
   passwordHash: r.password_hash,
   oidcSubject: r.oidc_subject,
+  googleSubject: r.google_subject,
+  googleEmail: r.google_email,
+  managedBy: r.managed_by,
   isSuperAdmin: !!r.is_super_admin,
   readReceipts: !!r.read_receipts,
   shareActivity: !!r.share_activity,
@@ -80,6 +90,7 @@ export const toMe = (u: UserRecord): Me => ({
   shareActivity: u.shareActivity,
   canCreateServers: u.isSuperAdmin || u.canCreateServers,
   isKid: u.isKid,
+  managedBy: u.isKid ? u.managedBy : null,
 });
 
 /** Every user column, plus whether they're a kid account. */
@@ -93,6 +104,7 @@ export interface NewUser {
   oidcSubject?: string | null;
   isSuperAdmin?: boolean;
   isBot?: boolean;
+  managedBy?: number | null;
 }
 
 export class UserRepo {
@@ -122,12 +134,34 @@ export class UserRepo {
     return r && fromRow(r);
   }
 
+  byGoogleSubject(sub: string): UserRecord | undefined {
+    const r = this.db.prepare(`${SELECT} WHERE google_subject = ?`).get(sub) as Row | undefined;
+    return r && fromRow(r);
+  }
+
+  /** People (not bots), oldest first, for the admin's account list. */
+  all(): UserRecord[] {
+    return (this.db.prepare(`${SELECT} WHERE is_bot = 0 ORDER BY id`).all() as unknown as Row[]).map(fromRow);
+  }
+
+  /** Links or unlinks (null) a sign-in. */
+  setSignIn(id: number, provider: "tinyauth" | "google", subject: string | null, email: string | null = null): UserRecord {
+    if (provider === "tinyauth") this.db.prepare("UPDATE users SET oidc_subject = ? WHERE id = ?").run(subject, id);
+    else this.db.prepare("UPDATE users SET google_subject = ?, google_email = ? WHERE id = ?").run(subject, subject ? email : null, id);
+    return this.byId(id)!;
+  }
+
+  setManagedBy(id: number, parentId: number | null): UserRecord {
+    this.db.prepare("UPDATE users SET managed_by = ? WHERE id = ?").run(parentId, id);
+    return this.byId(id)!;
+  }
+
   create(u: NewUser): UserRecord {
     const res = this.db
       .prepare(
-        "INSERT INTO users (username, display_name, email, password_hash, oidc_subject, is_super_admin, is_bot, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO users (username, display_name, email, password_hash, oidc_subject, is_super_admin, is_bot, managed_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(u.username, u.displayName, u.email ?? null, u.passwordHash ?? null, u.oidcSubject ?? null, u.isSuperAdmin ? 1 : 0, u.isBot ? 1 : 0, now());
+      .run(u.username, u.displayName, u.email ?? null, u.passwordHash ?? null, u.oidcSubject ?? null, u.isSuperAdmin ? 1 : 0, u.isBot ? 1 : 0, u.managedBy ?? null, now());
     return this.byId(Number(res.lastInsertRowid))!;
   }
 

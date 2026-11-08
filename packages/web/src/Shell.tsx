@@ -78,6 +78,16 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   /** The call this device is in. */
   const [inCall, setInCall] = useState<CallJoin | null>(null);
   const [callError, setCallError] = useState<string | null>(null);
+  /** Back from linking Google or TinyAuth in Settings: say how it went, then tidy the address. */
+  const [signInNotice, setSignInNotice] = useState<{ ok: boolean; text: string } | null>(() => {
+    const q = new URLSearchParams(location.search);
+    const linked = q.get("linked");
+    const failed = q.get("signin_error");
+    if (!linked && !failed) return null;
+    history.replaceState(null, "", location.pathname);
+    if (failed) return { ok: false, text: failed };
+    return { ok: true, text: `${linked === "google" ? "Google" : "Single sign-on"} is linked. You can sign in with it now.` };
+  });
   /** Who is in each voice channel you can see, by channel id. */
   const [voice, setVoice] = useState<Record<number, VoiceChannelState>>({});
   /** The voice channel this device is in. */
@@ -639,6 +649,14 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
               onSpeakers={(ids) => setSpeaking(new Set(ids))}
             />
           </Suspense>
+        )}
+        {signInNotice && (
+          <p className={`call-error ${signInNotice.ok ? "" : "error"}`} role="status">
+            {signInNotice.text}{" "}
+            <button className="link" onClick={() => setSignInNotice(null)}>
+              Dismiss
+            </button>
+          </p>
         )}
         {callError && (
           <p className="error call-error" role="alert">

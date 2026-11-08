@@ -2,10 +2,12 @@ import { useEffect, useState, type FormEvent } from "react";
 import type { AdminServer, ChannelRef, ChatServer, DendutyStatus, LootdenStatus, ServerCreatorRequest } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { Modal } from "./Modal.tsx";
+import { AdminSignInSection } from "./SignIns.tsx";
 import { ServerIcon } from "./Servers.tsx";
 
 /**
- * The super admin's view of the whole instance: who may make servers, and every server.
+ * The super admin's view of the whole instance: how people sign in, who may make servers,
+ * and every server.
  * Super admins see server names and counts here, never messages.
  */
 export function AdminDialog({ onClose, version }: { onClose: () => void; version: number }) {
@@ -43,6 +45,7 @@ export function AdminDialog({ onClose, version }: { onClose: () => void; version
   return (
     <Modal title="Instance admin" onClose={onClose}>
       {error && <p className="error">{error}</p>}
+      <AdminSignInSection />
       <div className="section-label">Who can make servers</div>
       {requests?.length === 0 && <p className="muted small">No requests yet.</p>}
       {requests?.map((r) => (

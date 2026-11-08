@@ -20,6 +20,12 @@ export class SessionService {
     return { token, maxAgeSeconds: SESSION_DAYS * 86400 };
   }
 
+  /** Signs someone out everywhere, except the session given (after a password change). */
+  endAllFor(userId: number, keepToken?: string): void {
+    if (keepToken) this.db.prepare("DELETE FROM sessions WHERE user_id = ? AND token_hash != ?").run(userId, sha256(keepToken));
+    else this.db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
+  }
+
   end(token: string): void {
     this.db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(sha256(token));
   }
