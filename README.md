@@ -10,7 +10,10 @@ See [the roadmap](docs/ROADMAP.md) for what's planned and in what order, and
 [docs/BOTS.md](docs/BOTS.md) for bots that post with buttons and answer clicks,
 [docs/EVENTS.md](docs/EVENTS.md) for scheduled events with RSVPs and stage channels,
 [docs/EXPRESSIONS.md](docs/EXPRESSIONS.md) for custom emoji, stickers, reactions and GIFs, and
-[docs/COUPLES.md](docs/COUPLES.md) for the couples kit, a private corner of a chat between two adults.
+[docs/COUPLES.md](docs/COUPLES.md) for the couples kit, a private corner of a chat between two adults,
+[docs/SIGN-IN.md](docs/SIGN-IN.md) for accounts, two-step sign-in and passkeys,
+[docs/AUDIT-LOG.md](docs/AUDIT-LOG.md) for who-did-what logs, and
+[docs/BACKUPS.md](docs/BACKUPS.md) for backups and restoring.
 
 ## Running it
 
@@ -44,6 +47,8 @@ Or, by hand, Docker tab, Add Container:
 | Port | container `7881` TCP, host `7881` (calls) |
 | Port | container `7882` UDP, host `7882` (calls) |
 | Path | container `/data`, host `/mnt/user/appdata/dendrop` |
+| Path | container `/backups`, host `/mnt/user/backups/dendrop` (optional, see [backups](docs/BACKUPS.md)) |
+| Variable | `DENDROP_BACKUP_DIR`, `/backups` (with the path above) |
 | Variable | `DENDROP_PUBLIC_URL`, e.g. `https://chat.example.com` |
 | Variable | `DENDROP_HTTPS`, `self-signed` for built-in HTTPS without a proxy (optional) |
 

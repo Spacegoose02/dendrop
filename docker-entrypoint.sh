@@ -34,5 +34,12 @@ if [ "$(id -u)" = "0" ]; then
   elif [ -d "$DATA_DIR/tls" ]; then
     chown -R "$PUID:$PGID" "$DATA_DIR/tls"
   fi
+  # A backup folder of its own (DENDROP_BACKUP_DIR, e.g. /backups on an array share).
+  if [ -n "${DENDROP_BACKUP_DIR:-}" ]; then
+    mkdir -p "$DENDROP_BACKUP_DIR"
+    if [ "$(stat -c %u:%g "$DENDROP_BACKUP_DIR")" != "$PUID:$PGID" ]; then
+      chown "$PUID:$PGID" "$DENDROP_BACKUP_DIR"
+    fi
+  fi
 fi
 exec "$@"

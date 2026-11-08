@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { AdminAccount, AdminSignIn, MySignIns, SignInProvider, SignInSettings } from "@dendrop/shared";
 import { api } from "./api.ts";
+import { TwoFactorSection } from "./TwoFactor.tsx";
 
 /** Settings → Sign-in: your password, and Google or TinyAuth linked to this account. */
 export function SignInSection() {
@@ -63,6 +64,7 @@ export function SignInSection() {
               }}
             />
           )}
+          <TwoFactorSection hasPassword={mine.password} />
           {rows
             .filter((r) => r.linked || r.available)
             .map((r) => (
@@ -175,6 +177,11 @@ export function AdminSignInSection() {
     if (password) void act(() => api(`/api/admin/accounts/${a.user.id}/password`, { method: "PUT", body: { password } }));
   };
 
+  const reset2fa = (a: AdminAccount) => {
+    if (!confirm(`Turn off two-step sign-in for ${a.user.displayName} and remove their passkeys? Do this when they've lost their phone. They'll be signed out everywhere.`)) return;
+    void act(() => api(`/api/admin/accounts/${a.user.id}/2fa`, { method: "DELETE" }));
+  };
+
   if (!view) return error ? <p className="error">{error}</p> : null;
   const tinyName = view.configured.tinyauthName;
   return (
@@ -209,7 +216,10 @@ export function AdminSignInSection() {
               {a.isKid && <span className="muted small"> · kid{a.managedBy ? ` under ${a.managedBy}` : ""}</span>}
             </span>
             <span className="muted small">
-              {[a.password && "Password", a.tinyauth && tinyName, a.google && `Google (${a.google})`].filter(Boolean).join(" · ") || "No way to sign in"}
+              {[a.password && "Password", a.tinyauth && tinyName, a.google && `Google (${a.google})`, a.passkeys && `${a.passkeys} passkey${a.passkeys === 1 ? "" : "s"}`]
+                .filter(Boolean)
+                .join(" · ") || "No way to sign in"}
+              {a.twoFactor && " · two-step on"}
             </span>
           </span>
           <span className="account-actions">
@@ -221,6 +231,11 @@ export function AdminSignInSection() {
             {a.tinyauth && (
               <button className="ghost small-button" onClick={() => unlink(a, "tinyauth", tinyName)}>
                 Unlink {tinyName}
+              </button>
+            )}
+            {(a.twoFactor || !!a.passkeys) && (
+              <button className="ghost small-button" onClick={() => reset2fa(a)}>
+                Reset two-step
               </button>
             )}
             <button className="small-button" onClick={() => setPassword(a)}>

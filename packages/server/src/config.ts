@@ -6,6 +6,8 @@ export interface ServerConfig {
   port: number;
   host: string;
   dataDir: string;
+  /** Where backups go (DENDROP_BACKUP_DIR). Point it at another disk or share to keep them safe. */
+  backupDir: string;
   /** The address people use, e.g. https://chat.example.com. Needed for OIDC and secure cookies. */
   publicUrl: string;
   webDir: string | null;
@@ -67,6 +69,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     port: Number(env.DENDROP_PORT ?? 8080),
     host: env.DENDROP_HOST ?? "0.0.0.0",
     dataDir: path.resolve(env.DENDROP_DATA_DIR ?? "/data"),
+    backupDir: path.resolve(env.DENDROP_BACKUP_DIR || path.join(env.DENDROP_DATA_DIR ?? "/data", "backups")),
     publicUrl: (env.DENDROP_PUBLIC_URL ?? "").trim().replace(/\/+$/, ""),
     webDir: env.DENDROP_WEB_DIR ?? null,
     localLogin: bool(env.DENDROP_LOCAL_LOGIN, true),
