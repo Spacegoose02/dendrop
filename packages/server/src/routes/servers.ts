@@ -673,11 +673,11 @@ export function guardChannelConversations(app: FastifyInstance, ctx: Context): v
   const threads = new ThreadRepo(ctx.db, servers, new ConversationRepo(ctx.db, ctx.users, new FriendRepo(ctx.db, ctx.users)));
   app.addHook("preHandler", async (req) => {
     if (req.method !== "POST") return;
-    const m = /^\/api\/conversations\/(\d+)\/(call|keys|messages)(\/|\?|$)/.exec(req.url);
+    const m = /^\/api\/conversations\/(\d+)\/(call|keys|messages|polls|games|nudges)(\/|\?|$)/.exec(req.url);
     if (!m) return;
     const row = ctx.db.prepare("SELECT kind FROM conversations WHERE id = ?").get(Number(m[1])) as { kind: string } | undefined;
     if (row?.kind !== "channel" && row?.kind !== "thread") return;
-    if (m[2] === "messages") {
+    if (m[2] !== "call" && m[2] !== "keys") {
       // Non-members get the usual 404 from the route.
       const blocked = req.user ? threads.postBlocked(Number(m[1]), req.user.id) : null;
       if (blocked) throw new HttpError(blocked.startsWith("This thread") ? 403 : 400, blocked);

@@ -311,6 +311,8 @@ export const keyring = new KeyRing();
 interface Payload {
   t: string;
   f?: FileMeta[];
+  /** A poll's options (its question is `t`). */
+  o?: string[];
 }
 
 export interface FileMeta {
@@ -329,6 +331,8 @@ export type ChatMessage = Message & {
   files?: FileMeta[];
   /** Why an encrypted message can't be shown. */
   locked?: string;
+  /** For an encrypted poll: its options, from inside the ciphertext. */
+  pollOptions?: string[];
 };
 
 const msgAad = (cid: number, authorId: number) => enc.encode(`dendrop:msg:${cid}:${authorId}`);
@@ -350,7 +354,8 @@ async function openWith(m: Message, key: CryptoKey | undefined): Promise<ChatMes
     const [iv, ct] = m.body.split(".").map(unb64) as [Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>];
     const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv, additionalData: msgAad(m.conversationId, m.authorId) }, key, ct);
     const p = JSON.parse(dec.decode(plain)) as Payload;
-    return { ...m, text: String(p.t ?? ""), files: Array.isArray(p.f) ? p.f : [] };
+    const pollOptions = Array.isArray(p.o) ? p.o.map(String) : undefined;
+    return { ...m, text: String(p.t ?? ""), files: Array.isArray(p.f) ? p.f : [], ...(pollOptions ? { pollOptions } : {}) };
   } catch {
     return { ...m, text: "", locked: "This message couldn't be decrypted." };
   }
@@ -383,11 +388,12 @@ export async function revealWith(m: Message, keys: Map<number, CryptoKey>): Prom
   return openWith(m, key);
 }
 
-export async function encryptMessage(cid: number, authorId: number, version: number, text: string, files: FileMeta[] = []): Promise<string> {
+export async function encryptMessage(cid: number, authorId: number, version: number, text: string, files: FileMeta[] = [], pollOptions?: string[]): Promise<string> {
   const key = await keyring.key(cid, version);
   if (!key) throw new Error("This device doesn't have the conversation key");
   const iv = random(12);
   const body: Payload = files.length ? { t: text, f: files } : { t: text };
+  if (pollOptions) body.o = pollOptions;
   const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: msgAad(cid, authorId) }, key, enc.encode(JSON.stringify(body)));
   return `${b64(iv)}.${b64(ct)}`;
 }

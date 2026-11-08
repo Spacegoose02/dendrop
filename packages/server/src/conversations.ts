@@ -1,7 +1,8 @@
-import { LIMITS, type Attachment, type MessageButton, type Conversation, type ConversationE2ee, type Message, type ReadState, type ThreadRef, type WrappedKey } from "@dendrop/shared";
+import { LIMITS, type Attachment, type MessageButton, type Conversation, type ConversationE2ee, type Message, type NudgeKind, type ReadState, type ThreadRef, type WrappedKey } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { ExpressionRepo } from "./expressions.js";
+import { FunRepo } from "./fun.js";
 import { guardianIds } from "./family.js";
 import type { FriendRepo } from "./friends.js";
 import { toPublic, type UserRepo } from "./users.js";
@@ -27,6 +28,7 @@ interface MessageRow {
   webhook_id: number | null;
   webhook_name: string | null;
   buttons: string | null;
+  nudge: string | null;
 }
 
 interface AttachmentRow {
@@ -72,6 +74,7 @@ export function cleanBody(body: unknown, allowEmpty = false): string {
 
 export class ConversationRepo {
   private readonly expressions: ExpressionRepo;
+  readonly fun: FunRepo;
 
   constructor(
     private readonly db: Db,
@@ -79,6 +82,7 @@ export class ConversationRepo {
     private readonly friends: FriendRepo,
   ) {
     this.expressions = new ExpressionRepo(db);
+    this.fun = new FunRepo(db);
   }
 
   memberIds(conversationId: number): number[] {
@@ -292,6 +296,8 @@ export class ConversationRepo {
         { id: t.id, conversationId: t.conversation_id, title: t.title, messageCount: Number(t.n), lastMessageAt: t.last_message_at },
       ]),
     );
+    const polls = this.fun.polls(ids);
+    const games = this.fun.games(ids);
     return rows.map((r) => ({
       id: r.id,
       conversationId: r.conversation_id,
@@ -308,6 +314,9 @@ export class ConversationRepo {
       // A thread outlives the message it was started from.
       thread: threads.get(r.id) ?? null,
       pinned: pinned.has(r.id),
+      poll: r.deleted_at ? null : (polls.get(r.id) ?? null),
+      game: r.deleted_at ? null : (games.get(r.id) ?? null),
+      nudge: r.deleted_at ? null : ((r.nudge as NudgeKind | null) ?? null),
     }));
   }
 
@@ -363,6 +372,33 @@ export class ConversationRepo {
     return this.message(id)!;
   }
 
+  /**
+   * Posts a poll, game or nudge. A poll's question is its body, under the usual rules (encrypted
+   * once the chat has a key). Games and nudges carry no words, so their body is empty and plain
+   * even in an encrypted chat. `add` stores the poll or game, in the same transaction.
+   */
+  sendCard(
+    conversationId: number,
+    authorId: number,
+    card: { body: unknown; keyVersion: number | null; nudge?: NudgeKind; add?: (messageId: number) => void },
+  ): Message {
+    const words = card.body !== "";
+    const version = words ? this.checkCrypto(conversationId, card.keyVersion, card.body) : null;
+    const text = !words ? "" : version ? (card.body as string) : cleanBody(card.body);
+    const id = tx(this.db, () => {
+      const t = now();
+      const res = this.db
+        .prepare("INSERT INTO messages (conversation_id, author_id, body, created_at, key_version, nudge) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(conversationId, authorId, text, t, version, card.nudge ?? null);
+      const mid = Number(res.lastInsertRowid);
+      card.add?.(mid);
+      this.db.prepare("UPDATE conversations SET last_message_at = ? WHERE id = ?").run(t, conversationId);
+      this.db.prepare("UPDATE conversation_members SET last_read_message_id = ? WHERE conversation_id = ? AND user_id = ?").run(mid, conversationId, authorId);
+      return mid;
+    });
+    return this.message(id)!;
+  }
+
   /** Moves someone's read marker forward (never back). Returns the new marker if it moved. */
   markRead(conversationId: number, userId: number, messageId: number): number | null {
     const msg = this.db.prepare("SELECT id FROM messages WHERE id = ? AND conversation_id = ?").get(messageId, conversationId);
@@ -386,6 +422,7 @@ export class ConversationRepo {
 
   edit(messageId: number, userId: number, body: unknown, keyVersion: number | null = null): Message {
     const r = this.own(messageId, userId);
+    if (r.nudge || this.fun.polls([messageId]).size || this.fun.games([messageId]).size) throw new HttpError(400, "Polls, games and nudges can't be edited");
     const version = this.checkCrypto(r.conversation_id, keyVersion, body);
     const hasFiles = !!this.db.prepare("SELECT 1 FROM attachments WHERE message_id = ?").get(messageId);
     // An encrypted message's files are described inside its ciphertext, so a plain edit would lose them.

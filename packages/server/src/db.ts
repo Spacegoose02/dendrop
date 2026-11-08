@@ -575,6 +575,49 @@ export const MIGRATIONS: string[] = [
   );
   `,
   `
+  -- Polls: one per poll message. In an encrypted chat question and options are NULL (they're
+  -- in the encrypted body) and only option_count is known.
+  CREATE TABLE polls (
+    message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    question TEXT,
+    options TEXT,
+    option_count INTEGER NOT NULL,
+    multi INTEGER NOT NULL DEFAULT 0,
+    closes_at TEXT,
+    closed_at TEXT
+  );
+  CREATE TABLE poll_votes (
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    option INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (message_id, user_id, option)
+  );
+
+  -- Quick games (tic-tac-toe, rock paper scissors, dice): the state as JSON, server-checked.
+  CREATE TABLE message_games (
+    message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    state TEXT NOT NULL
+  );
+
+  -- Raccoon nudges are messages with no text and this set.
+  ALTER TABLE messages ADD COLUMN nudge TEXT;
+
+  -- "Ping me about this": personal reminders about a message.
+  CREATE TABLE reminders (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    remind_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    fired_at TEXT
+  );
+  CREATE INDEX reminders_user ON reminders(user_id);
+  CREATE INDEX reminders_due ON reminders(fired_at, remind_at);
+  `,
+  `
   -- Threads: a side conversation (kind 'thread') off a channel message, or a post in a forum
   -- channel (no parent message). Its conversation_members match its channel's (see syncChannel).
   CREATE TABLE channel_threads (

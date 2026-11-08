@@ -163,10 +163,14 @@ describe("threads, forum channels and the pinned board", () => {
     assert.equal((await live.waitFor("thread.updated")).thread.id, postThread.id);
     live.ws.close();
     assert.equal((await post(cat, postThread.conversationId, "Try another USB port")).status, 200);
+    // Polls go in posts (and count as replies), not in the forum itself; nudges stay out of threads.
+    assert.equal((await call(cat, "POST", `/api/conversations/${forum.conversationId}/polls`, { question: "Q", options: ["A", "B"] })).status, 400);
+    assert.equal((await call(cat, "POST", `/api/conversations/${postThread.conversationId}/polls`, { question: "Which USB port?", options: ["Front", "Back"] })).status, 200);
+    assert.equal((await call(cat, "POST", `/api/conversations/${postThread.conversationId}/nudges`, { kind: "poke" })).status, 400);
     // Replies in threads and forum posts earn server XP like channel messages (cat hasn't posted anywhere else).
     assert.ok(s.ctx.db.prepare("SELECT xp FROM server_xp WHERE server_id = ? AND user_id = ? AND xp > 0").get(serverId, catId));
     const list = (await call(cat, "GET", `/api/servers/${serverId}/channels/${forum.id}/threads`)).body as Thread[];
-    assert.equal(list[0]!.messageCount, 2);
+    assert.equal(list[0]!.messageCount, 3);
   });
 
   it("retags posts, and drops tags the forum no longer has", async () => {

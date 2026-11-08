@@ -138,6 +138,12 @@ export interface Message {
   thread?: ThreadRef | null;
   /** Whether it's on its channel's pinned board. */
   pinned?: boolean;
+  /** Set when the message is a poll (see Poll). */
+  poll?: Poll | null;
+  /** Set when the message is a quick game: tic-tac-toe, rock paper scissors or a dice roll. */
+  game?: Game | null;
+  /** Set when the message is a raccoon nudge. */
+  nudge?: NudgeKind | null;
 }
 
 /**
@@ -1128,6 +1134,107 @@ export const WEBHOOK_LIMITS = {
   perMinute: 30,
 } as const;
 
+// ---- Polls, quick games, nudges and reminders ------------------------------------------
+
+/**
+ * A poll posted as a message. In an end-to-end encrypted chat the question and options travel
+ * inside the encrypted message body (as { t: question, o: options }), so the server only knows
+ * how many options there are and who picked which number.
+ */
+export interface Poll {
+  /** The question and options, or null when they're encrypted in the message body. */
+  question: string | null;
+  options: string[] | null;
+  optionCount: number;
+  /** People can pick more than one option. */
+  multi: boolean;
+  /** When voting ends by itself, if it does. */
+  closesAt: string | null;
+  /** Voting is over (closed by its maker, or closesAt passed). */
+  closed: boolean;
+  /** Who picked each option, by position. */
+  votes: number[][];
+}
+
+export type GameKind = "tictactoe" | "rps" | "dice";
+export type RpsPick = "rock" | "paper" | "scissors";
+export const RPS_PICKS: RpsPick[] = ["rock", "paper", "scissors"];
+
+/**
+ * A quick game in a chat. The server keeps the state and checks every move, so nobody can
+ * cheat, and rolls the dice itself. Games carry no words, so they aren't encrypted.
+ */
+export interface Game {
+  kind: GameKind;
+  /** Who's playing, in seat order (X then O for tic-tac-toe). A seat is open while there's one. */
+  players: number[];
+  /** Tic-tac-toe: 9 cells, row by row: 0 empty, 1 the first player (X), 2 the second (O). */
+  board: number[] | null;
+  /** Whose move it is, or null when it's over or waiting for a second player. */
+  turn: number | null;
+  /** Rock paper scissors: who has picked so far (picks stay secret until both are in). */
+  picked: number[];
+  /** Rock paper scissors: each player's pick by seat, once both have picked. */
+  picks: RpsPick[] | null;
+  /** A dice roll: what was asked for ("2d6"), each die, and the total. */
+  dice: { spec: string; rolls: number[]; total: number } | null;
+  winner: number | null;
+  /** Tic-tac-toe: the three winning cells. */
+  line: number[] | null;
+  draw: boolean;
+  done: boolean;
+}
+
+/** Raccoon nudges for DMs: a little shake on the other person's screen. */
+export const NUDGES = {
+  poke: { emoji: "👉🦝", text: "poked you" },
+  wave: { emoji: "🦝👋", text: "waved at you" },
+  snack: { emoji: "🦝🍪", text: "brought you a snack" },
+  hug: { emoji: "🦝🤗", text: "sent you a raccoon hug" },
+  zoomies: { emoji: "🦝💨", text: "has the zoomies" },
+  trash: { emoji: "🦝🗑️", text: "found treasure in the trash for you" },
+} as const;
+export type NudgeKind = keyof typeof NUDGES;
+export const isNudgeKind = (s: unknown): s is NudgeKind => typeof s === "string" && Object.hasOwn(NUDGES, s);
+
+/** "Ping me about this": a message to bring back to you later. Only you see your reminders. */
+export interface Reminder {
+  id: number;
+  messageId: number;
+  conversationId: number;
+  remindAt: string;
+  createdAt: string;
+  /** Set once it has gone off; it stays listed until you dismiss it. */
+  firedAt: string | null;
+}
+
+export const FUN_LIMITS = {
+  pollQuestion: 300,
+  pollOption: 80,
+  pollOptions: 10,
+  /** The longest a poll can stay open by itself. */
+  pollMinutes: 14 * 24 * 60,
+  dice: 10,
+  diceSides: 1000,
+  /** Seconds between nudges from one person in one chat. */
+  nudgeSeconds: 30,
+  reminders: 100,
+  /** How far ahead a reminder can be, in days. */
+  reminderDays: 366,
+  /** The longest voice message, in seconds. */
+  voiceSeconds: 300,
+} as const;
+
+/** "2d6", "d20" or "1d100": up to 10 dice with 2 to 1000 sides. Returns null when it isn't one. */
+export function parseDice(spec: string): { count: number; sides: number } | null {
+  const m = /^\s*(\d{0,2})\s*d\s*(\d{1,4})\s*$/i.exec(spec);
+  if (!m) return null;
+  const count = m[1] ? Number(m[1]) : 1;
+  const sides = Number(m[2]);
+  if (count < 1 || count > FUN_LIMITS.dice || sides < 2 || sides > FUN_LIMITS.diceSides) return null;
+  return { count, sides };
+}
+
 // ---- Couples kit ------------------------------------------------------------------
 
 /**
@@ -1279,6 +1386,8 @@ export type ServerEvent =
   | { type: "interaction.created"; interaction: BotInteraction }
   /** To whoever clicked: the bot's answer, shown only to them. */
   | { type: "interaction.reply"; interactionId: number; messageId: number; conversationId: number; botId: number; content: string }
+  /** One of your reminders went off: the message it's about, if you can still see it. */
+  | { type: "reminder"; reminder: Reminder; message: Message | null }
   /**
    * A couples kit you're in changed: fetch it again (/api/couples/:id), since each person sees
    * their own view. noteFrom is set when a love note just arrived for you.
