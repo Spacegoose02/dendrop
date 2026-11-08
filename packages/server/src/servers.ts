@@ -7,6 +7,7 @@ import {
   SERVER_PERMISSIONS,
   type AdminServer,
   type Channel,
+  type ChannelKind,
   type ChatServer,
   type ChatServerSummary,
   type CustomRole,
@@ -41,7 +42,7 @@ interface ChannelRow {
   id: number;
   server_id: number;
   conversation_id: number;
-  kind: "text" | "voice";
+  kind: ChannelKind;
   name: string;
   topic: string;
   position: number;
@@ -220,7 +221,7 @@ export class ServerRepo {
     return {
       id: c.id,
       serverId: c.server_id,
-      kind: c.kind === "voice" ? "voice" : "text",
+      kind: c.kind === "voice" || c.kind === "stage" ? c.kind : "text",
       conversationId: c.conversation_id,
       name: c.name,
       topic: c.topic,
@@ -522,7 +523,7 @@ export class ServerRepo {
     topic: string,
     locked: boolean,
     access: number[],
-    kind: "text" | "voice" = "text",
+    kind: ChannelKind = "text",
     roleAccess: number[] = [],
   ): number {
     const t = now();
@@ -545,10 +546,12 @@ export class ServerRepo {
     }
     const name = cleanChannelName(input.name);
     const topic = input.topic === undefined ? "" : cleanText(input.topic, LIMITS.channelTopic, "The topic", true);
-    if (input.kind !== undefined && input.kind !== "text" && input.kind !== "voice") throw new HttpError(400, "A channel is text or voice");
+    if (input.kind !== undefined && input.kind !== "text" && input.kind !== "voice" && input.kind !== "stage") {
+      throw new HttpError(400, "A channel is text, voice or stage");
+    }
     const access = this.cleanAccess(serverId, input.memberIds);
     const roleAccess = this.cleanRoleAccess(serverId, input.roleIds);
-    const id = this.atomic(() => this.insertChannel(serverId, name, topic, input.locked === true, access, input.kind === "voice" ? "voice" : "text", roleAccess));
+    const id = this.atomic(() => this.insertChannel(serverId, name, topic, input.locked === true, access, (input.kind as ChannelKind | undefined) ?? "text", roleAccess));
     return this.toChannel(this.channelRow(id)!, true);
   }
 

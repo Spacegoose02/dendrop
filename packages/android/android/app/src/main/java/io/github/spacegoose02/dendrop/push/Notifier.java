@@ -21,6 +21,7 @@ public final class Notifier {
 
     private static final int ID_MESSAGES = 1;
     private static final int ID_CALL = 2;
+    private static final int ID_EVENT = 3;
 
     private Notifier() {}
 
@@ -53,6 +54,20 @@ public final class Notifier {
                 .setContentText(context.getString(R.string.notify_message_text))
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
+        );
+    }
+
+    /** "An event you're going to starts soon", with no name or server. */
+    static void showEvent(Context context) {
+        show(
+            context,
+            ID_EVENT,
+            new NotificationCompat.Builder(context, CHANNEL_MESSAGES)
+                .setContentTitle(context.getString(R.string.notify_event_title))
+                .setContentText(context.getString(R.string.notify_event_text))
+                .setCategory(NotificationCompat.CATEGORY_EVENT)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setTimeoutAfter(60 * 60_000)
         );
     }
 

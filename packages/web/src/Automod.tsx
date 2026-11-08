@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { AutomodAction, AutomodEvent, AutomodRuleBase, AutomodRuleKind, AutomodSettings, ChatServer, ServerRole, ServerTimeout } from "@dendrop/shared";
+import { channelMark } from "./channels.ts";
 import { api } from "./api.ts";
 import { RoleChip } from "./Roles.tsx";
 
@@ -193,7 +194,7 @@ export function AutomodTab({ server }: { server: ChatServer }) {
                       aria-pressed={rule.exemptChannelIds.includes(c.id)}
                       onClick={() => set(k, { exemptChannelIds: toggleIn(rule.exemptChannelIds, c.id) } as never)}
                     >
-                      {c.kind === "voice" ? "🔊" : "#"}
+                      {channelMark({ ...c, locked: false })}
                       {c.name}
                     </button>
                   ))}

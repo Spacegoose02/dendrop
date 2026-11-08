@@ -7,7 +7,8 @@ with a raccoon at heart. Runs in one Docker container (made for Unraid) and sign
 See [the roadmap](docs/ROADMAP.md) for what's planned and in what order, and
 [docs/LOOTDEN.md](docs/LOOTDEN.md) for linking LootDen and posting into channels with webhooks,
 [docs/DENDUTY.md](docs/DENDUTY.md) for linking Den Duty, the family chore tracker,
-[docs/BOTS.md](docs/BOTS.md) for bots that post with buttons and answer clicks, and
+[docs/BOTS.md](docs/BOTS.md) for bots that post with buttons and answer clicks,
+[docs/EVENTS.md](docs/EVENTS.md) for scheduled events with RSVPs and stage channels, and
 [docs/EXPRESSIONS.md](docs/EXPRESSIONS.md) for custom emoji, stickers, reactions and GIFs.
 
 ## Running it

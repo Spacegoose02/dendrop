@@ -1,20 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 import { Room, RoomEvent, Track, type Participant } from "livekit-client";
-import type { Channel, ChatServer, Me, VoiceJoin, VoiceMember } from "@dendrop/shared";
+import type { Channel, ChatServer, Me, ScheduledEvent, VoiceChannelState, VoiceJoin, VoiceMember } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { loadAudio, micError, playSound, useAudioPrefs } from "./audio.ts";
 import { RemoteAudio, Tile } from "./CallPanel.tsx";
 import { comboLabel, useKeybinds, voiceControls } from "./keybinds.ts";
 import { roomAudioOptions, useRoomAudio } from "./voiceAudio.ts";
 import { canShareScreen, ScreenTile, ShareDialog, shareOptions, type ShareQuality } from "./ScreenShare.tsx";
+import { can } from "./roles.ts";
 
 /**
  * The voice channel you're in: connects to its LiveKit room and has the controls. Like a call,
  * it stays mounted (compact) while you look at other chats, so you stay in.
+ *
+ * On a stage channel only speakers talk. Listeners hear them and can raise a hand; stage
+ * moderators (Manage channels or Manage events) let people speak or move them back.
  */
 export function VoicePanel({
   me,
   join,
+  live,
+  event,
   server,
   channel,
   compact,
@@ -24,6 +30,10 @@ export function VoicePanel({
 }: {
   me: Me;
   join: VoiceJoin;
+  /** Who is in the channel now, from the server (speakers, listeners, raised hands). */
+  live: VoiceChannelState | undefined;
+  /** The event going on in this channel right now, if any. */
+  event?: ScheduledEvent;
   server: ChatServer | undefined;
   channel: Channel | undefined;
   compact: boolean;
@@ -48,6 +58,12 @@ export function VoicePanel({
   const [sending, setSending] = useState(true);
   useRoomAudio(room, prefs, setSending);
   const bump = () => setVersion((v) => v + 1);
+  const isStage = join.voice.stage;
+  const members = live?.members ?? join.voice.members;
+  const mine = members.find((m) => m.userId === me.id);
+  const speaker = !isStage || mine?.speaker !== false;
+  const moderator = !!server && (can(server, "manageChannels") || can(server, "manageEvents"));
+  const [stageNote, setStageNote] = useState<string | null>(null);
 
   const report = (state: Partial<Pick<VoiceMember, "muted" | "deafened" | "video" | "screen">>) =>
     void api("/api/voice/state", { body: state }).catch(() => {});
@@ -105,10 +121,13 @@ export function VoicePanel({
         connected = true;
         setStatus("connected");
         playSound("join");
-        await room.localParticipant.setMicrophoneEnabled(true).catch((err: Error) => {
-          setError(micError(err));
-          report({ muted: true });
-        });
+        // Stage listeners only listen; their token can't send anything.
+        if (join.voice.members.find((m) => m.userId === me.id)?.speaker !== false) {
+          await room.localParticipant.setMicrophoneEnabled(true).catch((err: Error) => {
+            setError(micError(err));
+            report({ muted: true });
+          });
+        }
         bump();
       } catch (err) {
         if (!cancelled) {
@@ -145,11 +164,30 @@ export function VoicePanel({
     };
   }, []);
 
+  // Let up on stage, or moved back to the audience.
+  const wasSpeaker = useRef(speaker);
+  useEffect(() => {
+    if (!room || wasSpeaker.current === speaker) return;
+    wasSpeaker.current = speaker;
+    if (speaker) {
+      setStageNote("You can speak now. Unmute when you're ready.");
+      playSound("join");
+    } else {
+      setStageNote("You're listening again.");
+      const p = room.localParticipant;
+      void Promise.all([p.setMicrophoneEnabled(false), p.setCameraEnabled(false), p.setScreenShareEnabled(false)]).catch(() => {}).then(bump);
+    }
+  }, [speaker, room]);
+
   if (!room) return null;
   const local = room.localParticipant;
   const micOn = local.isMicrophoneEnabled;
   const camOn = local.isCameraEnabled;
-  const everyone: Participant[] = [local, ...room.remoteParticipants.values()];
+  const speakerIds = new Set(members.filter((m) => m.speaker).map((m) => String(m.userId)));
+  const inRoom: Participant[] = [local, ...room.remoteParticipants.values()];
+  // On a stage the tiles are the speakers; the audience is counted below.
+  const everyone = isStage ? inRoom.filter((p) => speakerIds.has(p.identity)) : inRoom;
+  const audience = isStage ? members.filter((m) => !m.speaker) : [];
   const nickname = (identity: string) => {
     const m = server?.members.find((x) => String(x.user.id) === identity);
     return m ? (m.nickname ?? m.user.displayName) : undefined;
@@ -185,6 +223,7 @@ export function VoicePanel({
   };
 
   const toggleMic = async () => {
+    if (!speaker) return;
     if (deafened) {
       // Unmuting while deafened undeafens too: you can't talk without hearing.
       setDeafened(false);
@@ -217,13 +256,36 @@ export function VoicePanel({
 
   toggles.current = { mute: () => void toggleMic(), deafen: () => void toggleDeafen() };
 
+  const raiseHand = (raised: boolean) => void api("/api/voice/hand", { body: { raised } }).catch((err: Error) => setError(err.message));
+  const setSpeakerOf = (userId: number, on: boolean) =>
+    void api(`/api/servers/${join.voice.serverId}/channels/${join.voice.channelId}/stage/${userId}`, { method: "PUT", body: { speaker: on } }).catch((err: Error) =>
+      setError(err.message),
+    );
+  const memberName = (userId: number) => nickname(String(userId)) ?? (userId === me.id ? me.displayName : "Someone");
+
   const toggleCamera = async () => {
     await local.setCameraEnabled(!camOn).catch((err: Error) => setError(`Camera: ${err.message}`));
     report({ video: local.isCameraEnabled });
     bump();
   };
 
-  const controls = (
+  const listenerControls = (
+    <div className="call-controls">
+      <button className={mine?.handRaised ? "sharing" : ""} onClick={() => raiseHand(!mine?.handRaised)} aria-pressed={!!mine?.handRaised}>
+        {mine?.handRaised ? "✋ Lower hand" : "✋ Raise hand"}
+      </button>
+      <button className={deafened ? "off" : ""} onClick={() => setDeafened((d) => !d)} aria-pressed={deafened} title={deafened ? "Listen again" : "Mute the stage"}>
+        {deafened ? "🙉 Listen" : "🎧 Mute stage"}
+      </button>
+      <button className="hangup" onClick={leave} title="Leave the stage">
+        Leave
+      </button>
+    </div>
+  );
+
+  const controls = !speaker ? (
+    listenerControls
+  ) : (
     <div className="call-controls">
       <button className={micOn ? "" : "off"} onClick={() => void toggleMic()} aria-pressed={!micOn} title={micOn ? "Mute" : "Unmute"}>
         {micOn ? "🎙️ Mute" : "🔇 Unmute"}
@@ -248,6 +310,11 @@ export function VoicePanel({
           </button>
         )
       )}
+      {isStage && !compact && (
+        <button onClick={() => setSpeakerOf(me.id, false)} title="Stop speaking and listen with everyone else">
+          🎧 Move to audience
+        </button>
+      )}
       <button className="hangup" onClick={leave} title="Leave voice">
         Leave
       </button>
@@ -260,7 +327,7 @@ export function VoicePanel({
         <RemoteAudio room={room} deafened={deafened} />
         <span className="call-live" aria-hidden />
         <button className="link ellipsis" onClick={onOpen}>
-          In voice: 🔊 {name}
+          {isStage ? `${speaker ? "On stage" : "Listening"}: 🎙️ ${event?.name ?? name}` : `In voice: 🔊 ${name}`}
           {server ? <span className="muted"> · {server.name}</span> : null}
         </button>
         {controls}
@@ -269,8 +336,23 @@ export function VoicePanel({
   }
 
   return (
-    <div className={`call-panel voice-panel ${stage ? "with-stage" : ""}`}>
+    <div className={`call-panel voice-panel ${stage ? "with-stage" : ""} ${isStage ? "stage-panel" : ""}`}>
       <RemoteAudio room={room} deafened={deafened} />
+      {isStage && (
+        <div className="stage-head">
+          {event ? (
+            <>
+              <span className="live-tag">Live</span> <strong>{event.name}</strong>
+            </>
+          ) : (
+            <strong>🎙️ {name}</strong>
+          )}
+          <span className="muted small">
+            {" "}
+            · {members.length - audience.length} speaking · {audience.length} listening
+          </span>
+        </div>
+      )}
       {stage && (
         <div className="voice-stage">
           <ScreenTile
@@ -303,7 +385,48 @@ export function VoicePanel({
           <Tile key={p.identity} p={p} isMe={p === local} myName={nickname(p.identity) ?? me.displayName} label={nickname(p.identity)} />
         ))}
       </div>
+      {isStage && audience.length > 0 && (
+        <div className="stage-audience">
+          <div className="section-label">Audience · {audience.length}</div>
+          <ul>
+            {[...audience]
+              .sort((a, b) => Number(b.handRaised) - Number(a.handRaised))
+              .map((m) => (
+                <li key={m.userId} className={m.handRaised ? "hand" : ""}>
+                  <span className="ellipsis">
+                    {m.handRaised && <span aria-label="Hand raised">✋ </span>}
+                    {memberName(m.userId)}
+                  </span>
+                  {moderator && (
+                    <button className="small-button" onClick={() => setSpeakerOf(m.userId, true)}>
+                      Let speak
+                    </button>
+                  )}
+                </li>
+              ))}
+          </ul>
+        </div>
+      )}
+      {isStage && moderator && everyone.some((p) => p !== local) && (
+        <div className="stage-audience">
+          <div className="section-label">Speakers</div>
+          <ul>
+            {everyone
+              .filter((p) => p !== local)
+              .map((p) => (
+                <li key={p.identity}>
+                  <span className="ellipsis">{nickname(p.identity) ?? p.name ?? "Someone"}</span>
+                  <button className="small-button" onClick={() => setSpeakerOf(Number(p.identity), false)}>
+                    Move to audience
+                  </button>
+                </li>
+              ))}
+          </ul>
+        </div>
+      )}
       <div className="call-status small muted">
+        {stageNote && <span>{stageNote} </span>}
+        {isStage && !speaker && !stageNote && <span>You're listening. Raise your hand to ask to speak. </span>}
         {status !== "failed" && <span>Voice channels aren't end-to-end encrypted yet. </span>}
         {status === "connecting" && "Connecting…"}
         {alone && "It's just you in here. Others can drop in any time."}

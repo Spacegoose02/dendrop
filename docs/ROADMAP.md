@@ -98,6 +98,7 @@ Pulled up right after DMs, because chatting happens mostly from a phone and a PC
 - **Systems → Automatically adjust input sensitivity**, **Noise suppression with various levels** (browser built-in, plus RNNoise for stronger levels).
 - **Systems → Advanced audio**: automatic gain control, advanced voice activity, bypass system audio processing, "no audio device detected" warnings, quality-of-service, "when I speak / when others speak" ducking.
 - **Sounds → Sounds for deafen, undeafen, mute, unmute** and other events.
+- **Servers → Scheduled events and stage channels.** Done: events with RSVPs, reminders and weekly repeats, and stage channels where moderators pick who speaks ([EVENTS.md](EVENTS.md)).
 
 ### Phase 5: Kid-safe chat
 Built on Phase 1 accounts, so it can start earlier if it becomes the priority. Started: see [KIDS.md](KIDS.md) for how it works with end-to-end encryption.
@@ -207,6 +208,7 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Sounds | Sounds for deafen/mute events | 4 | Done (mute, unmute, deafen, undeafen, join, leave; can be turned off) |
 | Sounds | Incoming call / message notifications | 2 | Missing |
 | Automod | Automod settings | 6 | Done (blocked words, spam and mentions, links, new accounts; block, alert, timeout; exempt roles and channels; mod log) |
+| Servers | Scheduled events and stage channels | 4 | Done: events with RSVPs, reminders and weekly repeats; stage channels with raised hands ([EVENTS.md](EVENTS.md)) |
 | Look alike | Layout reference 1 (settings) | 1, 7 | Missing |
 | Look alike | Layout reference 2 (main chat) | 1, 7 | Missing |
 
