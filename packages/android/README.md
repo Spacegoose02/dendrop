@@ -24,6 +24,13 @@ screen and chat bubbles later).
 - **Back** goes back inside the app, and on the first screen sends the app to the background
   instead of closing it.
 
+- **New app versions.** When the app comes to the front it looks at the latest
+  [GitHub release](https://github.com/Spacegoose02/dendrop/releases/latest) (at most twice a day)
+  and, if it's newer, offers to download the APK of the same kind (debug or release). Android asks
+  before installing it. *Not now* waits a day; *Skip this version* waits for the next one. The
+  release workflow sets the app's version from the tag (`DENDROP_VERSION`), so each release
+  installs over the last; local builds stay `0.1.0`.
+
 ## Notifications, privately
 
 Pushes go through [UnifiedPush](https://unifiedpush.org), not Google's Firebase. You install a

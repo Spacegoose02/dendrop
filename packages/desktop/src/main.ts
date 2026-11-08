@@ -23,7 +23,7 @@ import {
 import { cleanCombo, setBackgroundPtt, stopBackgroundPtt } from "./ptt.js";
 import { normalizeServerUrl, originOf } from "./serverUrl.js";
 import { SettingsStore, type DesktopSettings } from "./settings.js";
-import { downloadUpdate, installKind, launchUpdate, pickUpdate, verifyUpdate, type AvailableUpdate } from "./updater.js";
+import { downloadUpdate, findUpdate, installKind, launchUpdate, verifyUpdate, type AvailableUpdate } from "./updater.js";
 
 const APP_ID = "io.github.spacegoose02.dendrop";
 /** The Den theme's main background (--dd-bg-main), so the window doesn't flash white while loading. */
@@ -405,17 +405,17 @@ function setUpdate(next: UpdateState): void {
 }
 
 /**
- * Looks on the server (/api/clients) for a newer build of this app, downloads it, checks it
- * against the GitHub release's SHA256SUMS, and installs it when the window is closed.
+ * Looks at the latest GitHub release for a newer build of this app, downloads it, checks it
+ * against that release's SHA256SUMS, and installs it when the window is closed.
  */
 async function checkForUpdate(manual = false): Promise<void> {
   const kind = installKind();
-  if (kind === "other" || !origin()) return;
+  if (kind === "other") return;
   if (update.state === "downloading" || update.state === "checking" || (update.state === "ready" && !manual)) return;
   setUpdate({ state: "checking" });
   let found: AvailableUpdate | null;
   try {
-    found = pickUpdate(await serverJson<Array<{ name: string; size: number }>>("/api/clients"), app.getVersion(), kind);
+    found = await findUpdate((u, i) => net.fetch(u, i), app.getVersion(), kind);
   } catch (err) {
     setUpdate({ state: "error", error: (err as Error).message });
     return;
@@ -429,7 +429,7 @@ async function fetchUpdate(found: AvailableUpdate): Promise<void> {
   const target = path.join(app.getPath("temp"), "dendrop-update", found.file);
   try {
     setUpdate({ state: "downloading", version: found.version });
-    await downloadUpdate(fetch, `${origin()}/api/clients/${encodeURIComponent(found.file)}`, { Cookie: await cookieHeader() }, target, () => {});
+    await downloadUpdate((u, i) => net.fetch(u, i), found.url, {}, target, () => {});
     if (!settings.get().allowUnverifiedUpdates) await verifyUpdate((u, i) => net.fetch(u, i), found, target);
     setUpdate({ state: "ready", version: found.version, file: target });
     if (!win?.isVisible() && settings.get().autoUpdate) await installNow();

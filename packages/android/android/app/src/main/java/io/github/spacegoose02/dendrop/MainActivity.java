@@ -100,6 +100,7 @@ public class MainActivity extends BridgeActivity {
         Notifier.clear(this);
         handler.removeCallbacks(pushSync);
         handler.post(pushSync);
+        if (bridge != null) UpdateChecker.maybeCheck(this);
     }
 
     @Override
