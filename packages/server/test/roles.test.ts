@@ -57,7 +57,7 @@ describe("custom server roles", () => {
       ["Mods", "Cousins", "Gamers"],
     );
     assert.deepEqual((await view(bob)).myPermissions, []);
-    assert.equal((await view(owner)).myPermissions.length, 9);
+    assert.equal((await view(owner)).myPermissions.length, 10);
   });
 
   it("checks names, colors and permissions", async () => {

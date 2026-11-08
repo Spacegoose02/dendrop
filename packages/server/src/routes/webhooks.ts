@@ -118,11 +118,17 @@ export function webhookRoutes(app: FastifyInstance, ctx: Context): void {
     return (db.prepare("SELECT * FROM webhooks WHERE server_id = ? ORDER BY channel_id, id").all(serverId) as unknown as WebhookRow[]).map(toWebhook);
   });
 
+  /** Forum channels hold posts, not one chat, so webhooks can't post there. */
+  const postable = <C extends { kind: string }>(c: C): C => {
+    if (c.kind === "forum") throw new HttpError(400, "Pick a text or voice channel; forums hold posts");
+    return c;
+  };
+
   app.post<{ Params: { id: string }; Body: { channelId?: unknown; name?: unknown } }>("/api/servers/:id/webhooks", async (req): Promise<NewWebhook> => {
     const me = requireUser(req);
     const serverId = id(req.params.id);
     moderator(serverId, me);
-    const channel = servers.channel(serverId, id(req.body?.channelId));
+    const channel = postable(servers.channel(serverId, id(req.body?.channelId)));
     const name = cleanName(req.body?.name);
     const count = (db.prepare("SELECT COUNT(*) AS n FROM webhooks WHERE channel_id = ?").get(channel.id) as { n: number }).n;
     if (count >= WEBHOOK_LIMITS.perChannel) throw new HttpError(400, `A channel can have up to ${WEBHOOK_LIMITS.perChannel} webhooks`);
@@ -139,7 +145,7 @@ export function webhookRoutes(app: FastifyInstance, ctx: Context): void {
     moderator(serverId, requireUser(req));
     const r = row(serverId, id(req.params.hookId));
     const name = req.body?.name === undefined ? r.name : cleanName(req.body.name);
-    const channelId = req.body?.channelId === undefined ? r.channel_id : servers.channel(serverId, id(req.body.channelId)).id;
+    const channelId = req.body?.channelId === undefined ? r.channel_id : postable(servers.channel(serverId, id(req.body.channelId))).id;
     db.prepare("UPDATE webhooks SET name = ?, channel_id = ? WHERE id = ?").run(name, channelId, r.id);
     return toWebhook(row(serverId, r.id));
   });

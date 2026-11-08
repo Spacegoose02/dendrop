@@ -345,7 +345,8 @@ export class AutomodService {
   // ---- Checking messages ---------------------------------------------------------
 
   private channelOf(conversationId: number): { id: number; server_id: number } | undefined {
-    return this.db.prepare("SELECT id, server_id FROM server_channels WHERE conversation_id = ?").get(conversationId) as
+    // Threads count as their channel.
+    return this.db.prepare("SELECT channel_id AS id, server_id FROM channel_conversations WHERE conversation_id = ?").get(conversationId) as
       | { id: number; server_id: number }
       | undefined;
   }
@@ -454,7 +455,7 @@ export class AutomodService {
       if (mentions > rule.maxMentions) return { rule: "spam", reason: `${mentions} mentions in one message` };
     }
     if (edit) return undefined;
-    const recent = `SELECT COUNT(*) AS n FROM messages m JOIN server_channels c ON c.conversation_id = m.conversation_id
+    const recent = `SELECT COUNT(*) AS n FROM messages m JOIN channel_conversations c ON c.conversation_id = m.conversation_id
                     WHERE c.server_id = ? AND m.author_id = ? AND m.webhook_name IS NULL AND m.created_at > ?`;
     if (rule.maxMessages > 0) {
       const since = new Date(Date.now() - rule.perSeconds * 1000).toISOString();

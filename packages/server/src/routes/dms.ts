@@ -205,6 +205,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     }
     const memberIds = convos.memberIds(cid);
     gateway.send(memberIds, { type: "message.created", message: m });
+    for (const fn of ctx.onMessageCreated) fn(m);
     // Phones of people with nothing open get a wake-up that says only "message".
     void ctx.push.notify(
       memberIds.filter((u) => u !== me.id && !gateway.isOnline(u)),

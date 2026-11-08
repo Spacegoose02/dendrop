@@ -6,7 +6,7 @@ import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
-import type { ClientEvent } from "@dendrop/shared";
+import type { ClientEvent, Message } from "@dendrop/shared";
 import { AutomodService } from "./automod.js";
 import { BotService, type BotFetch } from "./bots.js";
 import { OidcService } from "./auth/oidc.js";
@@ -32,6 +32,7 @@ import { familyRoutes, guardKids } from "./routes/family.js";
 import { dendutyRoutes } from "./routes/denduty.js";
 import { lootdenRoutes } from "./routes/lootden.js";
 import { guardChannelConversations, serverRoutes } from "./routes/servers.js";
+import { threadRoutes } from "./routes/threads.js";
 import { webhookRoutes } from "./routes/webhooks.js";
 import { toMe, UserRepo, type UserRecord } from "./users.js";
 
@@ -76,6 +77,8 @@ export interface Context {
   /** Hooks for the gateway, so features can react to events from clients. */
   onClientEvent: ((user: UserRecord, event: ClientEvent) => void)[];
   onPresence: ((userId: number, online: boolean) => void)[];
+  /** Runs after someone posts a message through the conversation API (threads keep their counts). */
+  onMessageCreated: ((message: Message) => void)[];
   /** How long calls ring before they count as missed; shorter in tests. */
   callRingMs?: number;
 }
@@ -121,6 +124,7 @@ export async function buildApp(
     gifs: new GifService(db, family, config.dataDir, options.gifFetch),
     onClientEvent: [],
     onPresence: [],
+    onMessageCreated: [],
     callRingMs: options.callRingMs,
   };
   // LootDen's play limits feed kids' time rules, when a parent turns that on.
@@ -159,6 +163,7 @@ export async function buildApp(
   await app.register(async (api) => expressionRoutes(api, ctx));
   await app.register(async (api) => pushRoutes(api, ctx));
   await app.register(async (api) => serverRoutes(api, ctx));
+  await app.register(async (api) => threadRoutes(api, ctx));
   await app.register(async (api) => familyRoutes(api, ctx));
   await app.register(async (api) => webhookRoutes(api, ctx));
   await app.register(async (api) => lootdenRoutes(api, ctx));

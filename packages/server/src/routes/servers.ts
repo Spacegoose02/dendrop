@@ -10,6 +10,7 @@ import { HttpError } from "../errors.js";
 import { FriendRepo } from "../friends.js";
 import { livekitUrl } from "../livekit.js";
 import { ServerRepo, type ImageKind } from "../servers.js";
+import { ThreadRepo } from "../threads.js";
 import { VoiceService } from "../voice.js";
 import type { UserRecord } from "../users.js";
 
@@ -85,6 +86,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     deleteMessages: "Delete messages",
     createInvites: "Make invites",
     manageExpressions: "Manage emoji & stickers",
+    pinMessages: "Pin messages",
   };
   /** A 404 if they aren't in the server, a 403 if none of their roles allow any of `perms`. */
   const allowed = (serverId: number, user: UserRecord, ...perms: ServerPermission[]) => {
@@ -588,15 +590,26 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
 }
 
 /**
- * Channels share the DM conversation endpoints for messages, but not calls or end-to-end keys
- * (calls would ring the whole server; channels aren't encrypted yet). Registered on the root app.
+ * Channels and their threads share the DM conversation endpoints for messages, but not calls or
+ * end-to-end keys (calls would ring the whole server; channels aren't encrypted yet). Forum
+ * channels take posts rather than messages, and closed threads are read only. Registered on the
+ * root app.
  */
 export function guardChannelConversations(app: FastifyInstance, ctx: Context): void {
+  const servers = new ServerRepo(ctx.db, ctx.users);
+  const threads = new ThreadRepo(ctx.db, servers, new ConversationRepo(ctx.db, ctx.users, new FriendRepo(ctx.db, ctx.users)));
   app.addHook("preHandler", async (req) => {
     if (req.method !== "POST") return;
-    const m = /^\/api\/conversations\/(\d+)\/(call|keys)(\/|\?|$)/.exec(req.url);
+    const m = /^\/api\/conversations\/(\d+)\/(call|keys|messages)(\/|\?|$)/.exec(req.url);
     if (!m) return;
     const row = ctx.db.prepare("SELECT kind FROM conversations WHERE id = ?").get(Number(m[1])) as { kind: string } | undefined;
-    if (row?.kind === "channel") throw new HttpError(400, m[2] === "call" ? "Channels don't have calls yet" : "Channels aren't end-to-end encrypted yet");
+    if (row?.kind !== "channel" && row?.kind !== "thread") return;
+    if (m[2] === "messages") {
+      // Non-members get the usual 404 from the route.
+      const blocked = req.user ? threads.postBlocked(Number(m[1]), req.user.id) : null;
+      if (blocked) throw new HttpError(blocked.startsWith("This thread") ? 403 : 400, blocked);
+      return;
+    }
+    throw new HttpError(400, m[2] === "call" ? "Channels don't have calls yet" : "Channels aren't end-to-end encrypted yet");
   });
 }

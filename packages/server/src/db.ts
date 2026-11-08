@@ -506,6 +506,41 @@ export const MIGRATIONS: string[] = [
   -- GIFs for kids: off until a parent turns them on.
   ALTER TABLE kid_rules ADD COLUMN gifs INTEGER NOT NULL DEFAULT 0;
   `,
+  `
+  -- Threads: a side conversation (kind 'thread') off a channel message, or a post in a forum
+  -- channel (no parent message). Its conversation_members match its channel's (see syncChannel).
+  CREATE TABLE channel_threads (
+    id INTEGER PRIMARY KEY,
+    channel_id INTEGER NOT NULL REFERENCES server_channels(id) ON DELETE CASCADE,
+    conversation_id INTEGER NOT NULL UNIQUE REFERENCES conversations(id) ON DELETE CASCADE,
+    parent_message_id INTEGER UNIQUE REFERENCES messages(id) ON DELETE SET NULL,
+    title TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '[]',
+    closed INTEGER NOT NULL DEFAULT 0,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX channel_threads_channel ON channel_threads(channel_id);
+
+  -- Forum channels: the tags their posts can carry (JSON list of names).
+  ALTER TABLE server_channels ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
+
+  -- The pinned board: messages pinned in server channels and threads.
+  CREATE TABLE message_pins (
+    message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    pinned_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    pinned_at TEXT NOT NULL
+  );
+  CREATE INDEX message_pins_conversation ON message_pins(conversation_id);
+
+  -- Every conversation that belongs to a server: channels and their threads. Server rules
+  -- (automod, timeouts, moderators) look a conversation up here.
+  CREATE VIEW channel_conversations AS
+    SELECT conversation_id, id AS channel_id, server_id, NULL AS thread_id FROM server_channels
+    UNION ALL
+    SELECT t.conversation_id, t.channel_id, c.server_id, t.id FROM channel_threads t JOIN server_channels c ON c.id = t.channel_id;
+  `,
 ];
 
 export function now(): string {

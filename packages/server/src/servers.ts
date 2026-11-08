@@ -41,11 +41,12 @@ interface ChannelRow {
   id: number;
   server_id: number;
   conversation_id: number;
-  kind: "text" | "voice";
+  kind: "text" | "voice" | "forum";
   name: string;
   topic: string;
   position: number;
   locked: number;
+  tags: string;
   created_at: string;
 }
 
@@ -104,6 +105,21 @@ export function cleanChannelName(v: unknown): string {
   if (!s) throw new HttpError(400, "A channel needs a name");
   if (s.length > LIMITS.channelName) throw new HttpError(400, `Channel names can be up to ${LIMITS.channelName} characters`);
   return s;
+}
+
+const CHANNEL_KINDS = ["text", "voice", "forum"] as const;
+
+/** A forum channel's tag list: short, unique names, in order. */
+export function cleanTags(v: unknown): string[] {
+  if (!Array.isArray(v)) throw new HttpError(400, "tags is a list of names");
+  const out: string[] = [];
+  for (const t of v) {
+    const name = cleanText(t, LIMITS.forumTagName, "A tag", false);
+    if (findBlockedWords(name, [], { builtin: true }).length) throw new HttpError(400, "Pick tags without rude words");
+    if (!out.some((x) => x.toLowerCase() === name.toLowerCase())) out.push(name);
+  }
+  if (out.length > LIMITS.forumTags) throw new HttpError(400, `A forum can have up to ${LIMITS.forumTags} tags`);
+  return out;
 }
 
 /**
@@ -220,7 +236,7 @@ export class ServerRepo {
     return {
       id: c.id,
       serverId: c.server_id,
-      kind: c.kind === "voice" ? "voice" : "text",
+      kind: CHANNEL_KINDS.includes(c.kind) ? c.kind : "text",
       conversationId: c.conversation_id,
       name: c.name,
       topic: c.topic,
@@ -228,6 +244,7 @@ export class ServerRepo {
       locked: !!c.locked,
       memberIds: c.locked && showAccess ? this.access(c.id) : [],
       roleIds: c.locked && showAccess ? this.roleAccess(c.id) : [],
+      tags: c.kind === "forum" ? (JSON.parse(c.tags) as string[]) : [],
     };
   }
 
@@ -401,7 +418,7 @@ export class ServerRepo {
     const r = this.row(serverId);
     if (!r) throw new HttpError(404, "No such server");
     return this.atomic(() => {
-      const convs = this.channelRows(serverId).map((c) => c.conversation_id);
+      const convs = this.channelRows(serverId).flatMap((c) => [c.conversation_id, ...this.threadConversations(c.id)]);
       const files: string[] = new ExpressionRepo(this.db).files(serverId);
       for (const cid of convs) {
         for (const a of this.db.prepare("SELECT id FROM attachments WHERE conversation_id = ?").all(cid) as { id: string }[]) files.push(a.id);
@@ -522,15 +539,16 @@ export class ServerRepo {
     topic: string,
     locked: boolean,
     access: number[],
-    kind: "text" | "voice" = "text",
+    kind: ChannelRow["kind"] = "text",
     roleAccess: number[] = [],
+    tags: string[] = [],
   ): number {
     const t = now();
     const conv = this.db.prepare("INSERT INTO conversations (is_group, kind, name, created_at) VALUES (1, 'channel', ?, ?)").run(name, t);
     const pos = this.db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM server_channels WHERE server_id = ?").get(serverId) as { p: number };
     const res = this.db
-      .prepare("INSERT INTO server_channels (server_id, conversation_id, kind, name, topic, position, locked, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(serverId, Number(conv.lastInsertRowid), kind, name, topic, pos.p, locked ? 1 : 0, t);
+      .prepare("INSERT INTO server_channels (server_id, conversation_id, kind, name, topic, position, locked, tags, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(serverId, Number(conv.lastInsertRowid), kind, name, topic, pos.p, locked ? 1 : 0, JSON.stringify(tags), t);
     const id = Number(res.lastInsertRowid);
     const add = this.db.prepare("INSERT INTO channel_access (channel_id, user_id) VALUES (?, ?)");
     for (const u of access) add.run(id, u);
@@ -539,16 +557,18 @@ export class ServerRepo {
     return id;
   }
 
-  createChannel(serverId: number, input: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown; roleIds?: unknown; kind?: unknown }): Channel {
+  createChannel(serverId: number, input: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown; roleIds?: unknown; kind?: unknown; tags?: unknown }): Channel {
     if (this.channelRows(serverId).length >= LIMITS.channelsPerServer) {
       throw new HttpError(400, `A server can have up to ${LIMITS.channelsPerServer} channels`);
     }
     const name = cleanChannelName(input.name);
     const topic = input.topic === undefined ? "" : cleanText(input.topic, LIMITS.channelTopic, "The topic", true);
-    if (input.kind !== undefined && input.kind !== "text" && input.kind !== "voice") throw new HttpError(400, "A channel is text or voice");
+    if (input.kind !== undefined && !CHANNEL_KINDS.includes(input.kind as ChannelRow["kind"])) throw new HttpError(400, "A channel is text, voice or forum");
+    const kind = (input.kind ?? "text") as ChannelRow["kind"];
+    const tags = kind === "forum" && input.tags !== undefined ? cleanTags(input.tags) : [];
     const access = this.cleanAccess(serverId, input.memberIds);
     const roleAccess = this.cleanRoleAccess(serverId, input.roleIds);
-    const id = this.atomic(() => this.insertChannel(serverId, name, topic, input.locked === true, access, input.kind === "voice" ? "voice" : "text", roleAccess));
+    const id = this.atomic(() => this.insertChannel(serverId, name, topic, input.locked === true, access, kind, roleAccess, tags));
     return this.toChannel(this.channelRow(id)!, true);
   }
 
@@ -559,15 +579,17 @@ export class ServerRepo {
     return c;
   }
 
-  updateChannel(serverId: number, channelId: number, patch: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown; roleIds?: unknown }): void {
+  updateChannel(serverId: number, channelId: number, patch: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown; roleIds?: unknown; tags?: unknown }): void {
     const c = this.channel(serverId, channelId);
     const name = patch.name === undefined ? c.name : cleanChannelName(patch.name);
     const topic = patch.topic === undefined ? c.topic : cleanText(patch.topic, LIMITS.channelTopic, "The topic", true);
     const locked = typeof patch.locked === "boolean" ? patch.locked : !!c.locked;
     const access = patch.memberIds === undefined ? undefined : this.cleanAccess(serverId, patch.memberIds);
     const roleAccess = patch.roleIds === undefined ? undefined : this.cleanRoleAccess(serverId, patch.roleIds);
+    if (patch.tags !== undefined && c.kind !== "forum") throw new HttpError(400, "Only forum channels have tags");
+    const tags = patch.tags === undefined ? c.tags : JSON.stringify(cleanTags(patch.tags));
     this.atomic(() => {
-      this.db.prepare("UPDATE server_channels SET name = ?, topic = ?, locked = ? WHERE id = ?").run(name, topic, locked ? 1 : 0, channelId);
+      this.db.prepare("UPDATE server_channels SET name = ?, topic = ?, locked = ?, tags = ? WHERE id = ?").run(name, topic, locked ? 1 : 0, tags, channelId);
       this.db.prepare("UPDATE conversations SET name = ? WHERE id = ?").run(name, c.conversation_id);
       if (access) {
         this.db.prepare("DELETE FROM channel_access WHERE channel_id = ?").run(channelId);
@@ -591,38 +613,54 @@ export class ServerRepo {
     });
   }
 
-  /** Deletes a channel and its messages. Returns the files to remove from disk. */
+  /** The conversations of a channel's threads. */
+  threadConversations(channelId: number): number[] {
+    return (this.db.prepare("SELECT conversation_id FROM channel_threads WHERE channel_id = ?").all(channelId) as { conversation_id: number }[]).map(
+      (r) => r.conversation_id,
+    );
+  }
+
+  /** Deletes a channel, its threads and their messages. Returns the files to remove from disk. */
   deleteChannel(serverId: number, channelId: number): string[] {
     const c = this.channel(serverId, channelId);
     return this.atomic(() => {
-      const files = (this.db.prepare("SELECT id FROM attachments WHERE conversation_id = ?").all(c.conversation_id) as { id: string }[]).map((a) => a.id);
-      this.db.prepare("DELETE FROM conversations WHERE id = ?").run(c.conversation_id);
+      const files: string[] = [];
+      for (const cid of [...this.threadConversations(c.id), c.conversation_id]) {
+        for (const a of this.db.prepare("SELECT id FROM attachments WHERE conversation_id = ?").all(cid) as { id: string }[]) files.push(a.id);
+        this.db.prepare("DELETE FROM conversations WHERE id = ?").run(cid);
+      }
       return files;
     });
   }
 
-  /** The server a channel conversation's message belongs to, for moderation. */
+  /** The server a channel or thread message belongs to, for moderation. */
   serverOfMessage(messageId: number): number | undefined {
     const r = this.db
-      .prepare("SELECT c.server_id FROM messages m JOIN server_channels c ON c.conversation_id = m.conversation_id WHERE m.id = ?")
+      .prepare("SELECT c.server_id FROM messages m JOIN channel_conversations c ON c.conversation_id = m.conversation_id WHERE m.id = ?")
       .get(messageId) as { server_id: number } | undefined;
     return r?.server_id;
   }
 
-  /** Makes a channel's conversation members match who can see it. Keeps read markers of those who stay. */
+  /**
+   * Makes a channel's conversation members, and its threads', match who can see it. Keeps read
+   * markers of those who stay.
+   */
   private syncChannel(channelId: number): void {
     const c = this.channelRow(channelId)!;
     const want = new Set(this.memberIds(c.server_id).filter((u) => this.canSee(c, u)));
+    for (const cid of [c.conversation_id, ...this.threadConversations(c.id)]) this.syncMembers(cid, want);
+  }
+
+  /** Sets a conversation's members to exactly `want`. */
+  syncMembers(conversationId: number, want: Set<number>): void {
     const have = new Set(
-      (this.db.prepare("SELECT user_id FROM conversation_members WHERE conversation_id = ?").all(c.conversation_id) as { user_id: number }[]).map(
-        (r) => r.user_id,
-      ),
+      (this.db.prepare("SELECT user_id FROM conversation_members WHERE conversation_id = ?").all(conversationId) as { user_id: number }[]).map((r) => r.user_id),
     );
     const del = this.db.prepare("DELETE FROM conversation_members WHERE conversation_id = ? AND user_id = ?");
-    for (const u of have) if (!want.has(u)) del.run(c.conversation_id, u);
+    for (const u of have) if (!want.has(u)) del.run(conversationId, u);
     const add = this.db.prepare("INSERT INTO conversation_members (conversation_id, user_id, joined_at) VALUES (?, ?, ?)");
     const t = now();
-    for (const u of want) if (!have.has(u)) add.run(c.conversation_id, u, t);
+    for (const u of want) if (!have.has(u)) add.run(conversationId, u, t);
   }
 
   private syncServer(serverId: number): void {
