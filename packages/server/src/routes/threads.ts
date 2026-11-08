@@ -78,9 +78,10 @@ export function threadRoutes(app: FastifyInstance, ctx: Context): void {
         threads.discard(thread.id);
         throw err;
       }
-      gateway.send(convos.memberIds(thread.conversationId), { type: "message.created", message: first });
+      // The post first, so clients know the conversation is a thread when its message arrives.
       const made = threads.get(thread.id, me.id);
       pushThread(made);
+      gateway.send(convos.memberIds(thread.conversationId), { type: "message.created", message: first });
       return made;
     },
   );

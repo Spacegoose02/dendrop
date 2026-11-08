@@ -17,12 +17,14 @@ import type {
   PublicUser,
   ServerEvent,
   ServerInfo,
+  Thread,
   VoiceChannelState,
   VoiceJoin,
 } from "@dendrop/shared";
 import { api, connectGateway, logout } from "./api.ts";
 import { BOT_REPLY_EVENT, type BotReplyDetail } from "./Bots.tsx";
-import { Chat } from "./Chat.tsx";
+import { Chat, type ChannelInfo } from "./Chat.tsx";
+import { ForumView, PinsDialog, ThreadActions } from "./Threads.tsx";
 import { Friends } from "./Friends.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { IncomingCall } from "./IncomingCall.tsx";
@@ -49,7 +51,8 @@ export type View =
   | { kind: "friends" }
   | { kind: "conversation"; id: number }
   | { kind: "directory" }
-  | { kind: "channel"; serverId: number; channelId: number };
+  /** A channel, with one of its threads (or a forum's posts) open beside or instead of it. */
+  | { kind: "channel"; serverId: number; channelId: number; threadId?: number };
 
 type ServerDialog =
   | { kind: "create" }
@@ -123,6 +126,14 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     history.replaceState(null, "", "/");
     return { kind: "link", code: m[1]! };
   });
+  /** Threads and forum posts seen so far, by id, kept live by the gateway. */
+  const [threads, setThreads] = useState<Record<number, Thread>>({});
+  const threadsRef = useRef(threads);
+  threadsRef.current = threads;
+  const addThreads = useCallback((list: Thread[]) => setThreads((all) => ({ ...all, ...Object.fromEntries(list.map((t) => [t.id, t])) })), []);
+  /** The pinned board, while it's open, and a counter that reloads it when pins change. */
+  const [pinsOpen, setPinsOpen] = useState<{ serverId: number; channelId: number | null } | null>(null);
+  const [pinsVersion, setPinsVersion] = useState(0);
   /** Goes up when a request to make servers comes in, so the admin dialog reloads. */
   const [adminVersion, setAdminVersion] = useState(0);
   const viewRef = useRef(view);
@@ -272,7 +283,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
               return { ...h, [m.conversationId]: { ...cur, messages: upsert(cur.messages, shown) } };
             }),
           );
-          const isChannel = serversRef.current.some((sv) => sv.channels.some((ch) => ch.conversationId === m.conversationId));
+          const isChannel =
+            serversRef.current.some((sv) => sv.channels.some((ch) => ch.conversationId === m.conversationId)) ||
+            Object.values(threadsRef.current).some((t) => t.conversationId === m.conversationId);
           if (!isChannel) setConversations((cs) => {
             const c = cs.find((x) => x.id === m.conversationId);
             if (!c) {
@@ -354,6 +367,20 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           loadActivities();
           setView((v) => (v.kind === "channel" && v.serverId === e.serverId ? { kind: "friends" } : v));
           setServerDialog((d) => (d && "serverId" in d && d.serverId === e.serverId ? null : d));
+          break;
+        case "thread.updated":
+          setThreads((all) => ({ ...all, [e.thread.id]: e.thread }));
+          break;
+        case "thread.removed":
+          setThreads((all) => {
+            const n = { ...all };
+            delete n[e.threadId];
+            return n;
+          });
+          setView((v) => (v.kind === "channel" && v.threadId === e.threadId ? { kind: "channel", serverId: v.serverId, channelId: v.channelId } : v));
+          break;
+        case "pins.updated":
+          setPinsVersion((n) => n + 1);
           break;
         case "server.invited":
           setInvites((list) => [e.invite, ...list.filter((i) => i.code !== e.invite.code)]);
@@ -500,6 +527,85 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const serverUnread = (sv: ChatServer) => sv.channels.some((c) => unread.has(c.conversationId));
   const dialogServer = serverDialog && "serverId" in serverDialog ? servers.find((x) => x.id === serverDialog.serverId) : undefined;
   const incoming = friends.filter((f) => f.state === "incoming").length;
+
+  /** The thread open in the current channel, if it's one of this channel's. */
+  const currentThread = view.kind === "channel" && view.threadId ? threads[view.threadId] : undefined;
+  const openThread = (serverId: number, t: Thread) => {
+    addThreads([t]);
+    open({ kind: "channel", serverId, channelId: t.channelId, threadId: t.id });
+  };
+  const closeThread = () => setView((v) => (v.kind === "channel" ? { kind: "channel", serverId: v.serverId, channelId: v.channelId } : v));
+  /** Opens a message's thread, or starts one off it. */
+  const startThread = async (serverId: number, messageId: number, threadId?: number) => {
+    try {
+      openThread(serverId, threadId ? await api<Thread>(`/api/threads/${threadId}`) : await api<Thread>(`/api/messages/${messageId}/thread`, { body: {} }));
+    } catch (err) {
+      alert((err as Error).message);
+    }
+  };
+
+  /** A server channel or thread shown through Chat. */
+  const channelChat = (conversation: Conversation, info: ChannelInfo, onBack: () => void = () => setShowMain(false)) => (
+    <Chat
+      key={conversation.id}
+      me={meInServer}
+      conversation={conversation}
+      online={online}
+      history={histories[conversation.id]}
+      setHistory={(h) => setHistories((all) => ({ ...all, [conversation.id]: h(all[conversation.id]) }))}
+      typingIds={Object.keys(typing[conversation.id] ?? {}).map(Number)}
+      sendTyping={() => sendRef.current({ type: "typing", conversationId: conversation.id })}
+      callsEnabled={false}
+      call={undefined}
+      inThisCall={false}
+      onCall={() => {}}
+      onBack={onBack}
+      keyState={keyState}
+      onEncryption={() => {}}
+      kid={kidRules}
+      channel={info}
+    />
+  );
+
+  /** A thread: beside its channel, or in place of a forum's list of posts. */
+  const threadChat = (sv: ChatServer, ch: Channel, t: Thread) => {
+    const forum = ch.kind === "forum";
+    const readOnly = t.closed && !can(sv, "manageChannels") ? `This ${forum ? "post" : "thread"} is closed: you can read it, but not reply.` : null;
+    return channelChat(
+      { ...channelConversation!, id: t.conversationId, name: t.title },
+      {
+        serverId: sv.id,
+        // A thread's pane is narrow: its intro says where it's from instead.
+        topic: forum ? (t.tags.length ? t.tags.join(" · ") : "") : "",
+        icon: forum ? "💬" : "🧵",
+        canModerate: can(sv, "deleteMessages"),
+        timedOutUntil: sv.timedOutUntil,
+        canPin: can(sv, "pinMessages"),
+        readOnly,
+        actions: (
+          <>
+            {forum && (
+              <button className="ghost small-button" onClick={closeThread} title={`Back to ${ch.name}`}>
+                ‹ All posts
+              </button>
+            )}
+            <ThreadActions server={sv} me={me} thread={t} channel={ch} onDeleted={closeThread} />
+            {!forum && (
+              <button className="ghost icon" onClick={closeThread} title="Close the thread pane" aria-label="Close the thread pane">
+                ✕
+              </button>
+            )}
+          </>
+        ),
+        intro: (
+          <p className="muted">
+            {forum ? `The start of “${t.title}” in ${ch.name}.` : `A thread off a message in #${ch.name}. Everyone who can see #${ch.name} can read and reply.`}
+          </p>
+        ),
+      },
+      closeThread,
+    );
+  };
 
   const shell = (
     <div className={`shell ${showMain ? "show-main" : ""}`}>
@@ -690,29 +796,36 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         {view.kind === "channel" && currentServer && !channelConversation && (
           <div className="empty muted">{currentServer.channels.length ? "Pick a channel." : "This server has no channels yet."}</div>
         )}
-        {currentServer && currentChannel && channelConversation && (
-          <Chat
-            key={channelConversation.id}
-            me={meInServer}
-            conversation={channelConversation}
-            online={online}
-            history={histories[channelConversation.id]}
-            setHistory={(h) => setHistories((all) => ({ ...all, [channelConversation.id]: h(all[channelConversation.id]) }))}
-            typingIds={Object.keys(typing[channelConversation.id] ?? {}).map(Number)}
-            sendTyping={() => sendRef.current({ type: "typing", conversationId: channelConversation.id })}
-            callsEnabled={false}
-            call={undefined}
-            inThisCall={false}
-            onCall={() => {}}
+        {currentServer && currentChannel && channelConversation && currentChannel.kind === "forum" && !currentThread && (
+          <ForumView
+            key={currentChannel.id}
+            server={currentServer}
+            channel={currentChannel}
+            threads={Object.values(threads)}
+            onLoaded={addThreads}
+            onOpen={(t) => openThread(currentServer.id, t)}
             onBack={() => setShowMain(false)}
-            keyState={keyState}
-            onEncryption={() => {}}
-            kid={kidRules}
-            channel={{
+            canPost={
+              kidRules && !kidRules.status.allowedNow
+                ? (kidRules.status.reason ?? "Chat time is over for now.")
+                : currentServer.timedOutUntil && Date.parse(currentServer.timedOutUntil) > Date.now()
+                  ? "You're timed out in this server"
+                  : null
+            }
+            onPins={() => setPinsOpen({ serverId: currentServer.id, channelId: currentChannel.id })}
+          />
+        )}
+        {currentServer && currentChannel && channelConversation && currentChannel.kind === "forum" && currentThread && threadChat(currentServer, currentChannel, currentThread)}
+        {currentServer && currentChannel && channelConversation && currentChannel.kind !== "forum" && (
+          <div className={`channel-split ${currentThread ? "with-thread" : ""}`}>
+            {channelChat(channelConversation, {
               serverId: currentServer.id,
               topic: currentChannel.topic,
               canModerate: can(currentServer, "deleteMessages"),
               timedOutUntil: currentServer.timedOutUntil,
+              canPin: can(currentServer, "pinMessages"),
+              onPins: () => setPinsOpen({ serverId: currentServer.id, channelId: currentChannel.id }),
+              onThread: (m) => void startThread(currentServer.id, m.id, m.thread?.id),
               voice:
                 currentChannel.kind === "voice"
                   ? {
@@ -722,8 +835,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
                       onJoin: () => void joinVoice(currentServer, currentChannel),
                     }
                   : undefined,
-            }}
-          />
+            })}
+            {currentThread && threadChat(currentServer, currentChannel, currentThread)}
+          </div>
         )}
         {view.kind === "friends" && <Friends friends={friends} online={online} onMessage={messageFriend} onBack={() => setShowMain(false)} />}
         {view.kind === "conversation" && current && (
@@ -810,6 +924,20 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           onJoined={(sv) => {
             setServerDialog(null);
             openServer(sv);
+          }}
+        />
+      )}
+      {pinsOpen && servers.find((x) => x.id === pinsOpen.serverId) && (
+        <PinsDialog
+          server={servers.find((x) => x.id === pinsOpen.serverId)!}
+          channelId={pinsOpen.channelId}
+          version={pinsVersion}
+          onClose={() => setPinsOpen(null)}
+          onJump={(p) => {
+            const sv = servers.find((x) => x.id === pinsOpen.serverId)!;
+            setPinsOpen(null);
+            if (p.threadId) void startThread(sv.id, p.message.id, p.threadId);
+            else open({ kind: "channel", serverId: sv.id, channelId: p.channelId });
           }}
         />
       )}

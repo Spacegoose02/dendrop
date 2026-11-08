@@ -204,8 +204,9 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
       throw err;
     }
     const memberIds = convos.memberIds(cid);
-    gateway.send(memberIds, { type: "message.created", message: m });
+    // First, so clients learn a thread exists before its messages arrive.
     for (const fn of ctx.onMessageCreated) fn(m);
+    gateway.send(memberIds, { type: "message.created", message: m });
     // Phones of people with nothing open get a wake-up that says only "message".
     void ctx.push.notify(
       memberIds.filter((u) => u !== me.id && !gateway.isOnline(u)),

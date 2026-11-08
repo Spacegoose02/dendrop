@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import {
   findBlockedWords,
   INLINE_IMAGE_TYPES,
@@ -55,6 +55,20 @@ export interface ChannelInfo {
   timedOutUntil?: string | null;
   /** Set for a voice channel: its text chat shows here, with a button to drop into the voice. */
   voice?: { count: number; inIt: boolean; enabled: boolean; onJoin: () => void };
+  /** The mark before the title (a thread shows 🧵). Defaults to # or 🔊. */
+  icon?: string;
+  /** Starts or opens the thread off a message. Unset inside a thread (threads don't nest). */
+  onThread?: (m: Message) => void;
+  /** Whether you can pin and unpin messages here. */
+  canPin?: boolean;
+  /** Opens the pinned board. */
+  onPins?: () => void;
+  /** Set when you can't post here (a closed thread): why. */
+  readOnly?: string | null;
+  /** Extra buttons for the header (a thread's close and rename). */
+  actions?: ReactNode;
+  /** What the start of the history says instead of the channel's usual line. */
+  intro?: ReactNode;
 }
 
 export function Chat({
@@ -423,6 +437,13 @@ export function Chat({
     ? conversation.reads.filter((r) => r.userId !== me.id && r.messageId !== null && r.messageId >= myLast.id).map((r) => members.get(r.userId)?.displayName ?? "Someone")
     : [];
   const canReact = !timeUp && !timedOutUntil;
+  const togglePin = async (m: ChatMessage) => {
+    try {
+      await api(`/api/messages/${m.id}/pin`, { method: m.pinned ? "DELETE" : "PUT" });
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
   const typingNames = typingIds.filter((id) => id !== me.id).map((id) => members.get(id)?.displayName ?? "Someone");
 
   return (
@@ -433,7 +454,7 @@ export function Chat({
         </button>
         {channel ? (
           <span className="channel-hash" aria-hidden>
-            {channel.voice ? "🔊" : "#"}
+            {channel.icon ?? (channel.voice ? "🔊" : "#")}
           </span>
         ) : !conversation.isGroup && others[0] ? (
           <Avatar name={others[0].displayName} online={online.has(others[0].id)} size={28} />
@@ -452,6 +473,16 @@ export function Chat({
           <span className="muted small">{conversation.members.length} members</span>
         ) : (
           others[0] && <ActivityLine userId={others[0].id} />
+        )}
+        {(channel?.onPins || channel?.actions) && (
+          <span className="header-actions">
+            {channel.actions}
+            {channel.onPins && (
+              <button className="ghost icon" onClick={channel.onPins} title="Pinned messages" aria-label="Pinned messages">
+                📌
+              </button>
+            )}
+          </span>
         )}
         {channel?.voice?.enabled && !channel.voice.inIt && (
           <span className="header-actions">
@@ -497,7 +528,9 @@ export function Chat({
         {history && !history.hasMore && (
           <div className="chat-start">
             <h3>{title}</h3>
-            {channel ? (
+            {channel?.intro ? (
+              channel.intro
+            ) : channel ? (
               <p className="muted">
                 This is the start of {title}. Everyone who can see this channel can read it. Server channels aren't end-to-end encrypted.
               </p>
@@ -548,7 +581,17 @@ export function Chat({
                         </span>
                       )}
                       <span className="muted small">{time(m.createdAt)}</span>
+                      {m.pinned && (
+                        <span className="pin-mark small" title="Pinned">
+                          📌
+                        </span>
+                      )}
                     </div>
+                  )}
+                  {grouped && m.pinned && (
+                    <span className="pin-mark small grouped-pin" title="Pinned">
+                      📌
+                    </span>
                   )}
                   {editing?.id === m.id ? (
                     <div className="edit">
@@ -609,6 +652,16 @@ export function Chat({
                       disabled={!canReact}
                     />
                   )}
+                  {m.thread && (
+                    <button className="thread-chip" onClick={() => channel?.onThread?.(m)} disabled={!channel?.onThread}>
+                      <span aria-hidden>🧵</span>
+                      <strong className="ellipsis">{m.thread.title}</strong>
+                      <span className="muted small">
+                        {m.thread.messageCount === 1 ? "1 reply" : `${m.thread.messageCount} replies`}
+                        {m.thread.lastMessageAt && ` · ${time(m.thread.lastMessageAt)}`}
+                      </span>
+                    </button>
+                  )}
                   {m.id === myLast?.id && seenBy.length > 0 && (
                     <div className="seen small muted">{conversation.isGroup ? `Seen by ${seenBy.join(", ")}` : "Seen"}</div>
                   )}
@@ -623,8 +676,18 @@ export function Chat({
                     />
                   </div>
                 )}
-                {!m.deleted && editing?.id !== m.id && (canReact || mine || channel?.canModerate) && (
+                {!m.deleted && editing?.id !== m.id && (canReact || mine || channel?.canModerate || channel?.canPin) && (
                   <div className="msg-actions">
+                    {canReact && !m.locked && channel?.onThread && !m.thread && (
+                      <button className="ghost" onClick={() => channel.onThread!(m)} title="Start a thread" aria-label="Start a thread">
+                        🧵
+                      </button>
+                    )}
+                    {channel?.canPin && !m.locked && (
+                      <button className="ghost" onClick={() => void togglePin(m)} title={m.pinned ? "Unpin" : "Pin to the board"} aria-label={m.pinned ? "Unpin" : "Pin"}>
+                        {m.pinned ? "Unpin" : "📌"}
+                      </button>
+                    )}
                     {canReact && !m.locked && (
                       <button className="ghost" data-picker-toggle onClick={(e) => openReactions(m.id, e.currentTarget)} title="Add a reaction" aria-label="Add a reaction">
                         ☺+
@@ -674,6 +737,7 @@ export function Chat({
           </p>
         )}
         {timeUp && <p className="family-banner small">⏰ {timeUp} You can still read messages.</p>}
+        {channel?.readOnly && <p className="family-banner small">🔒 {channel.readOnly}</p>}
         {timedOutUntil && (
           <p className="family-banner small timeout-banner">
             ⏳ You're timed out in this server until{" "}
@@ -765,7 +829,7 @@ export function Chat({
               />
             )}
           </div>
-          <button className="primary send" onClick={() => void send()} disabled={sending || !!timeUp || !!timedOutUntil || (!draft.trim() && files.length === 0)} aria-label="Send">
+          <button className="primary send" onClick={() => void send()} disabled={sending || !!timeUp || !!timedOutUntil || !!channel?.readOnly || (!draft.trim() && files.length === 0)} aria-label="Send">
             {sending ? "…" : "Send"}
           </button>
         </div>

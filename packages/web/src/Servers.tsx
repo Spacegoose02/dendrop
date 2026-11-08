@@ -120,7 +120,8 @@ export function ServerSidebar({
           </button>
         )}
         {(["text", "voice"] as const).map((kind) => {
-          const list = server.channels.filter((c) => c.kind === kind);
+          // Forums sit with the text channels.
+          const list = server.channels.filter((c) => c.kind === kind || (kind === "text" && c.kind === "forum"));
           if (kind === "voice" && list.length === 0 && !mod) return null;
           return (
             <div key={kind}>
@@ -147,10 +148,10 @@ export function ServerSidebar({
                       title={c.kind === "voice" ? (inVoice === c.id ? `You're in ${c.name}` : `Join ${c.name}`) : undefined}
                     >
                       <span className="channel-mark" aria-hidden>
-                        {c.kind === "voice" ? "🔊" : c.locked ? "🔒" : "#"}
+                        {c.kind === "voice" ? "🔊" : c.locked ? "🔒" : c.kind === "forum" ? "💬" : "#"}
                       </span>
                       <span className="ellipsis">{c.name}</span>
-                      {c.kind === "voice" && c.locked && (
+                      {c.kind !== "text" && c.locked && (
                         <span className="channel-lock" aria-label="Locked">
                           🔒
                         </span>
@@ -604,13 +605,19 @@ export function ChannelDialog({
   const [locked, setLocked] = useState(channel?.locked ?? false);
   const [picked, setPicked] = useState<Set<number>>(new Set(channel?.memberIds ?? []));
   const [pickedRoles, setPickedRoles] = useState<Set<number>>(new Set(channel?.roleIds ?? []));
+  /** A forum's tags, as typed: comma separated. */
+  const [tags, setTags] = useState((channel?.tags ?? []).join(", "));
   const [error, setError] = useState<string | null>(null);
   // Owners and admins always see locked channels, so only members are picked.
   const pickable = server.members.filter((m) => m.role === "member");
 
   const save = async () => {
     setError(null);
-    const body = { name, topic, locked, memberIds: [...picked], roleIds: [...pickedRoles] };
+    const tagList = tags
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const body = { name, topic, locked, memberIds: [...picked], roleIds: [...pickedRoles], ...(kind === "forum" ? { tags: tagList } : {}) };
     try {
       if (channel) {
         await api(`/api/servers/${server.id}/channels/${channel.id}`, { method: "PATCH", body });
@@ -622,7 +629,7 @@ export function ChannelDialog({
   };
 
   const remove = async () => {
-    if (!channel || !confirm(`Delete ${channel.kind === "voice" ? "" : "#"}${channel.name} and all its messages? This can't be undone.`)) return;
+    if (!channel || !confirm(`Delete ${channel.kind === "voice" ? "" : "#"}${channel.name} and all its ${channel.kind === "forum" ? "posts" : "messages and threads"}? This can't be undone.`)) return;
     try {
       await api(`/api/servers/${server.id}/channels/${channel.id}`, { method: "DELETE" });
       onDone(null);
@@ -632,18 +639,20 @@ export function ChannelDialog({
   };
 
   return (
-    <Modal title={channel ? `Edit ${channel.kind === "voice" ? "" : "#"}${channel.name}` : kind === "voice" ? "New voice channel" : "New channel"} onClose={onClose}>
+    <Modal title={channel ? `Edit ${channel.kind === "voice" ? "" : "#"}${channel.name}` : kind === "voice" ? "New voice channel" : kind === "forum" ? "New forum" : "New channel"} onClose={onClose}>
       {!channel && (
         <div className="kind-picker" role="radiogroup" aria-label="Channel type">
-          {(["text", "voice"] as const).map((k) => (
+          {(["text", "forum", "voice"] as const).map((k) => (
             <label key={k} className={`kind-option ${kind === k ? "picked" : ""}`}>
               <input type="radio" name="channel-kind" checked={kind === k} onChange={() => setKind(k)} />
               <span className="channel-mark" aria-hidden>
-                {k === "voice" ? "🔊" : "#"}
+                {k === "voice" ? "🔊" : k === "forum" ? "💬" : "#"}
               </span>
               <span>
-                <strong>{k === "voice" ? "Voice" : "Text"}</strong>
-                <span className="muted small">{k === "voice" ? "Drop in to talk, share your camera or screen." : "Messages, pictures and files."}</span>
+                <strong>{k === "voice" ? "Voice" : k === "forum" ? "Forum" : "Text"}</strong>
+                <span className="muted small">
+                  {k === "voice" ? "Drop in to talk, share your camera or screen." : k === "forum" ? "Organized posts, each with a title, tags and its own replies." : "Messages, pictures and files."}
+                </span>
               </span>
             </label>
           ))}
@@ -660,9 +669,16 @@ export function ChannelDialog({
         />
       </label>
       <label>
-        Topic (optional)
+        {kind === "forum" ? "Guidelines (optional)" : "Topic (optional)"}
         <input value={topic} onChange={(e) => setTopic(e.target.value)} maxLength={LIMITS.channelTopic} />
       </label>
+      {kind === "forum" && (
+        <label>
+          Tags (optional, separated by commas)
+          <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Question, Bug, Idea" />
+          <span className="muted small">Posts can carry up to {LIMITS.tagsPerPost} of these, and people can filter by them.</span>
+        </label>
+      )}
       <label className="toggle">
         <input type="checkbox" checked={locked} onChange={(e) => setLocked(e.target.checked)} />
         <span>
