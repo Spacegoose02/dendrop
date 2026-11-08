@@ -103,6 +103,12 @@ Each kid has rules their parents set:
   they reset their own keys.
 - Calls aren't recorded, and a call that's going when chat time ends isn't cut off yet.
 
+## The couples kit
+
+The couples kit ([COUPLES.md](COUPLES.md)) is only for 1:1 chats between two adult accounts. Kid
+accounts never see it, it isn't offered in a chat with a kid, and linking an account to a parent
+deletes every kit that account was in, before the parent gets any key.
+
 ## Bots
 
 Bots ([BOTS.md](BOTS.md)) only live in server channels: they can't be friends, so they're never

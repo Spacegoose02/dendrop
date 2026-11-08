@@ -9,6 +9,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import type { ClientEvent } from "@dendrop/shared";
 import { AutomodService } from "./automod.js";
 import { BotService, type BotFetch } from "./bots.js";
+import { CouplesService } from "./couples.js";
 import { OidcService } from "./auth/oidc.js";
 import { SignInService } from "./signin.js";
 import { SESSION_COOKIE, SessionService } from "./auth/sessions.js";
@@ -28,6 +29,7 @@ import { pushRoutes } from "./routes/push.js";
 import { authRoutes } from "./routes/auth.js";
 import { signInRoutes } from "./routes/signin.js";
 import { botRoutes } from "./routes/bots.js";
+import { couplesRoutes } from "./routes/couples.js";
 import { dmRoutes } from "./routes/dms.js";
 import { expressionRoutes } from "./routes/expressions.js";
 import { familyRoutes, guardKids } from "./routes/family.js";
@@ -72,6 +74,8 @@ export interface Context {
   gifs: GifService;
   /** Scheduled events in servers: RSVPs, reminders, starting and ending them. */
   events: EventService;
+  /** Couples kits: private extras for 1:1 DMs between two adults. */
+  couples: CouplesService;
   /** Set by the server routes: sends a server's members its new state (and prunes voice). */
   serverChanged?: (serverId: number) => void;
   /** Set by the server routes: XP and raccoon ranks. */
@@ -127,12 +131,15 @@ export async function buildApp(
     bots: new BotService(db, users, gateway, automod, family, push, options.botFetch, (msg, err) => app.log.warn({ err }, msg)),
     gifs: new GifService(db, family, config.dataDir, options.gifFetch),
     events: new EventService(db, users, gateway, push),
+    couples: new CouplesService(db, users, gateway, path.join(config.dataDir, "uploads"), (ids) => void push.notify(ids, "message")),
     onClientEvent: [],
     onPresence: [],
     callRingMs: options.callRingMs,
   };
   // LootDen's play limits feed kids' time rules, when a parent turns that on.
   family.playLimits = (kidId, at) => ctx.lootden.kidLimits(kidId, at);
+  // Linking an account to a parent deletes every couples kit it's in, before any key is shared.
+  family.onLinked.push((kidId) => ctx.couples.wipeFor(kidId));
   // GIF links pass automod's link rule while GIFs are on.
   automod.extraAllowedHosts = () => ctx.gifs.linkHosts();
 
@@ -154,6 +161,7 @@ export async function buildApp(
     ctx.gateway.closeAll();
     ctx.gifs.close();
     ctx.events.stop();
+    ctx.couples.stop();
     db.close();
   });
 
@@ -174,6 +182,7 @@ export async function buildApp(
   await app.register(async (api) => lootdenRoutes(api, ctx));
   await app.register(async (api) => dendutyRoutes(api, ctx));
   await app.register(async (api) => botRoutes(api, ctx));
+  await app.register(async (api) => couplesRoutes(api, ctx));
   await app.register(async (api) => gatewayRoute(api, ctx));
   builtinLivekit(app, config);
   ctx.events.start();
