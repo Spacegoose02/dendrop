@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { GIF_RATINGS, type AdminServer, type ChannelRef, type ChatServer, type DendutyStatus, type GifRating, type GifSettings, type LootdenStatus, type ServerCreatorRequest } from "@dendrop/shared";
+import { GIF_RATINGS, type AdminServer, type ChannelRef, type ChatServer, type DendutyStatus, type GifRating, type GifSettings, type WatchSettings, type LootdenStatus, type ServerCreatorRequest } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { Modal } from "./Modal.tsx";
 import { AdminSignInSection } from "./SignIns.tsx";
@@ -89,9 +89,53 @@ export function AdminDialog({ onClose, version }: { onClose: () => void; version
       ))}
 
       <GifSection />
+      <WatchSection />
       <LootdenSection />
       <DendutySection />
     </Modal>
+  );
+}
+
+/** Watch together: YouTube is off until a super admin turns it on (each device then loads YouTube's player). */
+function WatchSection() {
+  const [settings, setSettings] = useState<WatchSettings | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void api<WatchSettings>("/api/admin/watch").then(setSettings, (err: Error) => setError(err.message));
+  }, []);
+
+  const save = async (youtube: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      setSettings(await api<WatchSettings>("/api/admin/watch", { method: "PUT", body: { youtube } }));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="section-label">Watch together</div>
+      <p className="muted small">
+        People in a voice channel can watch videos together: ones posted in the channel's chat (streamed from this server) and links to video files. YouTube is an
+        outside service, so it's off until you turn it on; while a YouTube video plays, each device loads YouTube's player (the privacy-enhanced one). Kid
+        accounts only ever see videos posted in the chat.
+      </p>
+      {settings && (
+        <label className="toggle">
+          <input type="checkbox" checked={settings.youtube} disabled={busy} onChange={(e) => void save(e.target.checked)} />
+          <span>
+            <strong>Allow YouTube videos</strong>
+          </span>
+        </label>
+      )}
+      {error && <p className="error">{error}</p>}
+    </>
   );
 }
 

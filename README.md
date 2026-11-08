@@ -9,7 +9,8 @@ See [the roadmap](docs/ROADMAP.md) for what's planned and in what order, and
 [docs/DENDUTY.md](docs/DENDUTY.md) for linking Den Duty, the family chore tracker,
 [docs/BOTS.md](docs/BOTS.md) for bots that post with buttons and answer clicks,
 [docs/EVENTS.md](docs/EVENTS.md) for scheduled events with RSVPs and stage channels,
-[docs/EXPRESSIONS.md](docs/EXPRESSIONS.md) for custom emoji, stickers, reactions and GIFs, and
+[docs/EXPRESSIONS.md](docs/EXPRESSIONS.md) for custom emoji, stickers, reactions and GIFs,
+[docs/WATCH-AND-OVERLAY.md](docs/WATCH-AND-OVERLAY.md) for watching videos together in voice and the PC app's in-game overlay, and
 [docs/COUPLES.md](docs/COUPLES.md) for the couples kit, a private corner of a chat between two adults.
 
 ## Running it

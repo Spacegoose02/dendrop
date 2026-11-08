@@ -18,6 +18,7 @@ import { openDb, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { FamilyService, type WebhookPost } from "./family.js";
 import { Gateway } from "./gateway.js";
+import { WatchSettingsStore } from "./watch.js";
 import { GifService, type GifFetch } from "./gifs.js";
 import { DendutyLink, type DendutyFetch } from "./denduty.js";
 import { EventService } from "./events.js";
@@ -82,6 +83,8 @@ export interface Context {
   couples: CouplesService;
   /** Profiles: pictures, banners, bios and custom statuses, and who can see them. */
   profiles: ProfileService;
+  /** Watch together's server-wide settings (YouTube on or off). */
+  watch: WatchSettingsStore;
   /** Set by the server routes: sends a server's members its new state (and prunes voice). */
   serverChanged?: (serverId: number) => void;
   /** Set by the server routes: XP and raccoon ranks. */
@@ -141,6 +144,7 @@ export async function buildApp(
     bots: new BotService(db, users, gateway, automod, family, push, options.botFetch, (msg, err) => app.log.warn({ err }, msg)),
     gifs: new GifService(db, family, config.dataDir, options.gifFetch),
     events: new EventService(db, users, gateway, push),
+    watch: new WatchSettingsStore(db),
     couples: new CouplesService(db, users, gateway, path.join(config.dataDir, "uploads"), (ids) => void push.notify(ids, "message")),
     profiles: new ProfileService(db, users, gateway, path.join(config.dataDir, "uploads")),
     onClientEvent: [],

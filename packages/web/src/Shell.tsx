@@ -35,6 +35,7 @@ import { Friends } from "./Friends.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { IncomingCall } from "./IncomingCall.tsx";
 import { PlayTogetherCard } from "./PlayTogether.tsx";
+import { feedOverlayMessage, useGameOverlay } from "./gameOverlay.ts";
 import { COUPLES_EVENT, LoveNotePopup, type CouplesEventDetail } from "./Couples.tsx";
 import { LevelUpCard } from "./Levels.tsx";
 import { needsWelcome, WelcomeScreen } from "./Welcome.tsx";
@@ -319,6 +320,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           break;
         case "message.created": {
           const m = e.message;
+          feedOverlayMessage(m);
           void reveal(m).then((shown) =>
             setHistories((h) => {
               const cur = h[m.conversationId];
@@ -582,6 +584,21 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     friends.find((f) => f.user.id === id)?.user ??
     conversations.flatMap((c) => [...c.members, ...c.guardians]).find((u) => u.id === id) ??
     servers.flatMap((sv) => sv.members.map((m) => m.user)).find((u) => u.id === id);
+  const voiceServer = inVoice ? servers.find((x) => x.id === inVoice.voice.serverId) : undefined;
+  // The PC app's in-game overlay (does nothing in a browser).
+  useGameOverlay({
+    me,
+    inVoice,
+    live: inVoice ? voice[inVoice.voice.channelId] : undefined,
+    speaking,
+    server: voiceServer,
+    activity: activities[me.id],
+    blockedWords: kidRules?.rules.profanityFilter ? kidRules.rules.blockedWords : null,
+    canChat:
+      !!inVoice &&
+      !(kidRules && !kidRules.status.allowedNow) &&
+      !(voiceServer?.timedOutUntil && Date.parse(voiceServer.timedOutUntil) > Date.now()),
+  });
   const expressions = useMemo(() => ({ servers, gifs: !!server?.gifs && (!me.isKid || !!family?.rules?.gifs) }), [servers, server?.gifs, me.isKid, family?.rules?.gifs]);
   const openAlerts = familyAlerts.filter((a) => !a.resolvedAt).length;
   const current = view.kind === "conversation" ? conversations.find((c) => c.id === view.id) : undefined;
@@ -861,6 +878,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
               onOpen={() => open({ kind: "channel", serverId: inVoice.voice.serverId, channelId: inVoice.voice.channelId })}
               onLeft={() => setInVoice(null)}
               onSpeakers={(ids) => setSpeaking(new Set(ids))}
+              watchYoutube={!!server?.watchYoutube}
             />
           </Suspense>
         )}

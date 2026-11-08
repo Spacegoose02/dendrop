@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <title>Dendrop overlay</title>
+    <style>
+      :root { --bg: rgba(18, 20, 24, 0.78); --bg-strong: rgba(26, 29, 34, 0.95); --border: rgba(255, 255, 255, 0.12); --text: #e9e6e1; --muted: #a3a8b1; --accent: #f2a541; --accent-text: #1a1206; --online: #5fd38d; --danger: #e5675c; color-scheme: dark; }
+      html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+      body { color: var(--text); font: 13px/1.35 "Nunito", "Segoe UI", system-ui, sans-serif; user-select: none; display: flex; flex-direction: column; }
+      body.bottom { justify-content: flex-end; }
+      .card { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; max-height: 100%; box-sizing: border-box; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
+      body.interactive .card { background: var(--bg-strong); border-color: var(--accent); }
+      .head { display: flex; flex-direction: column; gap: 1px; }
+      .head strong { font-size: 13px; }
+      .muted { color: var(--muted); font-size: 12px; }
+      .ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+      .member { display: flex; align-items: center; gap: 6px; }
+      .dot { width: 22px; height: 22px; border-radius: 50%; background: #39404b; display: grid; place-items: center; font-size: 11px; font-weight: 700; flex: none; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.1s; }
+      .speaking .dot { box-shadow: 0 0 0 2px var(--online); }
+      .speaking .name { color: #fff; font-weight: 700; }
+      .icons { margin-left: auto; font-size: 11px; opacity: 0.85; }
+      .messages { border-top: 1px solid var(--border); padding-top: 6px; gap: 2px; }
+      .messages li { overflow-wrap: anywhere; }
+      .messages b { color: var(--accent); font-weight: 700; }
+      form { display: none; gap: 4px; }
+      body.interactive form { display: flex; }
+      input { flex: 1; min-width: 0; font: inherit; color: var(--text); background: rgba(0, 0, 0, 0.35); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; outline: none; user-select: text; }
+      input:focus { border-color: var(--accent); }
+      button { font: inherit; font-weight: 700; border-radius: 8px; padding: 4px 8px; cursor: pointer; border: 1px solid var(--border); background: rgba(255, 255, 255, 0.08); color: var(--text); }
+      button.primary { background: var(--accent); color: var(--accent-text); border: 0; }
+      .tools { display: none; gap: 4px; }
+      body.interactive .tools { display: flex; }
+      .hint { font-size: 11px; }
+      .error { color: var(--danger); font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="card" id="card" hidden>
+      <div class="head">
+        <strong class="ellipsis" id="title"></strong>
+        <span class="muted ellipsis" id="sub"></span>
+      </div>
+      <ul id="members"></ul>
+      <ul class="messages" id="messages" hidden></ul>
+      <form id="form">
+        <input id="input" maxlength="2000" placeholder="Quick message…" autocomplete="off" />
+        <button class="primary">Send</button>
+      </form>
+      <div class="tools">
+        <button type="button" id="mute">🎙️ Mute</button>
+        <button type="button" id="deafen">🎧 Deafen</button>
+        <button type="button" id="done" title="Back to the game (Esc)">Done</button>
+      </div>
+      <span class="error" id="error" hidden></span>
+      <span class="muted hint" id="hint"></span>
+    </div>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const el = (tag, cls, text) => {
+        const e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (text !== undefined) e.textContent = text;
+        return e;
+      };
+      const initials = (name) => name.split(/\s+/).map((w) => w[0] || "").join("").slice(0, 2).toUpperCase();
+      let interactive = false;
+      let canChat = false;
+
+      if (new URLSearchParams(location.search).get("corner")?.startsWith("bottom")) document.body.classList.add("bottom");
+
+      window.dendropOverlay.onState((s, isInteractive, hotkey) => {
+        const wasInteractive = interactive;
+        interactive = isInteractive;
+        canChat = !!s.canChat;
+        document.body.classList.toggle("interactive", interactive);
+        $("card").hidden = !s.channel;
+        if (!s.channel) return;
+        $("title").textContent = (s.playing ? "🎮 " + s.playing : "🔊 " + s.channel);
+        $("sub").textContent = [s.playing ? "#" + s.channel : null, s.server, s.watching ? "📺 " + s.watching : null].filter(Boolean).join(" · ");
+
+        const members = $("members");
+        members.replaceChildren();
+        // Talkers first, so who's speaking is easy to spot.
+        for (const m of [...s.members].sort((a, b) => Number(b.speaking) - Number(a.speaking))) {
+          const li = el("li", "member" + (m.speaking ? " speaking" : ""));
+          li.append(el("span", "dot", initials(m.name)), el("span", "name ellipsis", m.me ? m.name + " (you)" : m.name));
+          const icons = [m.deafened ? "🙉" : m.muted ? "🔇" : "", m.screen ? "🖥️" : ""].join(" ").trim();
+          if (icons) li.append(el("span", "icons", icons));
+          members.append(li);
+        }
+
+        const messages = $("messages");
+        messages.replaceChildren();
+        for (const m of s.messages) {
+          const li = el("li");
+          li.append(el("b", "", m.author + ": "), document.createTextNode(m.text));
+          messages.append(li);
+        }
+        messages.hidden = !s.messages.length;
+
+        $("input").disabled = !canChat;
+        $("input").placeholder = canChat ? "Quick message to #" + s.channel + "…" : "You can't send messages here right now";
+        $("hint").textContent = interactive ? "" : hotkey ? hotkey + " to chat" : "";
+        if (interactive && !wasInteractive) {
+          $("error").hidden = true;
+          setTimeout(() => $("input").focus(), 0);
+        }
+      });
+
+      $("form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const text = $("input").value.trim();
+        if (!text || !canChat) return;
+        $("input").value = "";
+        try {
+          await window.dendropOverlay.send(text);
+          window.dendropOverlay.done();
+        } catch (err) {
+          $("input").value = text;
+          $("error").textContent = "Couldn't send that.";
+          $("error").hidden = false;
+        }
+      });
+      $("mute").addEventListener("click", () => window.dendropOverlay.voice("mute"));
+      $("deafen").addEventListener("click", () => window.dendropOverlay.voice("deafen"));
+      $("done").addEventListener("click", () => window.dendropOverlay.done());
+      addEventListener("keydown", (e) => {
+        if (e.key === "Escape") window.dendropOverlay.done();
+      });
+    </script>
+  </body>
+</html>

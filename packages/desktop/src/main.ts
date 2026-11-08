@@ -2,11 +2,24 @@ import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow, desktopCapturer, globalShortcut, ipcMain, Menu, nativeImage, net, Notification, session, shell, Tray, type IpcMainInvokeEvent } from "electron";
+import { app, BrowserWindow, desktopCapturer, globalShortcut, ipcMain, Menu, nativeImage, net, Notification, screen, session, shell, Tray, type IpcMainInvokeEvent } from "electron";
 import WebSocket from "ws";
 import type { Conversation, ServerEvent } from "@dendrop/shared";
 import { isExternalLink, isFile, onOrigin, permissionAllowed } from "./links.js";
 import { GatewayWatcher, notificationFor, Throttle, type SocketLike } from "./notify.js";
+import {
+  cleanOverlayState,
+  cleanQuickChat,
+  DEFAULT_OVERLAY_HOTKEY,
+  EMPTY_OVERLAY,
+  isOverlayCorner,
+  isOverlayMode,
+  overlayBounds,
+  overlayVisible,
+  type OverlayCorner,
+  type OverlayMode,
+  type OverlayState,
+} from "./overlay.js";
 import { cleanCombo, setBackgroundPtt, stopBackgroundPtt } from "./ptt.js";
 import { normalizeServerUrl, originOf } from "./serverUrl.js";
 import { SettingsStore, type DesktopSettings } from "./settings.js";
@@ -38,6 +51,7 @@ if (process.platform === "win32") app.setAppUserModelId(APP_ID);
 
 const SETUP_PAGE = path.join(__dirname, "..", "setup", "index.html");
 const OFFLINE_PAGE = path.join(__dirname, "..", "setup", "offline.html");
+const OVERLAY_PAGE = path.join(__dirname, "..", "setup", "overlay.html");
 const asset = (name: string) => path.join(__dirname, "..", "build", name);
 
 const origin = () => originOf(settings.get().serverUrl);
@@ -150,9 +164,15 @@ async function createWindow(): Promise<void> {
   });
   // A reload or a new page never asked for background push to talk: stop the keyboard hook.
   win.webContents.on("did-start-navigation", (details) => {
-    if (details.isMainFrame && !details.isSameDocument) stopBackgroundPtt();
+    if (details.isMainFrame && !details.isSameDocument) {
+      stopBackgroundPtt();
+      setOverlayState(EMPTY_OVERLAY);
+    }
   });
-  win.webContents.on("render-process-gone", () => stopBackgroundPtt());
+  win.webContents.on("render-process-gone", () => {
+    stopBackgroundPtt();
+    setOverlayState(EMPTY_OVERLAY);
+  });
   win.webContents.on("did-fail-load", (_e, code, _desc, url, isMainFrame) => {
     // -3 is a load replaced by another navigation, not a failure.
     if (isMainFrame && code !== -3 && onOrigin(url, origin())) showOffline();
@@ -186,7 +206,12 @@ async function createWindow(): Promise<void> {
     }
     if (update.state === "ready" && settings.get().autoUpdate) void installNow();
   });
-  win.on("closed", () => (win = null));
+  win.on("closed", () => {
+    win = null;
+    // The overlay only shows what the window tells it; without the window it goes too.
+    setOverlayState(EMPTY_OVERLAY);
+    overlay?.destroy();
+  });
   await loadHome();
 }
 
@@ -273,6 +298,26 @@ function refreshTray(): void {
       { label: "Message notifications", type: "checkbox", checked: s.notifications, click: toggle("notifications") },
       { label: "Show who messages are from", type: "checkbox", checked: s.notifySender, enabled: s.notifications, click: toggle("notifySender") },
       { label: "Install updates automatically", type: "checkbox", checked: s.autoUpdate, click: toggle("autoUpdate") },
+      {
+        label: "In-game overlay",
+        submenu: [
+          ...OVERLAY_MODE_LABELS.map(([mode, label]) => ({
+            label,
+            type: "radio" as const,
+            checked: overlayMode() === mode,
+            click: () => setOverlaySettings({ overlay: mode }),
+          })),
+          { type: "separator" as const },
+          ...OVERLAY_CORNER_LABELS.map(([corner, label]) => ({
+            label,
+            type: "radio" as const,
+            checked: overlayCorner() === corner,
+            click: () => setOverlaySettings({ overlayCorner: corner }),
+          })),
+          { type: "separator" as const },
+          { label: `${overlayHotkey()} makes it clickable to chat`, enabled: false },
+        ],
+      },
       { label: "Change server…", click: () => void changeServer() },
       { type: "separator" },
       u.state === "ready"
@@ -406,6 +451,151 @@ async function installNow(): Promise<void> {
   app.quit();
 }
 
+// ---- In-game overlay ----------------------------------------------------------------------
+// A see-through window over the game with who's in voice and who's talking (see overlay.ts).
+// It lets clicks through to the game until the hotkey makes it clickable for a quick message.
+// Games in exclusive full screen draw over every window, so it shows over borderless or
+// windowed games only.
+
+const OVERLAY_MODE_LABELS: [OverlayMode, string][] = [
+  ["game", "Show while I'm playing (LootDen) and in voice"],
+  ["voice", "Show whenever I'm in voice"],
+  ["off", "Off"],
+];
+const OVERLAY_CORNER_LABELS: [OverlayCorner, string][] = [
+  ["top-left", "Top left"],
+  ["top-right", "Top right"],
+  ["bottom-left", "Bottom left"],
+  ["bottom-right", "Bottom right"],
+];
+
+let overlay: BrowserWindow | null = null;
+let overlayState: OverlayState = EMPTY_OVERLAY;
+let overlayInteractive = false;
+/** The hotkey registered right now, if any (only while the overlay is up). */
+let overlayKey: string | null = null;
+/** Quick messages waiting for the main window to say whether they went. */
+const quickChats = new Map<number, { resolve: () => void; reject: (err: Error) => void }>();
+let quickChatId = 0;
+
+const overlayMode = (): OverlayMode => (isOverlayMode(settings.get().overlay) ? settings.get().overlay : "game");
+const overlayCorner = (): OverlayCorner => (isOverlayCorner(settings.get().overlayCorner) ? settings.get().overlayCorner : "top-left");
+const overlayHotkey = () => settings.get().overlayHotkey || DEFAULT_OVERLAY_HOTKEY;
+
+function setOverlaySettings(patch: Partial<Pick<DesktopSettings, "overlay" | "overlayCorner">>): void {
+  const cornerChanged = !!patch.overlayCorner && patch.overlayCorner !== overlayCorner();
+  settings.update(patch);
+  // The page lays itself out for top or bottom corners, so it's made again.
+  if (cornerChanged && overlay) {
+    overlay.destroy();
+    overlay = null;
+  }
+  updateOverlay();
+  refreshTray();
+}
+
+function createOverlay(): BrowserWindow {
+  const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+  const o = new BrowserWindow({
+    ...overlayBounds(area, overlayCorner()),
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    focusable: false,
+    hasShadow: false,
+    alwaysOnTop: true,
+    title: "Dendrop overlay",
+    webPreferences: { preload: path.join(__dirname, "overlay-preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
+  });
+  // Above games in borderless full screen, too.
+  o.setAlwaysOnTop(true, "screen-saver");
+  o.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  o.setIgnoreMouseEvents(true);
+  o.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  o.webContents.on("will-navigate", (e) => e.preventDefault());
+  o.webContents.on("did-finish-load", () => sendOverlay());
+  o.on("blur", () => setOverlayInteractive(false));
+  o.on("closed", () => {
+    if (overlay === o) overlay = null;
+  });
+  void o.loadFile(OVERLAY_PAGE, { query: { corner: overlayCorner() } });
+  return o;
+}
+
+function sendOverlay(): void {
+  if (overlay && !overlay.isDestroyed()) overlay.webContents.send("ov:state", overlayState, overlayInteractive, overlayHotkey());
+}
+
+/** Shows or hides the overlay for the latest state, and registers its hotkey only while it's up. */
+function updateOverlay(): void {
+  const visible = overlayVisible(overlayState, overlayMode());
+  if (!visible) {
+    setOverlayInteractive(false);
+    overlay?.hide();
+    if (overlayKey) globalShortcut.unregister(overlayKey);
+    overlayKey = null;
+    return;
+  }
+  overlay ??= createOverlay();
+  sendOverlay();
+  if (!overlay.isVisible()) {
+    // On the screen you're on (the game's), in the chosen corner.
+    const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+    overlay.setBounds(overlayBounds(area, overlayCorner()));
+    overlay.showInactive();
+  }
+  const key = overlayHotkey();
+  if (overlayKey !== key) {
+    if (overlayKey) globalShortcut.unregister(overlayKey);
+    overlayKey = null;
+    try {
+      if (!Object.values(shortcuts).includes(key) && globalShortcut.register(key, () => setOverlayInteractive(!overlayInteractive))) overlayKey = key;
+    } catch {
+      overlayKey = null; // Not a key Electron knows: the overlay still shows, without chat.
+    }
+  }
+}
+
+function setOverlayState(state: OverlayState): void {
+  overlayState = state;
+  updateOverlay();
+}
+
+/** Clickable (for a quick message) or not (clicks go through to the game). */
+function setOverlayInteractive(on: boolean): void {
+  if (on && (!overlay || !overlay.isVisible())) return;
+  if (overlayInteractive === on) return;
+  overlayInteractive = on;
+  if (overlay && !overlay.isDestroyed()) {
+    overlay.setIgnoreMouseEvents(!on);
+    overlay.setFocusable(on);
+    if (on) overlay.focus();
+    else overlay.blur();
+  }
+  sendOverlay();
+}
+
+/** Asks the main window to send a quick message to the voice channel's chat. */
+function quickChat(text: string): Promise<void> {
+  const target = win?.webContents;
+  if (!target || target.isDestroyed()) return Promise.reject(new Error("Dendrop isn't open"));
+  const id = ++quickChatId;
+  return new Promise((resolve, reject) => {
+    quickChats.set(id, { resolve, reject });
+    target.send("dd:overlayChat", id, text);
+    setTimeout(() => {
+      if (quickChats.delete(id)) reject(new Error("No answer from Dendrop"));
+    }, 15_000);
+  });
+}
+
 // ---- IPC ------------------------------------------------------------------------------
 
 type AppSettingsPatch = Partial<Pick<DesktopSettings, "closeToTray" | "openAtLogin" | "notifications" | "notifySender" | "autoUpdate">>;
@@ -459,6 +649,34 @@ function setShortcuts(wanted: Record<string, unknown>): Record<string, boolean> 
 }
 
 function registerIpc(): void {
+  // The in-game overlay: the page sends what to show; the overlay page sends quick messages back.
+  ipcMain.handle("dd:overlayState", (e, state: unknown) => {
+    fromServer(e);
+    setOverlayState(cleanOverlayState(state));
+  });
+  ipcMain.handle("dd:overlayChatResult", (e, id: unknown, error: unknown) => {
+    fromServer(e);
+    const p = typeof id === "number" ? quickChats.get(id) : undefined;
+    if (!p) return;
+    quickChats.delete(id as number);
+    if (typeof error === "string" && error) p.reject(new Error(error.slice(0, 200)));
+    else p.resolve();
+  });
+  ipcMain.handle("ov:chat", async (e, text: unknown) => {
+    fromPage(e, OVERLAY_PAGE);
+    const clean = cleanQuickChat(text);
+    if (!clean || !overlayState.canChat) throw new Error("Nothing to send");
+    await quickChat(clean);
+  });
+  ipcMain.handle("ov:voice", (e, action: unknown) => {
+    fromPage(e, OVERLAY_PAGE);
+    if (action === "mute" || action === "deafen") win?.webContents.send("dd:shortcut", action);
+  });
+  ipcMain.handle("ov:done", (e) => {
+    fromPage(e, OVERLAY_PAGE);
+    setOverlayInteractive(false);
+  });
+
   // Push to talk in the background (see ptt.ts): the page turns it on while you're in voice with
   // push to talk, and off again; only "held" and "let go" come back.
   ipcMain.handle("dd:backgroundPtt", (e, combo: unknown) => {
