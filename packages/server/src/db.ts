@@ -617,6 +617,39 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX reminders_user ON reminders(user_id);
   CREATE INDEX reminders_due ON reminders(fired_at, remind_at);
   `,
+  `
+  -- Scheduled events (see ScheduledEvent). channel_id is a voice or stage channel, or null with
+  -- location set. status is 'scheduled' or 'live'; an event that ends is deleted, or moved on a
+  -- week when repeats = 'weekly'. reminded says the heads-up before it starts went out.
+  -- Stage channels are server_channels rows with kind 'stage'.
+  CREATE TABLE server_events (
+    id INTEGER PRIMARY KEY,
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    channel_id INTEGER REFERENCES server_channels(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    location TEXT NOT NULL DEFAULT '',
+    starts_at TEXT NOT NULL,
+    ends_at TEXT,
+    repeats TEXT NOT NULL DEFAULT 'none',
+    status TEXT NOT NULL DEFAULT 'scheduled',
+    started_at TEXT,
+    reminded INTEGER NOT NULL DEFAULT 0,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX server_events_server ON server_events(server_id, starts_at);
+  CREATE INDEX server_events_due ON server_events(status, starts_at);
+
+  CREATE TABLE server_event_rsvps (
+    event_id INTEGER NOT NULL REFERENCES server_events(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (event_id, user_id)
+  );
+  CREATE INDEX server_event_rsvps_user ON server_event_rsvps(user_id);
+  `,
 ];
 
 export function now(): string {

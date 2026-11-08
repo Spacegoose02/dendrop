@@ -2,8 +2,8 @@ import webpush from "web-push";
 import { now, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 
-/** The only things a push ever says. No text, names or conversation ids. */
-export type PushKind = "message" | "call";
+/** The only things a push ever says. No text, names or conversation ids. "event": an event you RSVP'd to starts soon. */
+export type PushKind = "message" | "call" | "event";
 
 export interface PushSubscriptionInput {
   endpoint?: unknown;
@@ -84,18 +84,20 @@ export class PushService {
   private async sendOne(r: Row, kind: PushKind): Promise<void> {
     const payload = JSON.stringify({ type: kind });
     const urgency = kind === "call" ? "high" : "normal";
+    // A call is over in a minute and an event reminder in an hour; a message can wait a day.
+    const ttl = kind === "call" ? 45 : kind === "event" ? 3600 : 24 * 3600;
     try {
       let status: number;
       if (r.p256dh && r.auth) {
         const req = webpush.generateRequestDetails({ endpoint: r.endpoint, keys: { p256dh: r.p256dh, auth: r.auth } }, payload, {
-          TTL: kind === "call" ? 45 : 24 * 3600,
+          TTL: ttl,
           urgency,
           vapidDetails: { subject: this.options.publicUrl.startsWith("https://") ? this.options.publicUrl : "mailto:admin@dendrop.local", publicKey: this.vapidPublicKey, privateKey: this.vapidPrivateKey },
         });
         status = await this.post(req.endpoint, req.body as Buffer, req.headers as Record<string, string>);
       } else {
         // No keys: a plain POST of the same tiny JSON, which UnifiedPush distributors accept.
-        status = await this.post(r.endpoint, payload, { "content-type": "application/json", ttl: String(kind === "call" ? 45 : 86400), urgency });
+        status = await this.post(r.endpoint, payload, { "content-type": "application/json", ttl: String(ttl), urgency });
       }
       if (status === 404 || status === 410) {
         this.db.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").run(r.endpoint);

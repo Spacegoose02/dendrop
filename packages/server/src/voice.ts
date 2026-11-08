@@ -3,13 +3,15 @@ import { callsEnabled, type ServerConfig } from "./config.js";
 import { now } from "./db.js";
 import { HttpError } from "./errors.js";
 import type { Gateway } from "./gateway.js";
-import { livekitToken, removeFromRoom } from "./livekit.js";
+import { livekitToken, removeFromRoom, setCanPublish } from "./livekit.js";
 
 /** Where a voice channel is: which server, and the conversation whose members can see it. */
 export interface VoiceChannelRef {
   channelId: number;
   serverId: number;
   conversationId: number;
+  /** A stage channel: only speakers talk. */
+  stage: boolean;
 }
 
 /**
@@ -18,6 +20,11 @@ export interface VoiceChannelRef {
  *
  * Someone is in at most one voice channel at a time, and everyone who can see a channel (its
  * conversation's members) is told who is in it.
+ *
+ * Stage channels are the same rooms with speakers and listeners. Stage moderators (see the
+ * routes) come in as speakers, everyone else as a listener whose LiveKit token can't publish.
+ * Listeners raise a hand; a moderator lets them speak, which the call server is told about
+ * straight away (setCanPublish), and can move them back to the audience the same way.
  */
 export class VoiceService {
   private channels = new Map<number, { ref: VoiceChannelRef; members: VoiceMember[] }>();
@@ -56,19 +63,57 @@ export class VoiceService {
     return undefined;
   }
 
-  /** Joins a voice channel, leaving any other one first. The caller checks the person can see it. */
-  async join(ref: VoiceChannelRef, user: { id: number; displayName: string }, url: string): Promise<VoiceJoin> {
+  /**
+   * Joins a voice channel, leaving any other one first. The caller checks the person can see it.
+   * On a stage, `moderator` says they come in as a speaker; everyone else listens.
+   */
+  async join(ref: VoiceChannelRef, user: { id: number; displayName: string }, url: string, moderator = false): Promise<VoiceJoin> {
     if (!this.enabled) throw new HttpError(404, "Voice isn't set up on this server");
     const current = this.channelOf(user.id);
     if (current !== undefined && current !== ref.channelId) this.leave(user.id);
     let c = this.channels.get(ref.channelId);
     if (!c) this.channels.set(ref.channelId, (c = { ref, members: [] }));
-    if (!c.members.some((m) => m.userId === user.id)) {
-      c.members.push({ userId: user.id, muted: false, deafened: false, video: false, screen: false, joinedAt: now() });
+    let m = c.members.find((x) => x.userId === user.id);
+    if (!m) {
+      const speaker = !ref.stage || moderator;
+      m = { userId: user.id, muted: !speaker, deafened: false, video: false, screen: false, joinedAt: now(), speaker, handRaised: false };
+      c.members.push(m);
     }
     this.broadcast(ref.channelId);
-    const token = await livekitToken(this.config, this.roomName(ref.channelId), user);
+    const token = await livekitToken(this.config, this.roomName(ref.channelId), user, m.speaker);
     return { voice: this.state(ref.channelId)!, url, token };
+  }
+
+  /** A stage listener raises or lowers their hand to ask to speak. */
+  setHand(userId: number, raised: boolean): VoiceChannelState {
+    const id = this.channelOf(userId);
+    if (id === undefined) throw new HttpError(400, "You aren't in a voice channel");
+    const c = this.channels.get(id)!;
+    if (!c.ref.stage) throw new HttpError(400, "Hands are for stage channels");
+    const m = c.members.find((x) => x.userId === userId)!;
+    if (m.speaker && raised) throw new HttpError(400, "You can already speak");
+    m.handRaised = raised;
+    this.broadcast(id);
+    return this.state(id)!;
+  }
+
+  /**
+   * Lets someone on a stage speak, or moves them to the audience. The caller checks who may.
+   * Moving someone to the audience turns off their mic, camera and screen.
+   */
+  setSpeaker(channelId: number, userId: number, speaker: boolean): VoiceChannelState {
+    const c = this.channels.get(channelId);
+    const m = c?.members.find((x) => x.userId === userId);
+    if (!c || !m) throw new HttpError(404, "They aren't on this stage");
+    if (!c.ref.stage) throw new HttpError(400, "Everyone can talk in a voice channel");
+    m.handRaised = false;
+    if (m.speaker !== speaker) {
+      m.speaker = speaker;
+      if (!speaker) Object.assign(m, { muted: true, video: false, screen: false });
+      void setCanPublish(this.config, this.roomName(channelId), String(userId), speaker);
+    }
+    this.broadcast(channelId);
+    return this.state(channelId)!;
   }
 
   /** What someone shows the others: muted, deafened, camera or screen on. */
@@ -82,6 +127,8 @@ export class VoiceService {
     }
     // Deafened people can't hear, so they aren't heard either.
     if (m.deafened) m.muted = true;
+    // Stage listeners only listen.
+    if (!m.speaker) Object.assign(m, { muted: true, video: false, screen: false });
     this.broadcast(id);
     return this.state(id)!;
   }

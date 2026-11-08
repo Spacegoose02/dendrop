@@ -14,6 +14,7 @@ export const PERMISSION_INFO: Record<ServerPermission, { label: string; detail: 
   deleteMessages: { label: "Delete messages", detail: "Delete anyone's message in the channels.", moderates: true },
   createInvites: { label: "Make invites", detail: "Make invite links, even when members can't.", moderates: false },
   manageExpressions: { label: "Manage emoji & stickers", detail: "Upload, rename and delete the server's custom emoji and stickers.", moderates: false },
+  manageEvents: { label: "Manage events", detail: "Plan, change, start and cancel events, and run stage channels (who gets to speak).", moderates: false },
 };
 
 /** A member's custom roles, highest first. */

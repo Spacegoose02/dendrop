@@ -14,7 +14,7 @@ import org.unifiedpush.android.connector.data.PushMessage;
 /**
  * Gets pushes from the UnifiedPush distributor.
  *
- * A push is only a wake-up: the most it carries is a kind ("message" or "call"). The text of a
+ * A push is only a wake-up: the most it carries is a kind ("message", "call" or "event"). The text of a
  * message never goes through the push service, so neither ntfy nor anyone between can read it.
  */
 public class DendropPushService extends PushService {
@@ -33,6 +33,8 @@ public class DendropPushService extends PushService {
         String kind = kindOf(message.getContent());
         if ("call".equals(kind)) {
             Notifier.showCall(this);
+        } else if ("event".equals(kind)) {
+            if (!MainActivity.isInForeground()) Notifier.showEvent(this);
         } else if (!MainActivity.isInForeground()) {
             // The open app already shows new messages, so only notify when it's in the background.
             Notifier.showMessage(this);

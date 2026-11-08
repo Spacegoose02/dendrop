@@ -16,14 +16,17 @@ export function livekitUrl(config: ServerConfig, req: FastifyRequest): string {
   return base.replace(/^http/, "ws");
 }
 
-/** A token to join one LiveKit room, as this person, with audio, video and screen share. */
-export async function livekitToken(config: ServerConfig, room: string, user: { id: number; displayName: string }): Promise<string> {
+/**
+ * A token to join one LiveKit room, as this person, with audio, video and screen share. A stage
+ * listener's token can't publish anything (canPublish false) until a moderator lets them speak.
+ */
+export async function livekitToken(config: ServerConfig, room: string, user: { id: number; displayName: string }, canPublish = true): Promise<string> {
   const t = new AccessToken(config.livekit.apiKey, config.livekit.apiSecret, {
     identity: String(user.id),
     name: user.displayName,
     ttl: "4h",
   });
-  t.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true, canPublishData: false });
+  t.addGrant({ roomJoin: true, room, canPublish, canSubscribe: true, canPublishData: false });
   return t.toJwt();
 }
 
@@ -47,6 +50,25 @@ export async function removeFromRoom(config: ServerConfig, room: string, identit
     );
   } catch {
     // Not in the room, or the call server isn't reachable.
+  }
+}
+
+/**
+ * Lets someone already in a room talk (and share), or stops them: a stage speaker being let up
+ * or moved back to the audience. Taking it away also unpublishes what they were sending. Best
+ * effort, like removeFromRoom; true when the call server took it.
+ */
+export async function setCanPublish(config: ServerConfig, room: string, identity: string, canPublish: boolean): Promise<boolean> {
+  if (!config.livekit.apiKey || (!config.livekit.url && !config.livekit.builtin)) return false;
+  try {
+    await new RoomServiceClient(livekitApiUrl(config), config.livekit.apiKey, config.livekit.apiSecret, { requestTimeout: 5, failover: false }).updateParticipant(
+      room,
+      identity,
+      { permission: { canPublish, canSubscribe: true, canPublishData: false } },
+    );
+    return true;
+  } catch {
+    return false;
   }
 }
 

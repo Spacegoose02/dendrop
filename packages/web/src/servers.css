@@ -841,6 +841,124 @@ select {
   gap: 8px;
 }
 
+/* Scheduled events */
+.live-tag {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-danger);
+  color: #fff;
+}
+.server-events .live-tag {
+  margin-left: auto;
+}
+.event-list {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0;
+}
+.event-card {
+  padding: 14px 16px;
+  border-radius: var(--dd-radius-lg);
+  border: 1px solid var(--dd-border);
+  background: var(--dd-bg-raised);
+}
+.event-card.live {
+  border-color: var(--dd-danger);
+}
+.event-card header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.event-card h3 {
+  margin: 6px 0 4px;
+  font-size: 17px;
+}
+.event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+}
+.event-description {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.event-people {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 10px 0 0;
+}
+.event-people .muted {
+  margin-left: 4px;
+}
+.event-actions {
+  flex-wrap: wrap;
+  margin-top: 10px;
+  gap: 8px;
+}
+.event-host-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+.event-form {
+  display: grid;
+  gap: 12px;
+}
+.event-form textarea {
+  resize: vertical;
+}
+.event-times {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.event-times label {
+  flex: 1 1 120px;
+}
+
+/* Stage channels */
+.stage-head {
+  padding: 4px 4px 8px;
+}
+.stage-audience {
+  margin-top: 8px;
+}
+.stage-audience ul {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.stage-audience li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: var(--dd-radius-sm);
+}
+.stage-audience li.hand {
+  background: var(--dd-bg-hover);
+}
+.stage-listeners {
+  padding-left: 30px;
+}
+.event-form > label:not(.toggle),
+.event-times label {
+  display: grid;
+  gap: 6px;
+}
 /* Levels and raccoon ranks */
 .level-badge {
   display: inline-flex;

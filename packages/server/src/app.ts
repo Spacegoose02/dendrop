@@ -20,6 +20,7 @@ import { FamilyService, type WebhookPost } from "./family.js";
 import { Gateway } from "./gateway.js";
 import { GifService, type GifFetch } from "./gifs.js";
 import { DendutyLink, type DendutyFetch } from "./denduty.js";
+import { EventService } from "./events.js";
 import type { LevelService } from "./levels.js";
 import { builtinLivekit } from "./livekit.js";
 import { LootdenLink, type LootdenFetch } from "./lootden.js";
@@ -34,6 +35,7 @@ import { expressionRoutes } from "./routes/expressions.js";
 import { funRoutes } from "./routes/fun.js";
 import { familyRoutes, guardKids } from "./routes/family.js";
 import { dendutyRoutes } from "./routes/denduty.js";
+import { eventRoutes } from "./routes/events.js";
 import { lootdenRoutes } from "./routes/lootden.js";
 import { guardChannelConversations, serverRoutes } from "./routes/servers.js";
 import { webhookRoutes } from "./routes/webhooks.js";
@@ -71,6 +73,8 @@ export interface Context {
   bots: BotService;
   /** GIF search through GIPHY, off until a super admin sets it up. */
   gifs: GifService;
+  /** Scheduled events in servers: RSVPs, reminders, starting and ending them. */
+  events: EventService;
   /** Couples kits: private extras for 1:1 DMs between two adults. */
   couples: CouplesService;
   /** Set by the server routes: sends a server's members its new state (and prunes voice). */
@@ -129,6 +133,7 @@ export async function buildApp(
     denduty: new DendutyLink(db, users, gateway, family, push, options.dendutyFetch),
     bots: new BotService(db, users, gateway, automod, family, push, options.botFetch, (msg, err) => app.log.warn({ err }, msg)),
     gifs: new GifService(db, family, config.dataDir, options.gifFetch),
+    events: new EventService(db, users, gateway, push),
     couples: new CouplesService(db, users, gateway, path.join(config.dataDir, "uploads"), (ids) => void push.notify(ids, "message")),
     onClientEvent: [],
     onPresence: [],
@@ -158,6 +163,7 @@ export async function buildApp(
   app.addHook("onClose", async () => {
     ctx.gateway.closeAll();
     ctx.gifs.close();
+    ctx.events.stop();
     ctx.couples.stop();
     db.close();
   });
@@ -174,6 +180,7 @@ export async function buildApp(
   await app.register(async (api) => funRoutes(api, ctx));
   await app.register(async (api) => pushRoutes(api, ctx));
   await app.register(async (api) => serverRoutes(api, ctx));
+  await app.register(async (api) => eventRoutes(api, ctx));
   await app.register(async (api) => familyRoutes(api, ctx));
   await app.register(async (api) => webhookRoutes(api, ctx));
   await app.register(async (api) => lootdenRoutes(api, ctx));
@@ -182,6 +189,7 @@ export async function buildApp(
   await app.register(async (api) => couplesRoutes(api, ctx));
   await app.register(async (api) => gatewayRoute(api, ctx));
   builtinLivekit(app, config);
+  ctx.events.start();
 
   serveWeb(app, config);
   return { app, ctx };

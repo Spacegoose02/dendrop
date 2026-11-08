@@ -58,7 +58,7 @@ export interface ChannelInfo {
   /** Set while you're timed out in this server: you can read but not post. */
   timedOutUntil?: string | null;
   /** Set for a voice channel: its text chat shows here, with a button to drop into the voice. */
-  voice?: { count: number; inIt: boolean; enabled: boolean; onJoin: () => void };
+  voice?: { count: number; inIt: boolean; enabled: boolean; onJoin: () => void; stage?: boolean };
 }
 
 export function Chat({
@@ -528,7 +528,7 @@ export function Chat({
         </button>
         {channel ? (
           <span className="channel-hash" aria-hidden>
-            {channel.voice ? "🔊" : "#"}
+            {channel.voice ? (channel.voice.stage ? "🎙️" : "🔊") : "#"}
           </span>
         ) : !conversation.isGroup && others[0] ? (
           <Avatar name={others[0].displayName} online={online.has(others[0].id)} size={28} />
@@ -551,7 +551,13 @@ export function Chat({
         {channel?.voice?.enabled && !channel.voice.inIt && (
           <span className="header-actions">
             <button className="accept small-button" onClick={channel.voice.onJoin}>
-              {channel.voice.count > 0 ? `Join voice (${channel.voice.count})` : "Join voice"}
+              {channel.voice.stage
+                ? channel.voice.count > 0
+                  ? `Join stage (${channel.voice.count})`
+                  : "Join stage"
+                : channel.voice.count > 0
+                  ? `Join voice (${channel.voice.count})`
+                  : "Join voice"}
             </button>
           </span>
         )}

@@ -15,13 +15,17 @@ import type {
   Me,
   PlayTogether,
   PublicUser,
+  ScheduledEvent,
   Reminder,
   ServerEvent,
   ServerInfo,
   VoiceChannelState,
   VoiceJoin,
 } from "@dendrop/shared";
+import { isVoiceKind } from "@dendrop/shared";
 import { api, connectGateway, logout } from "./api.ts";
+import { channelTitle } from "./channels.ts";
+import { EventReminderCard, EventsDialog } from "./Events.tsx";
 import { BOT_REPLY_EVENT, type BotReplyDetail } from "./Bots.tsx";
 import { Chat } from "./Chat.tsx";
 import { excerptOf, ReminderTray, type FiredReminder } from "./Fun.tsx";
@@ -63,6 +67,7 @@ type ServerDialog =
   | { kind: "settings"; serverId: number; tab?: SettingsTab }
   | { kind: "welcome"; serverId: number }
   | { kind: "admin" }
+  | { kind: "events"; serverId: number }
   | { kind: "link"; code: string };
 
 /** The conversation behind a view, if it shows one. */
@@ -129,6 +134,10 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const [automodAlerts, setAutomodAlerts] = useState<Record<number, number>>({});
   /** A voice channel opened for a game you're playing with others, to join or not. */
   const [playInvite, setPlayInvite] = useState<PlayTogether | null>(null);
+  /** Events in every server you're in, soonest first. */
+  const [events, setEvents] = useState<ScheduledEvent[]>([]);
+  /** An event you RSVP'd to starts soon (minutes > 0) or just started. */
+  const [eventReminder, setEventReminder] = useState<{ event: ScheduledEvent; minutes: number } | null>(null);
   /** You just reached a new level in a server. */
   const [levelUp, setLevelUp] = useState<Extract<ServerEvent, { type: "level.up" }> | null>(null);
   /** Servers whose welcome screen you put off with "Later" (until the app reloads). */
@@ -195,6 +204,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       api<InvitePreview[]>("/api/invites"),
       api<VoiceChannelState[]>("/api/voice"),
     ]);
+    void api<ScheduledEvent[]>("/api/events").then(setEvents, () => {});
     setVoice(Object.fromEntries(vc.map((v) => [v.channelId, v])));
     setServers(sv);
     setInvites(inv);
@@ -369,7 +379,20 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           setInvites((list) => list.filter((i) => i.server.id !== e.server.id));
           loadActivities();
           break;
+        case "event.updated":
+        case "event.reminder": {
+          const ev = e.event;
+          setEvents((list) => [...list.filter((x) => x.id !== ev.id), ev].sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.id - b.id));
+          if (e.type === "event.reminder") setEventReminder({ event: ev, minutes: e.minutes });
+          else setEventReminder((r) => (r && r.event.id === ev.id ? { ...r, event: ev } : r));
+          break;
+        }
+        case "event.removed":
+          setEvents((list) => list.filter((x) => x.id !== e.eventId));
+          setEventReminder((r) => (r && r.event.id === e.eventId ? null : r));
+          break;
         case "server.removed":
+          setEvents((list) => list.filter((x) => x.serverId !== e.serverId));
           setServers((list) => list.filter((x) => x.id !== e.serverId));
           loadActivities();
           setView((v) => (v.kind === "channel" && v.serverId === e.serverId ? { kind: "friends" } : v));
@@ -528,7 +551,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     return {
       id: currentChannel.conversationId,
       isGroup: true,
-      name: currentChannel.kind === "voice" ? currentChannel.name : `#${currentChannel.name}`,
+      name: channelTitle(currentChannel),
       // A role color wins over someone's own name color in a server.
       members: currentServer.members.map((m) => ({ ...m.user, displayName: m.nickname ?? m.user.displayName, nameColor: m.color ?? m.user.nameColor })),
       lastMessageAt: null,
@@ -541,6 +564,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   /** You, as Chat shows your own messages in the open server: in your highest role's color, if it has one. */
   const myRoleColor = currentServer?.members.find((m) => m.user.id === me.id)?.color ?? null;
   const meInServer = useMemo(() => (myRoleColor ? { ...me, nameColor: myRoleColor } : me), [me, myRoleColor]);
+  /** A server's events you can see: ones in channels you can't see any more are left out. */
+  const eventsOf = (sv: ChatServer) => events.filter((x) => x.serverId === sv.id && (x.channelId === null || sv.channels.some((c) => c.id === x.channelId)));
   const serverUnread = (sv: ChatServer) => sv.channels.some((c) => unread.has(c.conversationId));
   const dialogServer = serverDialog && "serverId" in serverDialog ? servers.find((x) => x.id === serverDialog.serverId) : undefined;
   const incoming = friends.filter((f) => f.state === "incoming").length;
@@ -590,7 +615,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             onOpen={(c) => {
               open({ kind: "channel", serverId: currentServer.id, channelId: c.id });
               // Opening a voice channel drops you in.
-              if (c.kind === "voice" && server?.calls) void joinVoice(currentServer, c);
+              if (isVoiceKind(c.kind) && server?.calls) void joinVoice(currentServer, c);
             }}
             onSettings={() => setServerDialog({ kind: "settings", serverId: currentServer.id })}
             automodAlerts={automodAlerts[currentServer.id] ?? 0}
@@ -599,6 +624,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
               setServerDialog({ kind: "settings", serverId: currentServer.id, tab: "modlog" });
             }}
             onInvite={() => setServerDialog({ kind: "invite", serverId: currentServer.id })}
+            events={eventsOf(currentServer)}
+            onEvents={() => setServerDialog({ kind: "events", serverId: currentServer.id })}
             onWelcome={() => setServerDialog({ kind: "welcome", serverId: currentServer.id })}
             onChannel={(c, channelKind) => setServerDialog({ kind: "channel", serverId: currentServer.id, channel: c, channelKind })}
           />
@@ -695,6 +722,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
               key={inVoice.voice.channelId}
               me={me}
               join={inVoice}
+              live={voice[inVoice.voice.channelId]}
+              event={events.find((x) => x.channelId === inVoice.voice.channelId && x.status === "live")}
               server={servers.find((x) => x.id === inVoice.voice.serverId)}
               channel={servers.find((x) => x.id === inVoice.voice.serverId)?.channels.find((c) => c.id === inVoice.voice.channelId)}
               compact={!(view.kind === "channel" && view.channelId === inVoice.voice.channelId)}
@@ -773,15 +802,15 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
               topic: currentChannel.topic,
               canModerate: can(currentServer, "deleteMessages"),
               timedOutUntil: currentServer.timedOutUntil,
-              voice:
-                currentChannel.kind === "voice"
-                  ? {
-                      count: voice[currentChannel.id]?.members.length ?? 0,
-                      inIt: inVoice?.voice.channelId === currentChannel.id,
-                      enabled: !!server?.calls,
-                      onJoin: () => void joinVoice(currentServer, currentChannel),
-                    }
-                  : undefined,
+              voice: isVoiceKind(currentChannel.kind)
+                ? {
+                    count: voice[currentChannel.id]?.members.length ?? 0,
+                    inIt: inVoice?.voice.channelId === currentChannel.id,
+                    enabled: !!server?.calls,
+                    onJoin: () => void joinVoice(currentServer, currentChannel),
+                    stage: currentChannel.kind === "stage",
+                  }
+                : undefined,
             }}
           />
         )}
@@ -854,6 +883,41 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           />
         );
       })()}
+      {eventReminder && !ringing && !dialog && inVoice?.voice.channelId !== eventReminder.event.channelId && (() => {
+        const sv = servers.find((x) => x.id === eventReminder.event.serverId);
+        if (!sv) return null;
+        return (
+          <EventReminderCard
+            event={eventReminder.event}
+            minutes={eventReminder.minutes}
+            server={sv}
+            callsEnabled={!!server?.calls}
+            onClose={() => setEventReminder(null)}
+            onOpen={() => {
+              setEventReminder(null);
+              setServerDialog({ kind: "events", serverId: sv.id });
+            }}
+            onJoin={(ch) => {
+              setEventReminder(null);
+              open({ kind: "channel", serverId: sv.id, channelId: ch.id });
+              void joinVoice(sv, ch);
+            }}
+          />
+        );
+      })()}
+      {serverDialog?.kind === "events" && dialogServer && (
+        <EventsDialog
+          server={dialogServer}
+          events={eventsOf(dialogServer)}
+          callsEnabled={!!server?.calls}
+          onClose={() => setServerDialog(null)}
+          onJoin={(ch) => {
+            setServerDialog(null);
+            open({ kind: "channel", serverId: dialogServer.id, channelId: ch.id });
+            void joinVoice(dialogServer, ch);
+          }}
+        />
+      )}
       {serverDialog?.kind === "create" && (
         <CreateServer
           me={me}

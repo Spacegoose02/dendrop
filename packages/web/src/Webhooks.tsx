@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { WEBHOOK_LIMITS, type ChatServer, type NewWebhook, type Webhook } from "@dendrop/shared";
+import { channelMark } from "./channels.ts";
 import { api } from "./api.ts";
 
 const when = (iso: string) => new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -80,7 +81,7 @@ export function WebhooksTab({ server }: { server: ChatServer }) {
         <select value={channelId} onChange={(e) => setChannelId(Number(e.target.value))} aria-label="Channel">
           {server.channels.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.kind === "voice" ? "🔊" : "#"} {c.name}
+              {channelMark({ ...c, locked: false })} {c.name}
             </option>
           ))}
         </select>
