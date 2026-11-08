@@ -163,6 +163,8 @@ describe("threads, forum channels and the pinned board", () => {
     assert.equal((await live.waitFor("thread.updated")).thread.id, postThread.id);
     live.ws.close();
     assert.equal((await post(cat, postThread.conversationId, "Try another USB port")).status, 200);
+    // Replies in threads and forum posts earn server XP like channel messages (cat hasn't posted anywhere else).
+    assert.ok(s.ctx.db.prepare("SELECT xp FROM server_xp WHERE server_id = ? AND user_id = ? AND xp > 0").get(serverId, catId));
     const list = (await call(cat, "GET", `/api/servers/${serverId}/channels/${forum.id}/threads`)).body as Thread[];
     assert.equal(list[0]!.messageCount, 2);
   });

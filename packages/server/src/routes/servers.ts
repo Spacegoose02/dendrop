@@ -9,6 +9,7 @@ import { ConversationRepo } from "../conversations.js";
 import { HttpError } from "../errors.js";
 import { FriendRepo } from "../friends.js";
 import { livekitUrl } from "../livekit.js";
+import { LevelService } from "../levels.js";
 import { ServerRepo, type ImageKind } from "../servers.js";
 import { ThreadRepo } from "../threads.js";
 import { VoiceService } from "../voice.js";
@@ -66,6 +67,8 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     pruneVoice();
   };
   ctx.serverChanged = push;
+  const levels = new LevelService(db, servers, gateway, push);
+  ctx.levels = levels;
   ctx.voiceCount = (channelId) => voice.state(channelId)?.members.length ?? 0;
   ctx.voiceMembers = (channelId) => voice.state(channelId)?.members.map((m) => m.userId) ?? [];
   const superAdmins = () => (db.prepare("SELECT id FROM users WHERE is_super_admin = 1").all() as { id: number }[]).map((r) => r.id);
@@ -127,7 +130,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     return servers.view(sid, me.id);
   });
 
-  app.patch<{ Params: { id: string }; Body: { name?: unknown; description?: unknown; isPublic?: unknown; memberInvites?: unknown; playTogether?: unknown } }>(
+  app.patch<{ Params: { id: string }; Body: { name?: unknown; description?: unknown; isPublic?: unknown; memberInvites?: unknown; playTogether?: unknown; levels?: unknown } }>(
     "/api/servers/:id",
     async (req) => {
       const me = requireUser(req);
@@ -293,6 +296,75 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     return { ok: true };
   });
 
+  // ---- Levels ----------------------------------------------------------------------
+
+  /** The leaderboard: [{ userId, xp }], most XP first. Empty while levels are off. */
+  app.get<{ Params: { id: string } }>("/api/servers/:id/levels", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    member(sid, me);
+    return servers.levelsOn(sid) ? levels.leaderboard(sid) : [];
+  });
+
+  /** Sets everyone's XP back to zero (Manage server). */
+  app.delete<{ Params: { id: string } }>("/api/servers/:id/levels", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    allowed(sid, me, "manageServer");
+    levels.reset(sid);
+    push(sid);
+    return { ok: true };
+  });
+
+  /** Sets one person's XP back to zero (Manage server, and only people ranked below you). */
+  app.delete<{ Params: { id: string; userId: string } }>("/api/servers/:id/levels/:userId", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    allowed(sid, me, "manageServer");
+    const target = id(req.params.userId);
+    if (!servers.role(sid, target)) throw new HttpError(404, "They aren't in this server");
+    if (target !== me.id && !servers.outranks(sid, me.id, target)) throw new HttpError(403, "You can only reset people ranked below you");
+    levels.reset(sid, target);
+    push(sid);
+    return { ok: true };
+  });
+
+  // ---- Welcome screen ----------------------------------------------------------------
+  // Everyone in the server gets it with the server. See ServerRepo.setWelcome for who can change what.
+
+  app.put<{ Params: { id: string }; Body: { enabled?: unknown; message?: unknown; rules?: unknown; requireAgree?: unknown; roles?: unknown } }>(
+    "/api/servers/:id/welcome",
+    async (req) => {
+      const me = requireUser(req);
+      const sid = id(req.params.id);
+      allowed(sid, me, "manageServer");
+      const welcome = servers.setWelcome(sid, me.id, req.body ?? {});
+      push(sid);
+      return welcome;
+    },
+  );
+
+  /** You went through the welcome screen: agrees to the rules, and sets the roles you picked ({ roleIds? }). */
+  app.post<{ Params: { id: string }; Body: { roleIds?: unknown } }>("/api/servers/:id/welcome/done", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    member(sid, me);
+    if (req.body?.roleIds !== undefined) servers.pickRoles(sid, me.id, req.body.roleIds);
+    servers.finishWelcome(sid, me.id);
+    push(sid);
+    return servers.view(sid, me.id);
+  });
+
+  /** Picks your welcome-screen roles again, any time: { roleIds }. */
+  app.put<{ Params: { id: string }; Body: { roleIds?: unknown } }>("/api/servers/:id/me/roles", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    member(sid, me);
+    servers.pickRoles(sid, me.id, req.body?.roleIds);
+    push(sid);
+    return servers.view(sid, me.id);
+  });
+
   // ---- Custom roles ----------------------------------------------------------------
   // Everyone in the server sees the roles (they come with the server). Changing them needs
   // Manage roles, and only roles ranked below your own (see ServerRepo).
@@ -406,6 +478,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     if (!c || c.serverId !== sid || !convos.isMember(c.conversationId, me.id)) throw new HttpError(404, "No such channel");
     if (c.kind !== "voice") throw new HttpError(400, "That's a text channel");
     ctx.automod.assertNotTimedOut(sid, me.id);
+    servers.assertAgreed(sid, me.id);
     const nick = servers.view(sid, me.id)?.nickname;
     return voice.join({ channelId: c.id, serverId: sid, conversationId: c.conversationId }, { id: me.id, displayName: nick || me.displayName }, livekitUrl(config, req));
   });

@@ -207,6 +207,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     // First, so clients learn a thread exists before its messages arrive.
     for (const fn of ctx.onMessageCreated) fn(m);
     gateway.send(memberIds, { type: "message.created", message: m });
+    ctx.levels?.award(cid, me);
     // Phones of people with nothing open get a wake-up that says only "message".
     void ctx.push.notify(
       memberIds.filter((u) => u !== me.id && !gateway.isOnline(u)),

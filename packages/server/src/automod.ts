@@ -373,6 +373,7 @@ export class AutomodService {
     const role = this.servers.role(serverId, user.id);
     if (!role) return;
     this.assertNotTimedOut(serverId, user.id);
+    if (!edit) this.servers.assertAgreed(serverId, user.id);
 
     const text = typeof body === "string" ? body : "";
     const settings = this.settings(serverId);

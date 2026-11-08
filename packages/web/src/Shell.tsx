@@ -29,6 +29,8 @@ import { Friends } from "./Friends.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { IncomingCall } from "./IncomingCall.tsx";
 import { PlayTogetherCard } from "./PlayTogether.tsx";
+import { LevelUpCard } from "./Levels.tsx";
+import { needsWelcome, WelcomeScreen } from "./Welcome.tsx";
 import { NewGroup } from "./NewGroup.tsx";
 import { SettingsButton } from "./Settings.tsx";
 import { EncryptionDialog, type EncryptionMode } from "./EncryptionDialog.tsx";
@@ -59,6 +61,7 @@ type ServerDialog =
   | { kind: "invite"; serverId: number }
   | { kind: "channel"; serverId: number; channel: Channel | null; channelKind?: ChannelKind }
   | { kind: "settings"; serverId: number; tab?: SettingsTab }
+  | { kind: "welcome"; serverId: number }
   | { kind: "admin" }
   | { kind: "link"; code: string };
 
@@ -119,6 +122,10 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const [automodAlerts, setAutomodAlerts] = useState<Record<number, number>>({});
   /** A voice channel opened for a game you're playing with others, to join or not. */
   const [playInvite, setPlayInvite] = useState<PlayTogether | null>(null);
+  /** You just reached a new level in a server. */
+  const [levelUp, setLevelUp] = useState<Extract<ServerEvent, { type: "level.up" }> | null>(null);
+  /** Servers whose welcome screen you put off with "Later" (until the app reloads). */
+  const welcomeLater = useRef(new Set<number>());
   const [serverDialog, setServerDialog] = useState<ServerDialog | null>(() => {
     // Opened from an invite link: …/invite/CODE.
     const m = /^\/invite\/([A-Za-z0-9_-]{8,32})\/?$/.exec(location.pathname);
@@ -259,6 +266,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           break;
         case "play.together":
           setPlayInvite(e.invite);
+          break;
+        case "level.up":
+          setLevelUp(e);
           break;
         case "presence":
           setOnline((s) => {
@@ -505,6 +515,11 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const current = view.kind === "conversation" ? conversations.find((c) => c.id === view.id) : undefined;
   const currentServer = view.kind === "channel" ? servers.find((x) => x.id === view.serverId) : undefined;
   const currentChannel = view.kind === "channel" ? currentServer?.channels.find((c) => c.id === view.channelId) : undefined;
+  // New members see the server's welcome screen when they first open it.
+  const welcomeDue = !!currentServer && needsWelcome(currentServer) && !welcomeLater.current.has(currentServer.id);
+  useEffect(() => {
+    if (welcomeDue && currentServer) setServerDialog((d) => d ?? { kind: "welcome", serverId: currentServer.id });
+  }, [welcomeDue, currentServer?.id]);
   /** A channel shown through Chat: its conversation, with server nicknames as names. */
   const channelConversation = useMemo((): Conversation | undefined => {
     if (!currentServer || !currentChannel) return undefined;
@@ -661,6 +676,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
               setServerDialog({ kind: "settings", serverId: currentServer.id, tab: "modlog" });
             }}
             onInvite={() => setServerDialog({ kind: "invite", serverId: currentServer.id })}
+            onWelcome={() => setServerDialog({ kind: "welcome", serverId: currentServer.id })}
             onChannel={(c, channelKind) => setServerDialog({ kind: "channel", serverId: currentServer.id, channel: c, channelKind })}
           />
         ) : (
@@ -959,6 +975,24 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           }}
         />
       )}
+      {serverDialog?.kind === "welcome" && dialogServer && (
+        <WelcomeScreen
+          me={me}
+          server={dialogServer}
+          onClose={() => {
+            welcomeLater.current.add(dialogServer.id);
+            setServerDialog(null);
+          }}
+          onDone={(sv) => {
+            setServers((list) => list.map((x) => (x.id === sv.id ? sv : x)));
+            setServerDialog(null);
+          }}
+        />
+      )}
+      {levelUp && !ringing && (() => {
+        const sv = servers.find((x) => x.id === levelUp.serverId);
+        return sv ? <LevelUpCard server={sv} level={levelUp.level} rank={levelUp.rank} rankUp={levelUp.rankUp} onClose={() => setLevelUp(null)} /> : null;
+      })()}
       {serverDialog?.kind === "settings" && dialogServer && (
         <ServerSettings
           me={me}

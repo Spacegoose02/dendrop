@@ -82,6 +82,7 @@ export function threadRoutes(app: FastifyInstance, ctx: Context): void {
       const made = threads.get(thread.id, me.id);
       pushThread(made);
       gateway.send(convos.memberIds(thread.conversationId), { type: "message.created", message: first });
+      ctx.levels?.award(thread.conversationId, me);
       return made;
     },
   );

@@ -186,7 +186,10 @@ export function expressionRoutes(app: FastifyInstance, ctx: Context): void {
     }
     if (m.deleted_at) throw new HttpError(409, "That message was deleted");
     const channel = db.prepare("SELECT server_id FROM channel_conversations WHERE conversation_id = ?").get(m.conversation_id) as { server_id: number } | undefined;
-    if (channel) ctx.automod.assertNotTimedOut(channel.server_id, user.id);
+    if (channel) {
+      ctx.automod.assertNotTimedOut(channel.server_id, user.id);
+      servers.assertAgreed(channel.server_id, user.id);
+    }
     return m.conversation_id;
   };
 
