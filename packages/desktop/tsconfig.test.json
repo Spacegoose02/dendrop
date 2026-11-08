@@ -5,5 +5,5 @@
     "outDir": "dist-test",
     "rootDir": "."
   },
-  "include": ["test", "src/updater.ts", "src/links.ts", "src/serverUrl.ts", "src/notify.ts", "src/settings.ts", "src/ptt.ts"]
+  "include": ["test", "src/updater.ts", "src/links.ts", "src/serverUrl.ts", "src/notify.ts", "src/settings.ts", "src/ptt.ts", "src/overlay.ts"]
 }

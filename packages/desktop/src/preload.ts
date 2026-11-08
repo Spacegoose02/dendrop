@@ -23,6 +23,19 @@ contextBridge.exposeInMainWorld("dendrop", {
     ipcRenderer.on("dd:ptt", listener);
     return () => void ipcRenderer.off("dd:ptt", listener);
   },
+  /** What the in-game overlay shows: the voice channel you're in, who's talking, the last few messages. */
+  overlayState: (state: object | null) => ipcRenderer.invoke("dd:overlayState", state),
+  /** Quick messages typed in the overlay: send it, then the promise's result goes back to the overlay. */
+  onOverlayChat: (cb: (text: string) => Promise<void>) => {
+    const listener = (_e: unknown, id: number, text: string) => {
+      void cb(String(text)).then(
+        () => ipcRenderer.invoke("dd:overlayChatResult", id, null),
+        (err: Error) => ipcRenderer.invoke("dd:overlayChatResult", id, err?.message || "Couldn't send"),
+      );
+    };
+    ipcRenderer.on("dd:overlayChat", listener);
+    return () => void ipcRenderer.off("dd:overlayChat", listener);
+  },
   onShortcut: (cb: (action: string) => void) => {
     const listener = (_e: unknown, action: string) => cb(action);
     ipcRenderer.on("dd:shortcut", listener);

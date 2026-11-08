@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { DEFAULT_OVERLAY_HOTKEY, type OverlayCorner, type OverlayMode } from "./overlay.js";
 
 export interface DesktopSettings {
   /** The Dendrop server's address, e.g. https://chat.example.com. Empty until set up. */
@@ -16,6 +17,11 @@ export interface DesktopSettings {
   autoUpdate: boolean;
   /** Install updates that don't match a GitHub release's SHA256SUMS (your own builds). Settings file only. */
   allowUnverifiedUpdates?: boolean;
+  /** The in-game overlay: while LootDen says you're playing (and you're in voice), whenever you're in voice, or never. */
+  overlay: OverlayMode;
+  overlayCorner: OverlayCorner;
+  /** Makes the overlay clickable for a quick message (an Electron accelerator). */
+  overlayHotkey: string;
   /** The "still running in the tray" hint was shown once. */
   trayHintShown: boolean;
   /** Where the window was, so it opens in the same place. */
@@ -23,7 +29,7 @@ export interface DesktopSettings {
 }
 
 export function defaultSettings(): DesktopSettings {
-  return { serverUrl: "", closeToTray: true, openAtLogin: false, notifications: true, notifySender: false, autoUpdate: true, trayHintShown: false };
+  return { serverUrl: "", closeToTray: true, openAtLogin: false, notifications: true, notifySender: false, autoUpdate: true, overlay: "game", overlayCorner: "top-left", overlayHotkey: DEFAULT_OVERLAY_HOTKEY, trayHintShown: false };
 }
 
 /** Settings as JSON in the app's data folder. Unknown or broken files fall back to the defaults. */
