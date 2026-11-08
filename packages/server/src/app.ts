@@ -31,6 +31,7 @@ import { botRoutes } from "./routes/bots.js";
 import { couplesRoutes } from "./routes/couples.js";
 import { dmRoutes } from "./routes/dms.js";
 import { expressionRoutes } from "./routes/expressions.js";
+import { funRoutes } from "./routes/fun.js";
 import { familyRoutes, guardKids } from "./routes/family.js";
 import { dendutyRoutes } from "./routes/denduty.js";
 import { lootdenRoutes } from "./routes/lootden.js";
@@ -83,6 +84,8 @@ export interface Context {
   /** Hooks for the gateway, so features can react to events from clients. */
   onClientEvent: ((user: UserRecord, event: ClientEvent) => void)[];
   onPresence: ((userId: number, online: boolean) => void)[];
+  /** Set by the fun routes: sends out reminders due by `at` (runs by itself every few seconds). */
+  fireReminders?: (at?: Date) => void;
   /** How long calls ring before they count as missed; shorter in tests. */
   callRingMs?: number;
 }
@@ -168,6 +171,7 @@ export async function buildApp(
   await app.register(async (api) => signInRoutes(api, ctx));
   await app.register(async (api) => dmRoutes(api, ctx));
   await app.register(async (api) => expressionRoutes(api, ctx));
+  await app.register(async (api) => funRoutes(api, ctx));
   await app.register(async (api) => pushRoutes(api, ctx));
   await app.register(async (api) => serverRoutes(api, ctx));
   await app.register(async (api) => familyRoutes(api, ctx));

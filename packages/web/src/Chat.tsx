@@ -7,10 +7,12 @@ import {
   type Attachment,
   type Call,
   type Conversation,
+  type GameKind,
   type KidRules,
   type KidStatus,
   type Me,
   type Message,
+  type NudgeKind,
   type Reaction,
 } from "@dendrop/shared";
 import { api, apiForm, ApiError } from "./api.ts";
@@ -31,6 +33,7 @@ import {
 import { ActivityLine } from "./activity.tsx";
 import { GameLinks } from "./GameLink.tsx";
 import { MessageButtons } from "./Bots.tsx";
+import { AudioPlayer, FunMenu, GameCard, NudgeCard, PollCard, PollDialog, RemindMenu, slashCommand, VoiceRecorder, type NewPoll } from "./Fun.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { decryptFile, encryptFile, encryptMessage, keyring, reveal, type ChatMessage, type FileMeta } from "./e2ee.ts";
 import { EncryptionInfo } from "./EncryptionInfo.tsx";
@@ -139,6 +142,20 @@ export function Chat({
   /** Messages whose filtered words were already reported to the kid's parents. */
   const reported = useRef(new Set<number>());
   const [helpSent, setHelpSent] = useState(false);
+  /** The polls and games menu, the poll maker, the reminder menu on a message, and the voice recorder. */
+  const [funOpen, setFunOpen] = useState(false);
+  const [pollDraft, setPollDraft] = useState<Partial<NewPoll> | null>(null);
+  const [remindFor, setRemindFor] = useState<number | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 5000);
+    return () => clearTimeout(t);
+  }, [notice]);
+  /** A raccoon nudge just came in: shake the chat for a moment. */
+  const [shake, setShake] = useState(false);
+  const shookFor = useRef(new Set<number>());
   const filter = kid?.rules.profanityFilter ? kid.rules.blockedWords : null;
   const timeUp = kid && !kid.status.allowedNow ? (kid.status.reason ?? "Chat time is over for now.") : null;
   // A server timeout ends on its own: re-render when it does.
@@ -198,6 +215,16 @@ export function Chat({
     };
   }, [conversation.id, newest]);
 
+  const newestMessage = history?.messages.at(-1);
+  useEffect(() => {
+    const m = newestMessage;
+    if (!m?.nudge || m.authorId === me.id || shookFor.current.has(m.id) || Date.now() - Date.parse(m.createdAt) > 15_000) return;
+    shookFor.current.add(m.id);
+    setShake(true);
+    const t = setTimeout(() => setShake(false), 800);
+    return () => clearTimeout(t);
+  }, [newestMessage, me.id]);
+
   const addFiles = (list: FileList | File[] | null) => {
     if (!list) return;
     const incoming = [...list];
@@ -253,6 +280,15 @@ export function Chat({
   };
 
   const send = async () => {
+    const cmd = files.length === 0 ? slashCommand(draft) : null;
+    if (cmd) {
+      setDraft("");
+      if (cmd.kind === "game") void startGame(cmd.game, cmd.dice);
+      else if (cmd.kind === "poll") setPollDraft({ question: cmd.question });
+      else if (channel) setError("Nudges are for DMs and group chats.");
+      else void sendNudge(cmd.nudge);
+      return;
+    }
     const body = toTokens(draft.trim(), emojis);
     if ((!body && files.length === 0) || sending) return;
     if (filter && findBlockedWords(body, filter).length) {
@@ -286,21 +322,72 @@ export function Chat({
     }
   };
 
-  /** Sends a sticker or a GIF as a message of its own, leaving the draft alone. */
-  const sendOnly = async (body: string) => {
+  /** Sends a sticker, a GIF or a voice message as a message of its own, leaving the draft alone. */
+  const sendOnly = async (body: string, extraFiles: File[] = []) => {
     setPicker(null);
     setError(null);
     stickToBottom.current = true;
     try {
       let m: Message;
       try {
-        m = await post(conversation, body, []);
+        m = await post(conversation, body, extraFiles);
       } catch (err) {
         if (!(err instanceof ApiError && err.status === 409)) throw err;
-        m = await post(await api<Conversation>(`/api/conversations/${conversation.id}`), body, []);
+        m = await post(await api<Conversation>(`/api/conversations/${conversation.id}`), body, extraFiles);
       }
       const shown = await reveal(m);
       setHistory((h) => (h ? { ...h, messages: upsert(h.messages, shown) } : { messages: [shown], hasMore: false }));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  /** Shows a poll, game or nudge the server just sent back (the gateway brings it too). */
+  const showChanged = async (raw: Message) => {
+    const shown = await reveal(raw);
+    setHistory((h) => (h ? { ...h, messages: upsert(h.messages, shown) } : { messages: [shown], hasMore: false }));
+  };
+
+  /** Posts a poll: its words are encrypted like a message once the chat has a key. */
+  const createPoll = async (p: NewPoll) => {
+    if (filter && findBlockedWords([p.question, ...p.options].join("\n"), filter).length) {
+      void report("profanity");
+      throw new Error("That poll has a word your family filter blocks. Your parents get a heads-up (not the word).");
+    }
+    stickToBottom.current = true;
+    const make = async (c: Conversation) => {
+      const url = `/api/conversations/${c.id}/polls`;
+      const settings = { multi: p.multi, closesInMinutes: p.closesInMinutes };
+      const version = channel ? null : await keyring.forSending(c);
+      if (!version) return api<Message>(url, { body: { ...settings, question: p.question, options: p.options } });
+      const body = await encryptMessage(c.id, me.id, version, p.question, [], p.options);
+      return api<Message>(url, { body: { ...settings, body, keyVersion: version, optionCount: p.options.length } });
+    };
+    let m: Message;
+    try {
+      m = await make(conversation);
+    } catch (err) {
+      if (!(err instanceof ApiError && err.status === 409)) throw err;
+      m = await make(await api<Conversation>(`/api/conversations/${conversation.id}`));
+    }
+    await showChanged(m);
+  };
+
+  const startGame = async (kind: GameKind, dice?: string) => {
+    setError(null);
+    stickToBottom.current = true;
+    try {
+      await showChanged(await api<Message>(`/api/conversations/${conversation.id}/games`, { body: { kind, dice } }));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const sendNudge = async (kind: NudgeKind) => {
+    setError(null);
+    stickToBottom.current = true;
+    try {
+      await showChanged(await api<Message>(`/api/conversations/${conversation.id}/nudges`, { body: { kind } }));
     } catch (err) {
       setError((err as Error).message);
     }
@@ -430,10 +517,11 @@ export function Chat({
     ? conversation.reads.filter((r) => r.userId !== me.id && r.messageId !== null && r.messageId >= myLast.id).map((r) => members.get(r.userId)?.displayName ?? "Someone")
     : [];
   const canReact = !timeUp && !timedOutUntil;
+  const nameOf = (id: number) => members.get(id)?.displayName ?? "Someone";
   const typingNames = typingIds.filter((id) => id !== me.id).map((id) => members.get(id)?.displayName ?? "Someone");
 
   return (
-    <section className="pane chat">
+    <section className={`pane chat ${shake ? "nudged" : ""}`}>
       <header className="pane-header">
         <button className="ghost back" onClick={onBack} aria-label="Back">
           ‹
@@ -591,7 +679,13 @@ export function Chat({
                     <p className="msg-body deleted">🔒 {m.locked}</p>
                   ) : (
                     <>
-                      {m.text && stickerIn(m.text) ? (
+                      {m.poll ? (
+                        <PollCard m={m} meId={me.id} nameOf={nameOf} mask={(t) => (filter ? maskBlockedWords(t, filter) : t)} disabled={!canReact} onChanged={(x) => void showChanged(x)} onError={setError} />
+                      ) : m.game ? (
+                        <GameCard m={m} meId={me.id} nameOf={nameOf} disabled={!canReact} onChanged={(x) => void showChanged(x)} onError={setError} onRematch={(kind, dice) => void startGame(kind, dice)} />
+                      ) : m.nudge ? (
+                        <NudgeCard kind={m.nudge} mine={mine} name={authorName} />
+                      ) : m.text && stickerIn(m.text) ? (
                         <StickerView {...stickerIn(m.text)!} />
                       ) : m.text && gifIn(m.text) ? (
                         <GifView id={gifIn(m.text)!} link={m.text.trim()} />
@@ -603,7 +697,7 @@ export function Chat({
                           </p>
                         )
                       )}
-                      {m.text && <GameLinks text={m.text} />}
+                      {m.text && !m.poll && <GameLinks text={m.text} />}
                       <MessageButtons m={m} />
                       {m.attachments.length > 0 && (
                         <div className="attachments">
@@ -642,14 +736,20 @@ export function Chat({
                     />
                   </div>
                 )}
-                {!m.deleted && editing?.id !== m.id && (canReact || mine || channel?.canModerate) && (
+                {remindFor === m.id && <RemindMenu messageId={m.id} onDone={setNotice} onClose={() => setRemindFor(null)} />}
+                {!m.deleted && editing?.id !== m.id && (
                   <div className="msg-actions">
                     {canReact && !m.locked && (
                       <button className="ghost" data-picker-toggle onClick={(e) => openReactions(m.id, e.currentTarget)} title="Add a reaction" aria-label="Add a reaction">
                         ☺+
                       </button>
                     )}
-                    {mine && !m.locked && (
+                    {!m.locked && (
+                      <button className="ghost" data-fun-toggle onClick={() => setRemindFor(remindFor === m.id ? null : m.id)} title="Remind me about this" aria-label="Remind me about this">
+                        ⏰
+                      </button>
+                    )}
+                    {mine && !m.locked && !m.poll && !m.game && !m.nudge && (
                       <button className="ghost" onClick={() => setEditing({ id: m.id, text: fromTokens(m.text, emojis) })} title="Edit">
                         Edit
                       </button>
@@ -700,6 +800,11 @@ export function Chat({
           </p>
         )}
         {error && <p className="error small">{error}</p>}
+        {notice && (
+          <p className="small notice" role="status">
+            {notice}
+          </p>
+        )}
         {files.length > 0 && (
           <div className="pending-files">
             {files.map((f, i) => (
@@ -731,10 +836,40 @@ export function Chat({
             ))}
           </div>
         )}
-        <div className="composer-row" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+        {recording && (
+          <VoiceRecorder
+            onError={setError}
+            onDone={(file) => {
+              setRecording(false);
+              if (file) void sendOnly("", [file]);
+            }}
+          />
+        )}
+        <div className="composer-row" hidden={recording} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
           <button className="ghost icon" onClick={() => fileRef.current?.click()} title="Add files" aria-label="Add files">
             ＋
           </button>
+          <div className="emoji-wrap">
+            <button
+              className="ghost icon"
+              data-fun-toggle
+              onClick={() => setFunOpen(!funOpen)}
+              disabled={!canReact}
+              title="Polls, games and nudges"
+              aria-label="Polls, games and nudges"
+              aria-expanded={funOpen}
+            >
+              🎲
+            </button>
+            {funOpen && (
+              <FunMenu
+                onPoll={() => setPollDraft({})}
+                onGame={(kind, dice) => void startGame(kind, dice)}
+                onNudge={channel ? undefined : (kind) => void sendNudge(kind)}
+                onClose={() => setFunOpen(false)}
+              />
+            )}
+          </div>
           <input
             ref={fileRef}
             type="file"
@@ -784,6 +919,11 @@ export function Chat({
               />
             )}
           </div>
+          {!draft.trim() && files.length === 0 && typeof MediaRecorder !== "undefined" && (
+            <button className="ghost icon" onClick={() => setRecording(true)} disabled={!!timeUp || !!timedOutUntil} title="Record a voice message" aria-label="Record a voice message">
+              🎤
+            </button>
+          )}
           <button className="primary send" onClick={() => void send()} disabled={sending || !!timeUp || !!timedOutUntil || (!draft.trim() && files.length === 0)} aria-label="Send">
             {sending ? "…" : "Send"}
           </button>
@@ -794,6 +934,7 @@ export function Chat({
         </div>
       </footer>
       {showInfo && <EncryptionInfo me={me} conversation={conversation} onClose={() => setShowInfo(false)} />}
+      {pollDraft && <PollDialog encrypted={!channel && !!conversation.e2ee} initial={pollDraft} onCreate={createPoll} onClose={() => setPollDraft(null)} />}
       {couplesOpen && showCouples && <CouplesKitDialog me={me} conversation={conversation} onClose={() => setCouplesOpen(false)} />}
     </section>
   );
@@ -870,6 +1011,7 @@ export function EncryptedAttachment({ m, a, meta, keyOverride }: { m: ChatMessag
   };
 
   if (!meta || failed) return <span className="attachment-file muted">🔒 A file that couldn't be decrypted</span>;
+  if (meta.ty.startsWith("audio/")) return <AudioPlayer name={meta.n} load={() => decryptFile(m, a, meta, keyOverride)} />;
   if (isImage) {
     return url ? (
       <a href={url} target="_blank" rel="noreferrer" className="attachment-image">
@@ -891,6 +1033,18 @@ export function EncryptedAttachment({ m, a, meta, keyOverride }: { m: ChatMessag
 }
 
 export function AttachmentView({ a }: { a: Attachment }) {
+  if (a.contentType.startsWith("audio/")) {
+    return (
+      <AudioPlayer
+        name={a.name}
+        load={async () => {
+          const res = await fetch(a.url, { credentials: "same-origin" });
+          if (!res.ok) throw new Error(`Download failed (${res.status})`);
+          return new Blob([await res.arrayBuffer()], { type: a.contentType });
+        }}
+      />
+    );
+  }
   if (INLINE_IMAGE_TYPES.includes(a.contentType)) {
     return (
       <a href={a.url} target="_blank" rel="noreferrer" className="attachment-image">
