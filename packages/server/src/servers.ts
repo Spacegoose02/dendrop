@@ -16,6 +16,9 @@ import {
   type ServerMember,
   type ServerPermission,
   type ServerRole,
+  type ServerWelcome,
+  type WelcomeRole,
+  WELCOME_LIMITS,
 } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
@@ -30,6 +33,7 @@ interface ServerRow {
   is_public: number;
   member_invites: number;
   play_together: number;
+  levels: number;
   icon_file: string | null;
   icon_type: string | null;
   banner_file: string | null;
@@ -253,12 +257,19 @@ export class ServerRepo {
       .all(serverId) as { user_id: number; role: ServerRole; nickname: string | null; joined_at: string }[];
     const roles = this.roleRows(serverId);
     const held = this.heldRoles(serverId);
+    const levels = !!this.row(serverId)?.levels;
+    const xp = new Map(
+      levels
+        ? (this.db.prepare("SELECT user_id, xp FROM server_xp WHERE server_id = ?").all(serverId) as { user_id: number; xp: number }[]).map((x) => [x.user_id, Number(x.xp)])
+        : [],
+    );
     return rows.flatMap((r) => {
       const u = this.users.byId(r.user_id);
       if (!u) return [];
       const mine = roles.filter((x) => held.get(r.user_id)?.has(x.id));
       const color = mine.find((x) => x.color)?.color ?? null;
-      return [{ user: toPublic(u), role: r.role, roleIds: mine.map((x) => x.id), color, nickname: r.nickname, joinedAt: r.joined_at }];
+      const myXp = levels && !u.isBot ? (xp.get(r.user_id) ?? 0) : null;
+      return [{ user: toPublic(u), role: r.role, roleIds: mine.map((x) => x.id), color, nickname: r.nickname, joinedAt: r.joined_at, xp: myXp }];
     });
   }
 
@@ -267,8 +278,9 @@ export class ServerRepo {
     const r = this.row(serverId);
     const role = r && this.role(serverId, viewerId);
     if (!r || !role) return undefined;
-    const me = this.db.prepare("SELECT nickname FROM server_members WHERE server_id = ? AND user_id = ?").get(serverId, viewerId) as {
+    const me = this.db.prepare("SELECT nickname, welcomed_at FROM server_members WHERE server_id = ? AND user_id = ?").get(serverId, viewerId) as {
       nickname: string | null;
+      welcomed_at: string | null;
     };
     const perms = this.permissions(serverId, viewerId, role);
     const mod = perms.includes("manageChannels");
@@ -289,6 +301,9 @@ export class ServerRepo {
       timedOutUntil: this.timedOutUntil(serverId, viewerId),
       emojis: new ExpressionRepo(this.db).emojis(serverId),
       stickers: new ExpressionRepo(this.db).stickers(serverId),
+      levels: !!r.levels,
+      welcome: this.welcome(serverId),
+      welcomedAt: me.welcomed_at,
     };
   }
 
@@ -372,7 +387,7 @@ export class ServerRepo {
     });
   }
 
-  update(serverId: number, patch: { name?: unknown; description?: unknown; isPublic?: unknown; memberInvites?: unknown; playTogether?: unknown }): void {
+  update(serverId: number, patch: { name?: unknown; description?: unknown; isPublic?: unknown; memberInvites?: unknown; playTogether?: unknown; levels?: unknown }): void {
     if (patch.name !== undefined) {
       this.db.prepare("UPDATE servers SET name = ? WHERE id = ?").run(cleanText(patch.name, LIMITS.serverName, "The server name", false), serverId);
     }
@@ -387,6 +402,12 @@ export class ServerRepo {
     if (typeof patch.playTogether === "boolean") {
       this.db.prepare("UPDATE servers SET play_together = ? WHERE id = ?").run(patch.playTogether ? 1 : 0, serverId);
     }
+    if (typeof patch.levels === "boolean") this.db.prepare("UPDATE servers SET levels = ? WHERE id = ?").run(patch.levels ? 1 : 0, serverId);
+  }
+
+  /** Whether members earn XP here. */
+  levelsOn(serverId: number): boolean {
+    return !!this.row(serverId)?.levels;
   }
 
   /** Sets or clears the icon or banner. Returns the old file, to remove from disk. */
@@ -909,6 +930,9 @@ export class ServerRepo {
     const changed = SERVER_PERMISSIONS.filter((p) => old.includes(p) !== perms.includes(p));
     if (changed.some((p) => !mine.includes(p))) throw new HttpError(403, "You can only turn on or off permissions you have yourself");
     this.checkKids(serverId, name, perms, this.holders(roleId));
+    if (perms.some((p) => MODERATION_PERMISSIONS.includes(p)) && this.welcome(serverId).roles.some((w) => w.roleId === roleId)) {
+      throw new HttpError(400, `Members can pick "${name}" for themselves on the welcome screen, so it can't moderate. Take it off the welcome screen first`);
+    }
     this.atomic(() => {
       this.db.prepare("UPDATE server_roles SET name = ?, color = ?, permissions = ? WHERE id = ?").run(name, color, JSON.stringify(perms), roleId);
       if (changed.length) this.syncServer(serverId);
@@ -972,6 +996,136 @@ export class ServerRepo {
       const add = this.db.prepare("INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES (?, ?, ?)");
       for (const id of removed) del.run(serverId, userId, id);
       for (const id of added) add.run(serverId, userId, id);
+      this.syncServer(serverId);
+    });
+  }
+
+  // ---- Welcome screen -----------------------------------------------------------------
+
+  /** The welcome screen. Roles that were deleted since are left out. */
+  welcome(serverId: number): ServerWelcome {
+    const r = this.db.prepare("SELECT * FROM server_welcome WHERE server_id = ?").get(serverId) as
+      | { enabled: number; message: string; rules: string; require_agree: number; roles: string }
+      | undefined;
+    if (!r) return { enabled: false, message: "", rules: [], requireAgree: false, roles: [] };
+    const exists = new Set(this.roleRows(serverId).map((x) => x.id));
+    return {
+      enabled: !!r.enabled,
+      message: r.message,
+      rules: JSON.parse(r.rules) as string[],
+      requireAgree: !!r.require_agree,
+      roles: (JSON.parse(r.roles) as WelcomeRole[]).filter((w) => exists.has(w.roleId)),
+    };
+  }
+
+  /** Welcome text shows to everyone who joins, kids included. */
+  private cleanWelcomeText(v: unknown, max: number, what: string): string {
+    const s = typeof v === "string" ? v.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim() : v;
+    if (typeof s !== "string") throw new HttpError(400, `${what} needs to be text`);
+    if (s.length > max) throw new HttpError(400, `${what} can be up to ${max} characters`);
+    if (s && findBlockedWords(s, [], { builtin: true }).length) throw new HttpError(400, `Write ${what.toLowerCase()} without rude words`);
+    return s;
+  }
+
+  /**
+   * Changes the welcome screen: { enabled?, message?, rules?, requireAgree?, roles? }. Needs Manage
+   * server. Changing which roles members can pick also needs Manage roles, and only for roles
+   * ranked below your own. Roles that can moderate can never be picked.
+   */
+  setWelcome(serverId: number, actor: number, patch: { enabled?: unknown; message?: unknown; rules?: unknown; requireAgree?: unknown; roles?: unknown }): ServerWelcome {
+    if (!this.can(serverId, actor, "manageServer")) throw new HttpError(403, "You need Manage server to do that");
+    const cur = this.welcome(serverId);
+    const bool = (v: unknown, was: boolean, what: string) => {
+      if (v === undefined) return was;
+      if (typeof v !== "boolean") throw new HttpError(400, `${what} is true or false`);
+      return v;
+    };
+    const enabled = bool(patch.enabled, cur.enabled, "enabled");
+    const requireAgree = bool(patch.requireAgree, cur.requireAgree, "requireAgree");
+    const message = patch.message === undefined ? cur.message : this.cleanWelcomeText(patch.message, WELCOME_LIMITS.message, "The welcome message");
+    let rules = cur.rules;
+    if (patch.rules !== undefined) {
+      if (!Array.isArray(patch.rules)) throw new HttpError(400, "rules is a list");
+      rules = patch.rules.map((x) => this.cleanWelcomeText(x, WELCOME_LIMITS.ruleLength, "A rule")).filter(Boolean);
+      if (rules.length > WELCOME_LIMITS.rules) throw new HttpError(400, `Up to ${WELCOME_LIMITS.rules} rules`);
+    }
+    let roles = cur.roles;
+    if (patch.roles !== undefined) {
+      if (!Array.isArray(patch.roles)) throw new HttpError(400, "roles is a list of { roleId, description?, emoji? }");
+      if (patch.roles.length > WELCOME_LIMITS.roles) throw new HttpError(400, `Up to ${WELCOME_LIMITS.roles} roles`);
+      const all = new Map(this.roleRows(serverId).map((r) => [r.id, r]));
+      const seen = new Set<number>();
+      roles = patch.roles.map((x: unknown) => {
+        const o = (x ?? {}) as { roleId?: unknown; description?: unknown; emoji?: unknown };
+        const r = all.get(Number(o.roleId));
+        if (!r) throw new HttpError(400, "Only this server's roles can be on the welcome screen");
+        if (seen.has(r.id)) throw new HttpError(400, `"${r.name}" is listed twice`);
+        seen.add(r.id);
+        if (this.permsOf(r).some((p) => MODERATION_PERMISSIONS.includes(p))) {
+          throw new HttpError(400, `"${r.name}" lets people moderate, so members can't pick it for themselves`);
+        }
+        const emoji = o.emoji === undefined ? "" : this.cleanWelcomeText(o.emoji, WELCOME_LIMITS.emoji, "The emoji");
+        const description = o.description === undefined ? "" : this.cleanWelcomeText(o.description, WELCOME_LIMITS.roleDescription, "The role description");
+        return { roleId: r.id, description, emoji };
+      });
+      const before = new Set(cur.roles.map((w) => w.roleId));
+      const changed = [...roles.filter((w) => !before.has(w.roleId)).map((w) => w.roleId), ...cur.roles.filter((w) => !seen.has(w.roleId)).map((w) => w.roleId)];
+      for (const id of changed) {
+        if (!this.canManageRole(serverId, actor, all.get(id)!)) {
+          throw new HttpError(403, `You can only put roles ranked below your own on the welcome screen ("${all.get(id)!.name}" isn't)`);
+        }
+      }
+    }
+    this.db
+      .prepare(
+        `INSERT INTO server_welcome (server_id, enabled, message, rules, require_agree, roles, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(server_id) DO UPDATE SET enabled = excluded.enabled, message = excluded.message, rules = excluded.rules,
+           require_agree = excluded.require_agree, roles = excluded.roles, updated_at = excluded.updated_at`,
+      )
+      .run(serverId, enabled ? 1 : 0, message, JSON.stringify(rules), requireAgree ? 1 : 0, JSON.stringify(roles), now());
+    return this.welcome(serverId);
+  }
+
+  /** Marks the welcome screen done for someone, which is also agreeing to the rules. */
+  finishWelcome(serverId: number, userId: number): void {
+    this.db.prepare("UPDATE server_members SET welcomed_at = ? WHERE server_id = ? AND user_id = ? AND welcomed_at IS NULL").run(now(), serverId, userId);
+  }
+
+  /** Whether someone still has to agree to the rules before posting or talking here. */
+  mustAgree(serverId: number, userId: number): boolean {
+    const m = this.db.prepare("SELECT role, welcomed_at FROM server_members WHERE server_id = ? AND user_id = ?").get(serverId, userId) as
+      | { role: ServerRole; welcomed_at: string | null }
+      | undefined;
+    if (!m || m.welcomed_at || isModerator(m.role) || this.users.byId(userId)?.isBot) return false;
+    const w = this.welcome(serverId);
+    return w.enabled && w.requireAgree && w.rules.length > 0;
+  }
+
+  assertAgreed(serverId: number, userId: number): void {
+    if (this.mustAgree(serverId, userId)) throw new HttpError(403, "Read and agree to the server rules first");
+  }
+
+  /**
+   * Sets which welcome-screen roles you hold. Roles that aren't on the welcome screen are left
+   * as they are. The welcome screen never lists roles that moderate, so kids can pick any of them.
+   */
+  pickRoles(serverId: number, userId: number, roleIds: unknown): void {
+    if (!this.role(serverId, userId)) throw new HttpError(404, "No such server");
+    if (!Array.isArray(roleIds)) throw new HttpError(400, "roleIds is a list of role ids");
+    const w = this.welcome(serverId);
+    if (!w.enabled) throw new HttpError(400, "This server has no welcome screen");
+    const pickable = new Set(w.roles.map((x) => x.roleId));
+    const want = new Set(roleIds.map(Number));
+    for (const id of want) if (!pickable.has(id)) throw new HttpError(403, "You can only pick roles from the welcome screen");
+    const all = new Map(this.roleRows(serverId).map((r) => [r.id, r]));
+    for (const id of want) this.checkKids(serverId, all.get(id)!.name, this.permsOf(all.get(id)!), [userId]);
+    this.atomic(() => {
+      const del = this.db.prepare("DELETE FROM server_member_roles WHERE server_id = ? AND user_id = ? AND role_id = ?");
+      const add = this.db.prepare("INSERT OR IGNORE INTO server_member_roles (server_id, user_id, role_id) VALUES (?, ?, ?)");
+      for (const id of pickable) {
+        if (want.has(id)) add.run(serverId, userId, id);
+        else del.run(serverId, userId, id);
+      }
       this.syncServer(serverId);
     });
   }
