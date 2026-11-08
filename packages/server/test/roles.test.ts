@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import type { AutomodEvent, ChatServer, CustomRole, ServerInvite } from "@dendrop/shared";
+import { SERVER_PERMISSIONS, type AutomodEvent, type ChatServer, type CustomRole, type ServerInvite } from "@dendrop/shared";
 import { account, listen, startServer, type TestServer } from "./helpers.js";
 
 describe("custom server roles", () => {
@@ -57,7 +57,7 @@ describe("custom server roles", () => {
       ["Mods", "Cousins", "Gamers"],
     );
     assert.deepEqual((await view(bob)).myPermissions, []);
-    assert.equal((await view(owner)).myPermissions.length, 10);
+    assert.equal((await view(owner)).myPermissions.length, SERVER_PERMISSIONS.length);
   });
 
   it("checks names, colors and permissions", async () => {

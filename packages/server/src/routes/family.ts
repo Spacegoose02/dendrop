@@ -299,6 +299,8 @@ export function guardKids(app: FastifyInstance, ctx: Context): void {
     ["POST", /^\/api\/messages\/\d+\/thread$/],
     ["POST", /^\/api\/servers\/\d+\/channels\/\d+\/threads$/],
     ["PATCH", /^\/api\/threads\/\d+$/],
+    ["POST", /^\/api\/servers\/\d+\/events$/],
+    ["PATCH", /^\/api\/events\/\d+$/],
     // Polls, quick games and nudges.
     ["POST", /^\/api\/conversations\/\d+\/(polls|games|nudges)$/],
     ["POST", /^\/api\/messages\/\d+\/(votes|close-poll|game)$/],

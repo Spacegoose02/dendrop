@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  isVoiceKind,
   LIMITS,
   type Channel,
   type ChannelKind,
@@ -10,6 +11,7 @@ import {
   type Me,
   type ServerCreatorRequest,
   type ServerInvite,
+  type ScheduledEvent,
   type ServerTimeout,
   type VoiceChannelState,
 } from "@dendrop/shared";
@@ -24,6 +26,7 @@ import { useColors } from "./colors.ts";
 import { MemberRoles, RoleChip, RolesTab } from "./Roles.tsx";
 import { byRank, can, memberColors, outranks, rolesOf } from "./roles.ts";
 import { EmojiTab, StickersTab } from "./ServerExpressions.tsx";
+import { CHANNEL_KINDS, channelMark, channelTitle } from "./channels.ts";
 import { LevelBadge, LevelsTab } from "./Levels.tsx";
 import { mustAgree, WelcomeTab } from "./Welcome.tsx";
 import "./servers.css";
@@ -71,6 +74,8 @@ export function ServerSidebar({
   onChannel,
   automodAlerts = 0,
   onModLog,
+  events = [],
+  onEvents,
   onWelcome,
 }: {
   server: ChatServer;
@@ -90,6 +95,9 @@ export function ServerSidebar({
   /** Automod alerts the owner or an admin hasn't looked at yet. */
   automodAlerts?: number;
   onModLog?: () => void;
+  /** The server's events you can see. */
+  events?: ScheduledEvent[];
+  onEvents?: () => void;
   /** Opens the welcome screen again. */
   onWelcome?: () => void;
 }) {
@@ -132,39 +140,49 @@ export function ServerSidebar({
             Invite people
           </button>
         )}
-        {(["text", "voice"] as const).map((kind) => {
+        {onEvents && (events.length > 0 || can(server, "manageEvents")) && (
+          <button className="nav-item server-events" onClick={onEvents}>
+            <span className="nav-icon" aria-hidden>
+              📅
+            </span>
+            {events.length === 0 ? "Events" : events.length === 1 ? "1 event" : `${events.length} events`}
+            {events.some((e) => e.status === "live") && <span className="live-tag">Live</span>}
+          </button>
+        )}
+        {(["text", "voice", "stage"] as const).map((kind) => {
           // Forums sit with the text channels.
           const list = server.channels.filter((c) => c.kind === kind || (kind === "text" && c.kind === "forum"));
-          if (kind === "voice" && list.length === 0 && !mod) return null;
+          if (kind !== "text" && list.length === 0 && !mod) return null;
+          const info = CHANNEL_KINDS[kind];
           return (
             <div key={kind}>
               <div className="section-label with-action">
-                {kind === "text" ? "Text channels" : "Voice channels"}
+                {info.section}
                 {mod && (
                   <button
                     className="ghost"
                     onClick={() => onChannel(null, kind)}
-                    title={kind === "text" ? "New text channel" : "New voice channel"}
-                    aria-label={kind === "text" ? "New text channel" : "New voice channel"}
+                    title={`New ${info.label.toLowerCase()} channel`}
+                    aria-label={`New ${info.label.toLowerCase()} channel`}
                   >
                     ＋
                   </button>
                 )}
               </div>
-              {list.length === 0 && <p className="muted small">{kind === "text" ? "No text channels yet." : "No voice channels yet."}</p>}
+              {list.length === 0 && <p className="muted small">No {info.label.toLowerCase()} channels yet.</p>}
               {list.map((c) => (
                 <div key={c.id}>
                   <div className="channel-row">
                     <button
                       className={`nav-item channel ${activeChannel === c.id ? "active" : ""} ${unread.has(c.conversationId) ? "unread" : ""} ${inVoice === c.id ? "in-voice" : ""}`}
                       onClick={() => onOpen(c)}
-                      title={c.kind === "voice" ? (inVoice === c.id ? `You're in ${c.name}` : `Join ${c.name}`) : undefined}
+                      title={isVoiceKind(c.kind) ? (inVoice === c.id ? `You're in ${c.name}` : `Join ${c.name}`) : undefined}
                     >
                       <span className="channel-mark" aria-hidden>
-                        {c.kind === "voice" ? "🔊" : c.locked ? "🔒" : c.kind === "forum" ? "💬" : "#"}
+                        {channelMark(c)}
                       </span>
                       <span className="ellipsis">{c.name}</span>
-                      {c.kind !== "text" && c.locked && (
+                      {c.kind !== "text" && c.kind !== "forum" && c.locked && (
                         <span className="channel-lock" aria-label="Locked">
                           🔒
                         </span>
@@ -177,9 +195,12 @@ export function ServerSidebar({
                       </button>
                     )}
                   </div>
-                  {c.kind === "voice" && voice[c.id] && (
+                  {c.kind !== "text" && voice[c.id] && (
                     <ul className="voice-members" aria-label={`In ${c.name}`}>
-                      {voice[c.id]!.members.map((v) => {
+                      {voice[c.id]!.members
+                        .filter((v) => v.speaker || v.handRaised)
+                        .sort((a, b) => Number(b.speaker) - Number(a.speaker))
+                        .map((v) => {
                         const m = server.members.find((x) => x.user.id === v.userId);
                         const name = m ? (m.nickname ?? m.user.displayName) : "Someone";
                         const talking = inVoice === c.id && speaking.has(v.userId);
@@ -189,14 +210,24 @@ export function ServerSidebar({
                             <span className="ellipsis" style={colorsOf(memberColors(m)).name}>
                               {name}
                             </span>
-                            <span className="voice-icons" aria-label={[v.screen && "sharing screen", v.video && "camera on", v.deafened ? "deafened" : v.muted && "muted"].filter(Boolean).join(", ")}>
+                            <span
+                              className="voice-icons"
+                              aria-label={[v.handRaised && "hand raised", v.screen && "sharing screen", v.video && "camera on", v.speaker && (v.deafened ? "deafened" : v.muted && "muted")]
+                                .filter(Boolean)
+                                .join(", ")}
+                            >
+                              {v.handRaised && "✋"}
                               {v.screen && "🖥️"}
                               {v.video && "📷"}
-                              {v.deafened ? "🙉" : v.muted ? "🔇" : ""}
+                              {v.speaker && (v.deafened ? "🙉" : v.muted ? "🔇" : "")}
                             </span>
                           </li>
                         );
                       })}
+                      {(() => {
+                        const listening = voice[c.id]!.members.filter((v) => !v.speaker).length;
+                        return listening > 0 ? <li className="voice-member muted small stage-listeners">🎧 {listening} listening</li> : null;
+                      })()}
                     </ul>
                   )}
                 </div>
@@ -643,7 +674,7 @@ export function ChannelDialog({
   };
 
   const remove = async () => {
-    if (!channel || !confirm(`Delete ${channel.kind === "voice" ? "" : "#"}${channel.name} and all its ${channel.kind === "forum" ? "posts" : "messages and threads"}? This can't be undone.`)) return;
+    if (!channel || !confirm(`Delete ${channelTitle(channel)} and all its ${channel.kind === "forum" ? "posts" : "messages and threads"}? This can't be undone.`)) return;
     try {
       await api(`/api/servers/${server.id}/channels/${channel.id}`, { method: "DELETE" });
       onDone(null);
@@ -653,20 +684,18 @@ export function ChannelDialog({
   };
 
   return (
-    <Modal title={channel ? `Edit ${channel.kind === "voice" ? "" : "#"}${channel.name}` : kind === "voice" ? "New voice channel" : kind === "forum" ? "New forum" : "New channel"} onClose={onClose}>
+    <Modal title={channel ? `Edit ${channelTitle(channel)}` : kind === "text" ? "New channel" : `New ${CHANNEL_KINDS[kind].label.toLowerCase()} channel`} onClose={onClose}>
       {!channel && (
         <div className="kind-picker" role="radiogroup" aria-label="Channel type">
-          {(["text", "forum", "voice"] as const).map((k) => (
+          {(["text", "forum", "voice", "stage"] as const).map((k) => (
             <label key={k} className={`kind-option ${kind === k ? "picked" : ""}`}>
               <input type="radio" name="channel-kind" checked={kind === k} onChange={() => setKind(k)} />
               <span className="channel-mark" aria-hidden>
-                {k === "voice" ? "🔊" : k === "forum" ? "💬" : "#"}
+                {CHANNEL_KINDS[k].mark}
               </span>
               <span>
-                <strong>{k === "voice" ? "Voice" : k === "forum" ? "Forum" : "Text"}</strong>
-                <span className="muted small">
-                  {k === "voice" ? "Drop in to talk, share your camera or screen." : k === "forum" ? "Organized posts, each with a title, tags and its own replies." : "Messages, pictures and files."}
-                </span>
+                <strong>{CHANNEL_KINDS[k].label}</strong>
+                <span className="muted small">{CHANNEL_KINDS[k].detail}</span>
               </span>
             </label>
           ))}
@@ -678,7 +707,7 @@ export function ChannelDialog({
           value={name}
           onChange={(e) => setName(e.target.value)}
           maxLength={LIMITS.channelName}
-          placeholder={kind === "voice" ? "the-den" : "game-night"}
+          placeholder={CHANNEL_KINDS[kind].placeholder}
           autoFocus
         />
       </label>

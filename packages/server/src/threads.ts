@@ -178,8 +178,9 @@ export class ThreadRepo {
     if (r) this.db.prepare("DELETE FROM conversations WHERE id = ?").run(r.conversation_id);
   }
 
+  /** Who runs a channel's threads: Manage channels, and on a stage its hosts (Manage events) too. */
   private canManage(r: ThreadRow, userId: number): boolean {
-    return this.servers.can(r.server_id, userId, "manageChannels");
+    return this.servers.can(r.server_id, userId, "manageChannels") || (r.channel_kind === "stage" && this.servers.can(r.server_id, userId, "manageEvents"));
   }
 
   /** Renames, closes or reopens, or retags a thread: its starter or someone who can manage channels. */
@@ -205,7 +206,7 @@ export class ThreadRepo {
   delete(threadId: number, userId: number): { thread: Thread; files: string[]; memberIds: number[] } {
     const r = this.row(threadId);
     if (!r || !this.convos.isMember(r.conversation_id, userId)) throw new HttpError(404, "No such thread");
-    if (!this.servers.can(r.server_id, userId, "manageChannels") && !this.servers.can(r.server_id, userId, "deleteMessages")) {
+    if (!this.canManage(r, userId) && !this.servers.can(r.server_id, userId, "deleteMessages")) {
       throw new HttpError(403, "You need Manage channels or Delete messages to delete a thread");
     }
     const thread = this.toThread(r);
@@ -244,7 +245,9 @@ export class ThreadRepo {
   setPinned(messageId: number, userId: number, pinned: boolean): { serverId: number; channelId: number; conversationId: number } {
     const place = this.placeOf(messageId);
     if (!place || !this.convos.isMember(place.conversationId, userId)) throw new HttpError(404, "No such message");
-    if (!this.servers.can(place.serverId, userId, "pinMessages")) throw new HttpError(403, "You need Pin messages to do that");
+    // Stage hosts (Manage events) can pin in their stage's chat, say the movie's link.
+    const stageHost = this.servers.channelById(place.channelId)?.kind === "stage" && this.servers.can(place.serverId, userId, "manageEvents");
+    if (!stageHost && !this.servers.can(place.serverId, userId, "pinMessages")) throw new HttpError(403, "You need Pin messages to do that");
     if (!pinned) {
       if (!Number(this.db.prepare("DELETE FROM message_pins WHERE message_id = ?").run(messageId).changes)) throw new HttpError(404, "That message isn't pinned");
       return place;

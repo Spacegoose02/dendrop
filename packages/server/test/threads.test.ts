@@ -230,6 +230,26 @@ describe("threads, forum channels and the pinned board", () => {
     assert.equal(((await call(cat, "GET", `/api/servers/${serverId}/pins`)).body as PinnedMessage[]).length, 0);
   });
 
+  it("lets stage hosts (Manage events) run threads and pins in their stage's chat, and nowhere else", async () => {
+    const stage = (await call(owner, "POST", `/api/servers/${serverId}/channels`, { name: "movie-night", kind: "stage" })).body as Channel;
+    assert.equal(stage.kind, "stage");
+    const hosts = (await call(owner, "POST", `/api/servers/${serverId}/roles`, { name: "Hosts", permissions: ["manageEvents"] })).body as { id: number };
+    await call(owner, "PUT", `/api/servers/${serverId}/members/${catId}/roles`, { roleIds: [hosts.id] });
+
+    const link = (await post(bob, stage.conversationId, "Movie link: https://example.com/watch")).body as Message;
+    const t = (await call(bob, "POST", `/api/messages/${link.id}/thread`, { title: "Snack orders" })).body as Thread;
+    assert.equal((await call(cat, "PUT", `/api/messages/${link.id}/pin`)).status, 200);
+    assert.equal((await call(cat, "PATCH", `/api/threads/${t.id}`, { closed: true })).status, 200);
+    assert.equal((await post(cat, t.conversationId, "Orders closed, the movie's starting")).status, 200);
+    assert.equal((await post(bob, t.conversationId, "one more popcorn")).status, 403);
+
+    // Not in a text channel, where Manage events means nothing for threads or pins.
+    const plain = (await post(bob, general.conversationId, "hello")).body as Message;
+    const t2 = (await call(bob, "POST", `/api/messages/${plain.id}/thread`, {})).body as Thread;
+    assert.equal((await call(cat, "PUT", `/api/messages/${plain.id}/pin`)).status, 403);
+    assert.equal((await call(cat, "PATCH", `/api/threads/${t2.id}`, { closed: true })).status, 403);
+  });
+
   it("deletes threads (moderators), and a channel's threads go with it", async () => {
     assert.equal((await call(cat, "DELETE", `/api/threads/${thread.id}`)).status, 403);
     const live = await listen(s, cat);

@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream, mkdirSync, rmSync, statSync } from
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { AUTOMOD_LIMITS, INLINE_IMAGE_TYPES, LIMITS, type ServerPermission } from "@dendrop/shared";
+import { AUTOMOD_LIMITS, INLINE_IMAGE_TYPES, isVoiceKind, LIMITS, type ServerPermission } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
 import { ConversationRepo } from "../conversations.js";
 import { HttpError } from "../errors.js";
@@ -90,6 +90,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     createInvites: "Make invites",
     manageExpressions: "Manage emoji & stickers",
     pinMessages: "Pin messages",
+    manageEvents: "Manage events",
   };
   /** A 404 if they aren't in the server, a 403 if none of their roles allow any of `perms`. */
   const allowed = (serverId: number, user: UserRecord, ...perms: ServerPermission[]) => {
@@ -476,12 +477,55 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     const c = servers.channelById(id(req.params.channelId));
     // Locked channels you weren't picked for don't exist, as far as you can tell.
     if (!c || c.serverId !== sid || !convos.isMember(c.conversationId, me.id)) throw new HttpError(404, "No such channel");
-    if (c.kind !== "voice") throw new HttpError(400, "That's a text channel");
+    if (!isVoiceKind(c.kind)) throw new HttpError(400, "That's a text channel");
     ctx.automod.assertNotTimedOut(sid, me.id);
     servers.assertAgreed(sid, me.id);
     const nick = servers.view(sid, me.id)?.nickname;
-    return voice.join({ channelId: c.id, serverId: sid, conversationId: c.conversationId }, { id: me.id, displayName: nick || me.displayName }, livekitUrl(config, req));
+    const stage = c.kind === "stage";
+    return voice.join(
+      { channelId: c.id, serverId: sid, conversationId: c.conversationId, stage },
+      { id: me.id, displayName: nick || me.displayName },
+      livekitUrl(config, req),
+      stage && stageModerator(sid, me),
+    );
   });
+
+  /**
+   * Who runs a stage: people who can manage channels or events (the owner and admins always).
+   * They come in as speakers and pick who else speaks.
+   */
+  const stageModerator = (serverId: number, user: UserRecord) =>
+    servers.can(serverId, user.id, "manageChannels") || servers.can(serverId, user.id, "manageEvents");
+
+  /** A stage listener raises or lowers their hand: { raised: boolean }. */
+  app.post<{ Body: { raised?: unknown } }>("/api/voice/hand", async (req) => {
+    const me = requireUser(req);
+    if (typeof req.body?.raised !== "boolean") throw new HttpError(400, "raised is true or false");
+    return voice.setHand(me.id, req.body.raised);
+  });
+
+  /**
+   * Lets someone on a stage speak, or moves them to the audience: { speaker: boolean }. Stage
+   * moderators can do either to anyone; anyone can step down to the audience themselves.
+   */
+  app.put<{ Params: { id: string; channelId: string; userId: string }; Body: { speaker?: unknown } }>(
+    "/api/servers/:id/channels/:channelId/stage/:userId",
+    async (req) => {
+      const me = requireUser(req);
+      const sid = id(req.params.id);
+      member(sid, me);
+      const c = servers.channelById(id(req.params.channelId));
+      if (!c || c.serverId !== sid || !convos.isMember(c.conversationId, me.id)) throw new HttpError(404, "No such channel");
+      if (c.kind !== "stage") throw new HttpError(400, "That isn't a stage channel");
+      const speaker = req.body?.speaker;
+      if (typeof speaker !== "boolean") throw new HttpError(400, "speaker is true or false");
+      const target = id(req.params.userId);
+      const self = target === me.id && !speaker;
+      if (!self && !stageModerator(sid, me)) throw new HttpError(403, "You need Manage channels or Manage events to run the stage");
+      if (speaker && ctx.automod.timedOutUntil(sid, target)) throw new HttpError(403, "They're timed out, so they can't speak for now");
+      return voice.setSpeaker(c.id, target, speaker);
+    },
+  );
 
   /** Mute, deafen, camera and screen, so the others see it in the channel list. */
   app.post<{ Body: { muted?: unknown; deafened?: unknown; video?: unknown; screen?: unknown } }>("/api/voice/state", async (req) => {

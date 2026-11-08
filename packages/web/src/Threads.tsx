@@ -18,7 +18,14 @@ const nameIn = (server: ChatServer, userId: number | null) => {
 };
 
 /** Whether you can rename, close or retag a thread: whoever started it, and people who can manage channels. */
-export const canEditThread = (server: ChatServer, me: Me, t: Thread) => t.createdBy === me.id || can(server, "manageChannels");
+/** Who runs a channel's threads: Manage channels, and on a stage its hosts (Manage events) too. */
+export const runsThreads = (server: ChatServer, channel: Channel) => can(server, "manageChannels") || (channel.kind === "stage" && can(server, "manageEvents"));
+
+/** Who can pin in a channel: Pin messages, and on a stage its hosts. */
+export const canPinIn = (server: ChatServer, channel: Channel) => can(server, "pinMessages") || (channel.kind === "stage" && can(server, "manageEvents"));
+
+/** Whether you can rename, close or retag a thread: whoever started it, and whoever runs the channel's threads. */
+export const canEditThread = (server: ChatServer, channel: Channel, me: Me, t: Thread) => t.createdBy === me.id || runsThreads(server, channel);
 
 /**
  * A forum channel: its posts, newest activity first, with tag filters and a form for a new post.
@@ -219,7 +226,7 @@ function NewPost({ server, channel, onClose, onPosted }: { server: ChatServer; c
 /** The header buttons on an open thread: rename, close or reopen, retag, delete. */
 export function ThreadActions({ server, me, thread, channel, onDeleted }: { server: ChatServer; me: Me; thread: Thread; channel: Channel; onDeleted: () => void }) {
   const [editing, setEditing] = useState(false);
-  const mod = can(server, "manageChannels");
+  const mod = runsThreads(server, channel);
   const canDelete = mod || can(server, "deleteMessages");
   const patch = async (body: object) => {
     try {
@@ -237,15 +244,15 @@ export function ThreadActions({ server, me, thread, channel, onDeleted }: { serv
       alert((err as Error).message);
     }
   };
-  if (!canEditThread(server, me, thread) && !canDelete) return null;
+  if (!canEditThread(server, channel, me, thread) && !canDelete) return null;
   return (
     <>
-      {canEditThread(server, me, thread) && (
+      {canEditThread(server, channel, me, thread) && (
         <button className="ghost icon" onClick={() => setEditing(true)} title="Edit thread" aria-label="Edit thread">
           ✎
         </button>
       )}
-      {canEditThread(server, me, thread) && (!thread.closed || mod) && (
+      {canEditThread(server, channel, me, thread) && (!thread.closed || mod) && (
         <button
           className="ghost icon"
           onClick={() => void patch({ closed: !thread.closed })}

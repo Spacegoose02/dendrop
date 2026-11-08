@@ -7,6 +7,7 @@ import {
   SERVER_PERMISSIONS,
   type AdminServer,
   type Channel,
+  type ChannelKind,
   type ChatServer,
   type ChatServerSummary,
   type CustomRole,
@@ -45,7 +46,7 @@ interface ChannelRow {
   id: number;
   server_id: number;
   conversation_id: number;
-  kind: "text" | "voice" | "forum";
+  kind: ChannelKind;
   name: string;
   topic: string;
   position: number;
@@ -111,7 +112,7 @@ export function cleanChannelName(v: unknown): string {
   return s;
 }
 
-const CHANNEL_KINDS = ["text", "voice", "forum"] as const;
+const CHANNEL_KINDS: ChannelKind[] = ["text", "voice", "stage", "forum"];
 
 /** A forum channel's tag list: short, unique names, in order. */
 export function cleanTags(v: unknown): string[] {
@@ -566,7 +567,7 @@ export class ServerRepo {
     topic: string,
     locked: boolean,
     access: number[],
-    kind: ChannelRow["kind"] = "text",
+    kind: ChannelKind = "text",
     roleAccess: number[] = [],
     tags: string[] = [],
   ): number {
@@ -590,7 +591,7 @@ export class ServerRepo {
     }
     const name = cleanChannelName(input.name);
     const topic = input.topic === undefined ? "" : cleanText(input.topic, LIMITS.channelTopic, "The topic", true);
-    if (input.kind !== undefined && !CHANNEL_KINDS.includes(input.kind as ChannelRow["kind"])) throw new HttpError(400, "A channel is text, voice or forum");
+    if (input.kind !== undefined && !CHANNEL_KINDS.includes(input.kind as ChannelRow["kind"])) throw new HttpError(400, "A channel is text, voice, stage or forum");
     const kind = (input.kind ?? "text") as ChannelRow["kind"];
     const tags = kind === "forum" && input.tags !== undefined ? cleanTags(input.tags) : [];
     const access = this.cleanAccess(serverId, input.memberIds);

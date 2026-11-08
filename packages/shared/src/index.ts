@@ -397,6 +397,7 @@ export type ServerPermission =
   | "deleteMessages"
   | "createInvites"
   | "manageExpressions"
+  | "manageEvents"
   | "pinMessages";
 
 export const SERVER_PERMISSIONS: ServerPermission[] = [
@@ -409,11 +410,14 @@ export const SERVER_PERMISSIONS: ServerPermission[] = [
   "deleteMessages",
   "createInvites",
   "manageExpressions",
+  "manageEvents",
   "pinMessages",
 ];
 
 /** Permissions that let someone moderate other people. Kid accounts can't hold them (or be admins). */
-export const MODERATION_PERMISSIONS: ServerPermission[] = SERVER_PERMISSIONS.filter((p) => p !== "createInvites" && p !== "manageExpressions" && p !== "pinMessages");
+export const MODERATION_PERMISSIONS: ServerPermission[] = SERVER_PERMISSIONS.filter(
+  (p) => p !== "createInvites" && p !== "manageExpressions" && p !== "manageEvents" && p !== "pinMessages",
+);
 
 /**
  * A role a server's moderators made, like "Cousins" or "Game night crew". Roles are ranked
@@ -612,10 +616,15 @@ export const AUTOMOD_LIMITS = {
 } as const;
 
 /**
- * Text channels hold messages; voice channels are rooms people drop into to talk (and keep a text
- * chat too); forum channels hold posts, each a thread with a title and tags, instead of one chat.
+ * Text channels hold messages; voice channels are rooms people drop into to talk (and keep a
+ * text chat too). Stage channels are voice rooms for game nights and movie nights: a few
+ * speakers talk and share their screen, everyone else listens and can raise a hand to speak.
+ * Forum channels hold posts, each a thread with a title and tags, instead of one chat.
  */
-export type ChannelKind = "text" | "voice" | "forum";
+export type ChannelKind = "text" | "voice" | "stage" | "forum";
+
+/** Voice and stage channels are both rooms people drop into. */
+export const isVoiceKind = (kind: ChannelKind): boolean => kind === "voice" || kind === "stage";
 
 export interface Channel {
   id: number;
@@ -695,6 +704,10 @@ export interface VoiceMember {
   video: boolean;
   screen: boolean;
   joinedAt: string;
+  /** Whether they can talk. Always true in a voice channel; on a stage, only for speakers. */
+  speaker: boolean;
+  /** On a stage: a listener asking to speak. */
+  handRaised: boolean;
 }
 
 /** Who is in a voice channel right now. Lives in memory on the server; empty channels aren't listed. */
@@ -702,6 +715,8 @@ export interface VoiceChannelState {
   channelId: number;
   serverId: number;
   conversationId: number;
+  /** A stage channel: only speakers talk, everyone else listens. */
+  stage: boolean;
   members: VoiceMember[];
 }
 
@@ -1134,6 +1149,60 @@ export const WEBHOOK_LIMITS = {
   perMinute: 30,
 } as const;
 
+// ---- Scheduled events -------------------------------------------------------------------
+
+/** Going: counting on it. Interested: maybe. Both get the reminders. */
+export type EventRsvp = "going" | "interested";
+
+/**
+ * A server event, like "Friday movie night". It happens in one of the server's voice or stage
+ * channels, or somewhere else (location). People RSVP, and everyone who did is reminded a
+ * little before it starts and again when it goes live. Events start by themselves at their time
+ * (or earlier, when a host starts them) and end at their end time, when a host ends them, or
+ * EVENT_LIMITS.openEndedHours after they started. A weekly event moves on to next week when it
+ * ends, keeping its RSVPs; any other event is gone once it ends.
+ */
+export interface ScheduledEvent {
+  id: number;
+  serverId: number;
+  name: string;
+  description: string;
+  /** The voice or stage channel it happens in, or null when it's somewhere else. */
+  channelId: number | null;
+  /** Where it is when it isn't in a channel ("Grandma's house"); "" otherwise. */
+  location: string;
+  startsAt: string;
+  /** Null: it runs until a host ends it. */
+  endsAt: string | null;
+  repeat: "none" | "weekly";
+  status: "scheduled" | "live";
+  /** Who made it (null if they left or their account is gone). */
+  createdBy: PublicUser | null;
+  /** Who is going and who is interested (user ids, current members only). */
+  goingIds: number[];
+  interestedIds: number[];
+  myRsvp: EventRsvp | null;
+  /** Whether you can edit, start, end or cancel it: Manage events, or you made it. */
+  canManage: boolean;
+  createdAt: string;
+}
+
+export const EVENT_LIMITS = {
+  name: 100,
+  description: 1000,
+  location: 100,
+  /** Scheduled and live events a server can have at once. */
+  perServer: 50,
+  /** How far ahead an event can be. */
+  maxDaysAhead: 366,
+  /** The longest an event can last. */
+  maxHours: 72,
+  /** Events with no end time end this long after they start, if no host ended them. */
+  openEndedHours: 12,
+  /** The heads-up comes this long before an event starts. */
+  reminderMinutes: 15,
+} as const;
+
 // ---- Polls, quick games, nudges and reminders ------------------------------------------
 
 /**
@@ -1370,6 +1439,12 @@ export type ServerEvent =
   | { type: "server.request"; request: ServerCreatorRequest }
   /** Someone joined, left or changed state in a voice channel you can see (or you were taken out of one). */
   | { type: "voice.updated"; voice: VoiceChannelState }
+  /** An event you can see was made, changed, started, or moved on to next week. Each viewer gets their own view. */
+  | { type: "event.updated"; event: ScheduledEvent }
+  /** An event ended (and doesn't repeat), was canceled, or you can't see it any more. */
+  | { type: "event.removed"; serverId: number; eventId: number }
+  /** To people who RSVP'd: an event starts soon (minutes > 0) or just went live (minutes = 0). */
+  | { type: "event.reminder"; event: ScheduledEvent; minutes: number }
   /** Your family changed: linked, unlinked, rules, or (for a kid) whether you can chat now. */
   | { type: "family.updated"; family: FamilyInfo }
   /** A new alert about one of your kids. */
