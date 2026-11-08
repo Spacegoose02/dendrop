@@ -38,6 +38,8 @@ export interface ServerConfig {
     adminGroup: string;
     autoCreate: boolean;
   };
+  /** "Sign in with Google": an OAuth client from Google Cloud. Off unless both are set. */
+  google: { clientId: string; clientSecret: string };
 }
 
 /** The LiveKit server shipped in the Docker image, started and stopped by Dendrop. */
@@ -81,6 +83,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       scopes: env.DENDROP_OIDC_SCOPES || "openid profile email groups",
       adminGroup: (env.DENDROP_OIDC_ADMIN_GROUP ?? "").trim(),
       autoCreate: bool(env.DENDROP_OIDC_AUTO_CREATE, true),
+    },
+    google: {
+      clientId: (env.DENDROP_GOOGLE_CLIENT_ID ?? "").trim(),
+      clientSecret: (env.DENDROP_GOOGLE_CLIENT_SECRET ?? "").trim(),
     },
   };
 }

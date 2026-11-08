@@ -7,6 +7,8 @@ import { ConversationRepo } from "../conversations.js";
 import { HttpError } from "../errors.js";
 import { FriendRepo } from "../friends.js";
 import { toMe } from "../users.js";
+import { hashPassword } from "../auth/crypto.js";
+import { checkNew, MIN_PASSWORD } from "./auth.js";
 
 const id = (v: unknown): number => {
   const n = Number(v);
@@ -76,6 +78,59 @@ export function familyRoutes(app: FastifyInstance, ctx: Context): void {
     return family.kidView(kid.id);
   });
 
+  // ---- Kid accounts under a parent's ---------------------------------------------------
+
+  /**
+   * A parent makes a kid account under theirs: they pick its username and password, and look
+   * after how it signs in. The kid signs in with it and sets up their own encryption.
+   */
+  app.post<{ Body: { username?: unknown; displayName?: unknown; password?: unknown; timezone?: unknown } }>("/api/family/kids", async (req) => {
+    const me = requireUser(req);
+    if (!ctx.signin.settings().parentKidAccounts) throw new HttpError(403, "The admin has switched off making kid accounts");
+    if (me.isKid || me.isBot) throw new HttpError(403, "Kid accounts can't make other accounts");
+    if (!me.publicKey) throw new HttpError(409, "Turn on end-to-end encryption first, so your kid's chats can be encrypted to you too");
+    const n = checkNew(ctx, req.body ?? {});
+    const kid = users.create({ username: n.username, displayName: n.displayName, passwordHash: await hashPassword(n.password), managedBy: me.id });
+    try {
+      family.link(me.id, kid.id, req.body?.timezone);
+    } catch (err) {
+      db.prepare("DELETE FROM users WHERE id = ?").run(kid.id);
+      throw err;
+    }
+    afterLink(kid.id);
+    return family.kidView(kid.id);
+  });
+
+  const managedKid = (parentId: number, kidId: number) => {
+    family.requireParent(parentId, kidId);
+    const kid = users.byId(kidId)!;
+    if (kid.managedBy === null) throw new HttpError(409, `${kid.displayName} has their own account, so only they can change how it signs in`);
+    return kid;
+  };
+
+  /** Any of a managed kid's parents can set its password. Signs the kid out everywhere. */
+  app.put<{ Params: { kidId: string }; Body: { password?: unknown } }>("/api/family/kids/:kidId/password", async (req) => {
+    const me = requireUser(req);
+    const kid = managedKid(me.id, id(req.params.kidId));
+    const password = req.body?.password;
+    if (typeof password !== "string" || password.length < MIN_PASSWORD) throw new HttpError(400, `Passwords need at least ${MIN_PASSWORD} characters`);
+    users.update(kid.id, { passwordHash: await hashPassword(password) });
+    ctx.sessions.endAllFor(kid.id);
+    return family.kidView(kid.id);
+  });
+
+  /**
+   * Hands a kid account over to the kid: it stays linked, with the same rules, but the kid now
+   * looks after its password and can link their own sign-ins.
+   */
+  app.post<{ Params: { kidId: string } }>("/api/family/kids/:kidId/release", async (req) => {
+    const me = requireUser(req);
+    const kid = managedKid(me.id, id(req.params.kidId));
+    users.setManagedBy(kid.id, null);
+    afterLink(kid.id);
+    return family.kidView(kid.id);
+  });
+
   /** Unlinks a kid from you (a parent), or from everyone (a super admin). Kids can't unlink themselves. */
   app.delete<{ Params: { kidId: string } }>("/api/family/kids/:kidId", async (req) => {
     const me = requireUser(req);
@@ -83,6 +138,13 @@ export function familyRoutes(app: FastifyInstance, ctx: Context): void {
     const parents = family.parentsOf(kidId);
     if (!parents.includes(me.id) && !me.isSuperAdmin) throw new HttpError(404, "That isn't one of your kids");
     const targets = parents.includes(me.id) ? [me.id] : parents;
+    const kid = users.byId(kidId)!;
+    if (kid.managedBy !== null) {
+      const left = parents.filter((p) => !targets.includes(p));
+      // The last parent can't walk away from an account only they can sign in to; hand it over first.
+      if (!left.length) throw new HttpError(409, `${kid.displayName}'s account is under yours. Hand it over to them before unlinking.`);
+      if (targets.includes(kid.managedBy)) users.setManagedBy(kidId, left[0]!);
+    }
     for (const p of targets) removeFiles(family.unlink(p, kidId));
     family.pushFamily([kidId, ...targets]);
     gateway.send([kidId], { type: "ready", user: toMe(users.byId(kidId)!) });

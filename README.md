@@ -77,6 +77,13 @@ Add an OIDC client in TinyAuth with the redirect URL
 `DENDROP_OIDC_CLIENT_ID` and `DENDROP_OIDC_CLIENT_SECRET`. Accounts are made the first time
 someone signs in. Once everyone uses TinyAuth you can set `DENDROP_LOCAL_LOGIN=false`.
 
+### Google, account linking and who can sign up
+
+People can link Google and TinyAuth to their account in Settings and sign in any way they
+like. A super admin switches sign-up, each sign-in method and kid accounts on and off under
+**Instance admin → Sign-in**. Setting up Google takes a few minutes in Google Cloud; see
+[docs/SIGN-IN.md](docs/SIGN-IN.md).
+
 ### Calls
 
 On by default, with nothing to set up beyond the two ports above. LiveKit finds your public

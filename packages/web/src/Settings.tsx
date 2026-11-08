@@ -16,6 +16,7 @@ import {
 } from "@dendrop/theme";
 import { LIMITS, type Me } from "@dendrop/shared";
 import { api } from "./api.ts";
+import { SignInSection } from "./SignIns.tsx";
 import { AudioSettings } from "./AudioSettings.tsx";
 import { useColors } from "./colors.ts";
 import { securityCode } from "./e2ee.ts";
@@ -123,6 +124,7 @@ function SettingsPane({
 
       <AccountSection me={me} onSaved={onSaved} />
       <EncryptionSection me={me} keyState={keyState} onEncryption={onEncryption} />
+      <SignInSection />
       <AudioSettings />
 
       <section>

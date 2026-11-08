@@ -1387,6 +1387,44 @@ button.attachment-file {
   color: var(--dd-danger);
 }
 
+/* Sign-in */
+.google-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 8px;
+  background: #fff;
+  color: #1f1f1f;
+  font-weight: 600;
+}
+.google-button:hover {
+  background: #f2f2f2;
+}
+.signin-switches {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.toggle.disabled {
+  opacity: 0.6;
+}
+.account-row {
+  flex-wrap: wrap;
+}
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: auto;
+}
+.family-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 /* Phones: the picker spans the screen instead of hanging off its button. */
 @media (max-width: 720px) {
   .expression-picker,

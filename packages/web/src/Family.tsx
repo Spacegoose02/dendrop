@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { Conversation, FamilyAlert, FamilyChat, FamilyInfo, FamilyKid, FamilyLinkCode, Friend, KidRules, LootdenKidLimits, Me, PublicUser } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { Avatar } from "./Avatar.tsx";
@@ -62,6 +62,7 @@ export function FamilyDialog({
               <KidCard key={k.user.id} kid={k} onChanged={onChanged} />
             ))}
             <LinkCode encryptionOn={encryptionOn} hasKids={family.kids.length > 0} />
+            <MakeKidAccount encryptionOn={encryptionOn} onChanged={onChanged} />
             {family.kids.length > 0 && <Webhook url={family.webhookUrl} onChanged={onChanged} />}
             {family.kids.length === 0 && <JoinAsKid onChanged={onChanged} />}
           </>
@@ -189,6 +190,73 @@ function JoinAsKid({ onChanged }: { onChanged: () => void }) {
 
 // ---- The parent's side ---------------------------------------------------------------------
 
+/** A kid account under the parent's: they pick its username and password and look after it. */
+function MakeKidAccount({ encryptionOn, onChanged }: { encryptionOn: boolean; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [username, setUsername] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const make = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await api<FamilyKid>("/api/family/kids", {
+        body: { username, displayName, password, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+      });
+      setOpen(false);
+      setUsername("");
+      setDisplayName("");
+      setPassword("");
+      onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section>
+      <h3>Make a kid account</h3>
+      <p className="muted small">
+        Or skip the code: make an account for your kid under yours. You pick the username and password and can reset it; your rules
+        apply straight away. You can hand it over to them later. Kids with their own account link with a code instead.
+      </p>
+      {open ? (
+        <form className="family-form" onSubmit={(e) => void make(e)}>
+          <label className="family-field">
+            Username
+            <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" required />
+          </label>
+          <label className="family-field">
+            Name friends see
+            <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={username} />
+          </label>
+          <label className="family-field">
+            Password
+            <input type="password" autoComplete="new-password" minLength={10} value={password} onChange={(e) => setPassword(e.target.value)} required />
+          </label>
+          {error && <p className="error small">{error}</p>}
+          <div className="family-row">
+            <button className="primary" disabled={busy}>
+              Make account
+            </button>
+            <button type="button" className="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : (
+        <button disabled={!encryptionOn} onClick={() => setOpen(true)}>
+          Make a kid account
+        </button>
+      )}
+    </section>
+  );
+}
+
 function LinkCode({ encryptionOn, hasKids }: { encryptionOn: boolean; hasKids: boolean }) {
   const [code, setCode] = useState<FamilyLinkCode | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -313,8 +381,31 @@ function KidCard({ kid, onChanged }: { kid: FamilyKid; onChanged: () => void }) 
   };
   const unlink = async () => {
     if (!confirm(`Unlink ${kid.user.displayName}? If you're their last parent it becomes a normal account, and its alerts and kept messages are erased.`)) return;
-    await api(`/api/family/kids/${kid.user.id}`, { method: "DELETE" });
-    onChanged();
+    try {
+      await api(`/api/family/kids/${kid.user.id}`, { method: "DELETE" });
+      onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+  const resetPassword = async () => {
+    const password = prompt(`New password for ${kid.user.displayName} (at least 10 characters). They'll be signed out and use this one.`);
+    if (!password) return;
+    try {
+      await api(`/api/family/kids/${kid.user.id}/password`, { method: "PUT", body: { password } });
+      alert(`${kid.user.displayName}'s password is changed.`);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+  const handOver = async () => {
+    if (!confirm(`Hand ${kid.user.displayName}'s account over to them? It stays linked with the same rules, but they'll look after their own password and can link Google.`)) return;
+    try {
+      await api(`/api/family/kids/${kid.user.id}/release`, { body: {} });
+      onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    }
   };
   const removeFriend = async (f: Friend) => {
     if (f.state === "friends" && !confirm(`Remove ${f.user.displayName} from ${kid.user.displayName}'s friends?`)) return;
@@ -329,6 +420,7 @@ function KidCard({ kid, onChanged }: { kid: FamilyKid; onChanged: () => void }) 
         <Avatar name={kid.user.displayName} size={32} />
         <span>
           <strong>{kid.user.displayName}</strong>
+          {kid.managed && <span className="muted small"> · under your account</span>}
           <span className="muted small">
             {" "}
             · <span title={kid.status.reason ?? undefined}>{kid.status.allowedNow ? "can chat now" : "can't chat right now"}</span> · {kid.status.minutesToday} min today
@@ -423,6 +515,16 @@ function KidCard({ kid, onChanged }: { kid: FamilyKid; onChanged: () => void }) 
         </button>
         {saved && <span className="muted small">Saved</span>}
         <span className="spacer" />
+        {kid.managed && (
+          <>
+            <button className="ghost" onClick={() => void resetPassword()}>
+              Set password
+            </button>
+            <button className="ghost" onClick={() => void handOver()}>
+              Hand over
+            </button>
+          </>
+        )}
         <button className="ghost danger" onClick={() => void unlink()}>
           Unlink
         </button>

@@ -456,6 +456,14 @@ export const MIGRATIONS: string[] = [
   );
   `,
   `
+  -- Linked sign-ins: a Google account next to the password and TinyAuth ones.
+  ALTER TABLE users ADD COLUMN google_subject TEXT;
+  ALTER TABLE users ADD COLUMN google_email TEXT;
+  CREATE UNIQUE INDEX users_google_subject ON users(google_subject);
+  -- A kid account a parent made under theirs. The parents look after how it signs in.
+  ALTER TABLE users ADD COLUMN managed_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+  `,
+  `
   -- Custom emoji and stickers, per server. The pictures live in <data>/uploads/<file>.
   CREATE TABLE server_emojis (
     id INTEGER PRIMARY KEY,

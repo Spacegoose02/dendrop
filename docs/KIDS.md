@@ -9,6 +9,12 @@ told what their parents can see, and so is everyone they chat with.
 - A parent turns on end-to-end encryption, then makes a **link code** (good for 24 hours) and
   the kid types it in on their own account. The app shows the kid what their parents will be
   able to see before they link.
+- Or a parent makes a **kid account under theirs** (Family → Make a kid account): they pick
+  the username and password, and the rules apply straight away. Kids under a parent can't
+  change their own password or link Google; any of their parents can set a new password. A
+  parent can **hand the account over** later: it stays a linked kid account with the same rules,
+  and the kid looks after their own sign-in from then on. The last parent can't unlink an
+  account under theirs without handing it over first. Super admins can switch this off.
 - Or a super admin links two accounts directly (`POST /api/admin/family`), for families who
   set the kids' accounts up for them.
 - A kid can have up to four parents. Kids can't unlink themselves; a parent can unlink

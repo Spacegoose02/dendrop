@@ -28,6 +28,11 @@ export interface Me extends PublicUser {
   isKid: boolean;
   /** Show friends and server-mates what you're playing (from LootDen). */
   shareActivity: boolean;
+  /**
+   * A kid account made by a parent, under theirs: its parents look after how it signs in, so it
+   * can't change its own password or linked sign-ins. Null for everyone else.
+   */
+  managedBy: number | null;
 }
 
 /** "held": both said yes, but a kid's parent still has to approve it before they can chat. */
@@ -275,8 +280,62 @@ export interface AuthInfo {
   /** True until the first account (the super admin) has been made. */
   needsSetup: boolean;
   oidc: { enabled: boolean; name: string };
+  /** "Sign in with Google" is set up and switched on. */
+  google: { enabled: boolean };
   localLogin: boolean;
   signup: boolean;
+}
+
+/** The super admin's switches for how people sign in and get accounts. */
+export interface SignInSettings {
+  /** Sign in with a username and password. */
+  passwordLogin: boolean;
+  /** Anyone can make a password account from the sign-in page. */
+  signup: boolean;
+  /** Sign in through TinyAuth (or another OpenID Connect provider). */
+  tinyauth: boolean;
+  /** A first TinyAuth sign-in makes a Dendrop account. */
+  tinyauthSignup: boolean;
+  /** Sign in with Google. */
+  google: boolean;
+  /** A first Google sign-in makes a Dendrop account. Off: Google only works once linked in Settings. */
+  googleSignup: boolean;
+  /** People can link TinyAuth and Google to their account in Settings. */
+  linking: boolean;
+  /** Parents can make kid accounts under theirs. */
+  parentKidAccounts: boolean;
+}
+
+/** GET /api/admin/signin. */
+export interface AdminSignIn {
+  settings: SignInSettings;
+  /** Which providers the server is configured for (they also need DENDROP_PUBLIC_URL). */
+  configured: { tinyauth: boolean; tinyauthName: string; google: boolean; publicUrl: boolean };
+}
+
+export type SignInProvider = "tinyauth" | "google";
+
+/** GET /api/me/signins: the ways you can sign in, and what you could link. */
+export interface MySignIns {
+  password: boolean;
+  tinyauth: { name: string; linked: boolean; available: boolean };
+  google: { linked: boolean; email: string | null; available: boolean };
+  /** Linking is switched on by the admin (and you aren't a kid account under a parent). */
+  canLink: boolean;
+  /** For a kid account under a parent: who looks after its sign-in. */
+  managedBy: PublicUser | null;
+}
+
+/** An account as the super admin sees it, for managing sign-ins. */
+export interface AdminAccount {
+  user: PublicUser;
+  isSuperAdmin: boolean;
+  isKid: boolean;
+  managedBy: string | null;
+  password: boolean;
+  tinyauth: boolean;
+  google: string | null;
+  createdAt: string;
 }
 
 /** GET /api/server: what this server allows, for signed-in clients. */
@@ -632,6 +691,8 @@ export interface FamilyKid {
   rules: KidRules;
   status: KidStatus;
   linkedAt: string;
+  /** Made by a parent under their account: the parents look after its password. */
+  managed: boolean;
 }
 
 export type FamilyAlertType =

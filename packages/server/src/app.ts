@@ -10,6 +10,7 @@ import type { ClientEvent } from "@dendrop/shared";
 import { AutomodService } from "./automod.js";
 import { BotService, type BotFetch } from "./bots.js";
 import { OidcService } from "./auth/oidc.js";
+import { SignInService } from "./signin.js";
 import { SESSION_COOKIE, SessionService } from "./auth/sessions.js";
 import type { ServerConfig } from "./config.js";
 import { openDb, type Db } from "./db.js";
@@ -23,6 +24,7 @@ import { LootdenLink, type LootdenFetch } from "./lootden.js";
 import { PushService } from "./push.js";
 import { pushRoutes } from "./routes/push.js";
 import { authRoutes } from "./routes/auth.js";
+import { signInRoutes } from "./routes/signin.js";
 import { botRoutes } from "./routes/bots.js";
 import { dmRoutes } from "./routes/dms.js";
 import { expressionRoutes } from "./routes/expressions.js";
@@ -45,7 +47,12 @@ export interface Context {
   db: Db;
   users: UserRepo;
   sessions: SessionService;
+  /** TinyAuth (or another OpenID Connect provider). */
   oidc: OidcService;
+  /** Sign in with Google. */
+  google: OidcService;
+  /** The super admin's sign-in switches. */
+  signin: SignInService;
   gateway: Gateway;
   push: PushService;
   /** Kid accounts, parents, rules and alerts. */
@@ -91,6 +98,7 @@ export async function buildApp(
       : Fastify({ logger, trustProxy: true })
   ) as unknown as FastifyInstance;
   const users = new UserRepo(db);
+  const signin = new SignInService(db, config);
   const gateway = new Gateway();
   const family = new FamilyService(db, users, gateway, { publicUrl: config.publicUrl }, options.webhookPost);
   const push = new PushService(db, { publicUrl: config.publicUrl, allowHttp: config.pushAllowHttp }, options.pushPost);
@@ -100,7 +108,9 @@ export async function buildApp(
     db,
     users,
     sessions: new SessionService(db, users),
-    oidc: new OidcService(config, users),
+    oidc: new OidcService(config, users, signin, "tinyauth"),
+    google: new OidcService(config, users, signin, "google"),
+    signin,
     gateway,
     push,
     family,
@@ -144,6 +154,7 @@ export async function buildApp(
   app.get("/api/health", async () => ({ status: "ok" }));
 
   await app.register(async (api) => authRoutes(api, ctx));
+  await app.register(async (api) => signInRoutes(api, ctx));
   await app.register(async (api) => dmRoutes(api, ctx));
   await app.register(async (api) => expressionRoutes(api, ctx));
   await app.register(async (api) => pushRoutes(api, ctx));
