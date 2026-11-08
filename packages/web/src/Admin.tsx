@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { GIF_RATINGS, type AdminServer, type ChannelRef, type ChatServer, type DendutyStatus, type GifRating, type GifSettings, type WatchSettings, type LootdenStatus, type ServerCreatorRequest } from "@dendrop/shared";
+import { GIF_RATINGS, type AdminServer, type ChannelRef, type ChatServer, type DendutyStatus, type GifRating, type GifSettings, type WatchSettings, type LinkPreviewSettings, type LootdenStatus, type ServerCreatorRequest } from "@dendrop/shared";
 import { api } from "./api.ts";
+import { refreshPreviewSettings } from "./LinkPreview.tsx";
 import { Modal } from "./Modal.tsx";
 import { AdminSignInSection } from "./SignIns.tsx";
 import { ServerIcon } from "./Servers.tsx";
@@ -90,6 +91,7 @@ export function AdminDialog({ onClose, version }: { onClose: () => void; version
 
       <GifSection />
       <WatchSection />
+      <LinkPreviewSection />
       <LootdenSection />
       <DendutySection />
     </Modal>
@@ -140,6 +142,43 @@ function WatchSection() {
 }
 
 const RATING_NAMES: Record<GifRating, string> = { g: "G (all ages)", pg: "PG", "pg-13": "PG-13", r: "R" };
+
+/** Link previews: off until a super admin turns them on, since the server fetches outside pages. */
+function LinkPreviewSection() {
+  const [settings, setSettings] = useState<LinkPreviewSettings | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    void api<LinkPreviewSettings>("/api/admin/link-previews").then(setSettings, (err: Error) => setError(err.message));
+  }, []);
+  const save = async (enabled: boolean) => {
+    setError(null);
+    try {
+      setSettings(await api<LinkPreviewSettings>("/api/admin/link-previews", { method: "PUT", body: { enabled } }));
+      refreshPreviewSettings();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+  return (
+    <>
+      <div className="section-label">Link previews</div>
+      <p className="muted small">
+        Shows a card (title, a line of text and a picture) under links in chats. This server fetches the pages and pictures itself, so people's devices never contact
+        the sites, but the sites do see this server's address. It never fetches anything on your home network. Encrypted chats only get previews for people who turn
+        that on, and kids only when a parent allows it.
+      </p>
+      {settings && (
+        <div className="row">
+          <button className={settings.enabled ? "ghost" : "primary"} onClick={() => void save(!settings.enabled)}>
+            {settings.enabled ? "Turn link previews off" : "Turn link previews on"}
+          </button>
+          <span className="muted small">{settings.enabled ? "Link previews are on." : "Link previews are off."}</span>
+        </div>
+      )}
+      {error && <p className="error small">{error}</p>}
+    </>
+  );
+}
 
 /** GIF search through GIPHY: off until a super admin adds an API key and turns it on. */
 function GifSection() {

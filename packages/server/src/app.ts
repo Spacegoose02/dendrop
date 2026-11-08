@@ -20,6 +20,9 @@ import { FamilyService, type WebhookPost } from "./family.js";
 import { Gateway } from "./gateway.js";
 import { WatchSettingsStore } from "./watch.js";
 import { GifService, type GifFetch } from "./gifs.js";
+import { LinkPreviewService, type PreviewFetch } from "./link-previews.js";
+import { NotificationService } from "./notifications.js";
+import { searchRoutes } from "./routes/search.js";
 import { DendutyLink, type DendutyFetch } from "./denduty.js";
 import { EventService } from "./events.js";
 import type { LevelService } from "./levels.js";
@@ -77,6 +80,12 @@ export interface Context {
   bots: BotService;
   /** GIF search through GIPHY, off until a super admin sets it up. */
   gifs: GifService;
+  /** Who hears about which messages (per conversation and server), and delivering new ones. */
+  notifications: NotificationService;
+  /** Preview cards under links, off until a super admin turns them on. */
+  linkPreviews: LinkPreviewService;
+  /** Set by the server routes: whether someone may ping @everyone in a channel (always yes in DMs). */
+  canMentionEveryone?: (conversationId: number, userId: number) => boolean;
   /** Scheduled events in servers: RSVPs, reminders, starting and ending them. */
   events: EventService;
   /** Couples kits: private extras for 1:1 DMs between two adults. */
@@ -112,7 +121,7 @@ export interface BuiltApp {
 export async function buildApp(
   config: ServerConfig,
   db: Db = openDb(path.join(config.dataDir, "dendrop.db")),
-  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2]; apnsSend?: ConstructorParameters<typeof PushService>[3]; webhookPost?: WebhookPost; lootdenFetch?: LootdenFetch; dendutyFetch?: DendutyFetch; botFetch?: BotFetch; gifFetch?: GifFetch } = {},
+  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2]; apnsSend?: ConstructorParameters<typeof PushService>[3]; webhookPost?: WebhookPost; lootdenFetch?: LootdenFetch; dendutyFetch?: DendutyFetch; botFetch?: BotFetch; gifFetch?: GifFetch; previewFetch?: PreviewFetch } = {},
 ): Promise<BuiltApp> {
   const logger = process.env.NODE_ENV === "test" ? false : { level: process.env.DENDROP_LOG_LEVEL ?? "info" };
   // Built-in HTTPS (config.tls) is the same app on an https server; the types are the plain one's.
@@ -143,6 +152,8 @@ export async function buildApp(
     denduty: new DendutyLink(db, users, gateway, family, push, options.dendutyFetch),
     bots: new BotService(db, users, gateway, automod, family, push, options.botFetch, (msg, err) => app.log.warn({ err }, msg)),
     gifs: new GifService(db, family, config.dataDir, options.gifFetch),
+    notifications: new NotificationService(db, gateway, push),
+    linkPreviews: new LinkPreviewService(db, family, config.dataDir, options.previewFetch),
     events: new EventService(db, users, gateway, push),
     watch: new WatchSettingsStore(db),
     couples: new CouplesService(db, users, gateway, path.join(config.dataDir, "uploads"), (ids) => void push.notify(ids, "message")),
@@ -202,6 +213,7 @@ export async function buildApp(
   await app.register(async (api) => botRoutes(api, ctx));
   await app.register(async (api) => couplesRoutes(api, ctx));
   await app.register(async (api) => profileRoutes(api, ctx));
+  await app.register(async (api) => searchRoutes(api, ctx));
   await app.register(async (api) => gatewayRoute(api, ctx));
   builtinLivekit(app, config);
   ctx.events.start();

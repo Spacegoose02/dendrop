@@ -192,11 +192,7 @@ export function webhookRoutes(app: FastifyInstance, ctx: Context): void {
     const m = convos.send(channel.conversationId, r.created_by, text, [], null, { id: r.id, name: name ?? r.name });
     db.prepare("UPDATE webhooks SET last_used_at = ? WHERE id = ?").run(now(), r.id);
     const memberIds = convos.memberIds(channel.conversationId);
-    gateway.send(memberIds, { type: "message.created", message: m });
-    void ctx.push.notify(
-      memberIds.filter((u) => !gateway.isOnline(u)),
-      "message",
-    );
+    ctx.notifications.deliver(m, memberIds, null);
     return reply.code(204).send();
   });
 }

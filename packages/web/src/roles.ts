@@ -16,6 +16,7 @@ export const PERMISSION_INFO: Record<ServerPermission, { label: string; detail: 
   manageExpressions: { label: "Manage emoji & stickers", detail: "Upload, rename and delete the server's custom emoji and stickers.", moderates: false },
   pinMessages: { label: "Pin messages", detail: "Pin and unpin messages on the pinned board.", moderates: false },
   manageEvents: { label: "Manage events", detail: "Plan, change, start and cancel events, and run stage channels (who gets to speak).", moderates: false },
+  mentionEveryone: { label: "Mention @everyone", detail: "Ping everyone who can see a channel with @everyone.", moderates: false },
 };
 
 /** A member's custom roles, highest first. */

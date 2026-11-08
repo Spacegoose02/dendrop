@@ -178,6 +178,10 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Backbone | Creator is owner of chat server | 3 | Done (owner and admin roles, ownership transfer) |
 | Backbone | Approval needed to create servers | 3 | Done |
 | Features | Message read receipts | 1 | Done |
+| Features | Message search | 3 | Done: full-text search of channels and plain DMs on the server; encrypted chats searched on the device ([MESSAGES.md](MESSAGES.md)) |
+| Features | Replies and @mentions | 3 | Done: replies with a ping switch, @name and @everyone (a server permission), per-chat and per-server notification settings ([MESSAGES.md](MESSAGES.md)) |
+| Features | Markdown | 3 | Done: bold, italic, underline, strike, code and code blocks, spoilers, quotes, headings, lists ([MESSAGES.md](MESSAGES.md)) |
+| Features | Link previews | 3 | Done: off until a super admin turns them on; fetched by the server, never from the home network; off in encrypted chats unless opted in; kids need a parent's OK ([MESSAGES.md](MESSAGES.md)) |
 | Features | Emojis | 1 | Done: searchable picker, `:name:` suggestions, reactions ([EXPRESSIONS.md](EXPRESSIONS.md)) |
 | Features | GIFs | 3 | Done: GIPHY search, off until a super admin adds a key; searches and GIFs go through the server; kids need a parent's OK and get G only ([EXPRESSIONS.md](EXPRESSIONS.md)) |
 | Features | Custom app icons | 7 | Missing |

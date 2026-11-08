@@ -47,11 +47,7 @@ export function funRoutes(app: FastifyInstance, ctx: Context): void {
   const announce = (m: Message, from: number) => {
     const memberIds = convos.memberIds(m.conversationId);
     for (const fn of ctx.onMessageCreated) fn(m);
-    gateway.send(memberIds, { type: "message.created", message: m });
-    void ctx.push.notify(
-      memberIds.filter((u) => u !== from && !gateway.isOnline(u)),
-      "message",
-    );
+    ctx.notifications.deliver(m, memberIds, from);
     return m;
   };
   const changed = (messageId: number) => {

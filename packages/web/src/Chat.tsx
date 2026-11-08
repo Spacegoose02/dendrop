@@ -41,6 +41,11 @@ import { EncryptionInfo } from "./EncryptionInfo.tsx";
 import { CouplesKitDialog, useCouplesKit } from "./Couples.tsx";
 import { useColors } from "./colors.ts";
 import { conversationTitle, upsert, type History } from "./util.ts";
+import { Markdown, plainText } from "./markdown.tsx";
+import { fromMentionTokens, mentionSuggestions, mentionsIn, toMentionTokens, typedMention } from "./mentions.ts";
+import { NotifyMenu } from "./notify.tsx";
+import { LinkPreviews } from "./LinkPreview.tsx";
+import { clearJump, openSearch, requestJump, useJumpTarget } from "./Search.tsx";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const bytes = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
@@ -74,6 +79,10 @@ export interface ChannelInfo {
   actions?: ReactNode;
   /** What the start of the history says instead of the channel's usual line. */
   intro?: ReactNode;
+  /** The server's name (for the notification menu). */
+  serverName?: string;
+  /** Whether you may ping @everyone here. */
+  canMentionEveryone?: boolean;
 }
 
 export function Chat({
@@ -115,6 +124,12 @@ export function Chat({
 }) {
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
+  /** The message being answered, and whether its author gets pinged. */
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [replyPing, setReplyPing] = useState(true);
+  /** A message to scroll to (from search or a reply), and the one briefly highlighted. */
+  const jumpTarget = useJumpTarget(conversation.id);
+  const [flash, setFlash] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
@@ -294,6 +309,30 @@ export function Chat({
     }
   };
 
+  // Search (or a reply) asked to show a message: load older pages until it's here, then go to it.
+  const jumpPages = useRef(0);
+  useEffect(() => {
+    if (!jumpTarget || !history) return;
+    if (history.messages.some((m) => m.id === jumpTarget)) {
+      requestAnimationFrame(() => jumpTo(jumpTarget));
+      jumpPages.current = 0;
+      clearJump();
+      return;
+    }
+    const first = history.messages[0];
+    if (!history.hasMore || !first || first.id < jumpTarget || jumpPages.current >= 60 || loadingOlder) {
+      if (!loadingOlder) {
+        setNotice("That message isn't in the loaded history.");
+        jumpPages.current = 0;
+        clearJump();
+      }
+      return;
+    }
+    jumpPages.current++;
+    void loadOlder();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpTarget, history, loadingOlder]);
+
   const send = async () => {
     const cmd = files.length === 0 ? slashCommand(draft) : null;
     if (cmd) {
@@ -304,7 +343,7 @@ export function Chat({
       else void sendNudge(cmd.nudge);
       return;
     }
-    const body = toTokens(draft.trim(), emojis);
+    const body = toMentionTokens(toTokens(draft.trim(), emojis), conversation.members);
     if ((!body && files.length === 0) || sending) return;
     if (filter && findBlockedWords(body, filter).length) {
       setError("That message has a word your family filter blocks. Your parents get a heads-up (not the word).");
@@ -312,8 +351,11 @@ export function Chat({
       return;
     }
     const sendingFiles = files;
+    const reply = replyTo ? { replyToId: replyTo.id, replyPing } : undefined;
+    const answering = replyTo;
     setDraft("");
     setFiles([]);
+    setReplyTo(null);
     setError(null);
     stickToBottom.current = true;
     setSending(true);
@@ -321,15 +363,16 @@ export function Chat({
       // A key can change under us (someone reset theirs), so try once more with a fresh view.
       let m: Message;
       try {
-        m = await post(conversation, body, sendingFiles);
+        m = await post(conversation, body, sendingFiles, reply);
       } catch (err) {
         if (!(err instanceof ApiError && err.status === 409)) throw err;
-        m = await post(await api<Conversation>(`/api/conversations/${conversation.id}`), body, sendingFiles);
+        m = await post(await api<Conversation>(`/api/conversations/${conversation.id}`), body, sendingFiles, reply);
       }
       const shown = await reveal(m);
       setHistory((h) => (h ? { ...h, messages: upsert(h.messages, shown) } : { messages: [shown], hasMore: false }));
     } catch (err) {
-      setDraft(fromTokens(body, emojis));
+      setDraft(fromMentionTokens(fromTokens(body, emojis), conversation.members));
+      setReplyTo(answering);
       setFiles(sendingFiles);
       setError((err as Error).message);
     } finally {
@@ -420,23 +463,31 @@ export function Chat({
   };
 
   /** Sends a message: encrypted once the conversation has a key, plain until everyone has set up. */
-  const post = async (c: Conversation, body: string, sendingFiles: File[]): Promise<Message> => {
+  const post = async (c: Conversation, body: string, sendingFiles: File[], reply?: { replyToId: number; replyPing: boolean }): Promise<Message> => {
     const url = `/api/conversations/${c.id}/messages`;
     // Server channels aren't end-to-end encrypted yet, so they never make keys.
     const version = channel ? null : await keyring.forSending(c);
+    const extra: Record<string, string> = reply ? { replyToId: String(reply.replyToId), replyPing: String(reply.replyPing) } : {};
     if (version) {
+      // The server can't read an encrypted message, so it's told who it pings (only that).
+      const pings = mentionsIn(body);
+      const meta = { ...(reply ?? {}), mentions: pings.ids, mentionsEveryone: pings.everyone };
       const encrypted = await Promise.all(sendingFiles.map((f) => encryptFile(c.id, version, f)));
       const cipher = await encryptMessage(c.id, me.id, version, body, encrypted.map((x) => x.meta));
-      if (encrypted.length === 0) return api<Message>(url, { body: { body: cipher, keyVersion: version } });
+      if (encrypted.length === 0) return api<Message>(url, { body: { body: cipher, keyVersion: version, ...meta } });
       const form = new FormData();
       form.append("body", cipher);
       form.append("keyVersion", String(version));
+      for (const [k, v] of Object.entries(extra)) form.append(k, v);
+      form.append("mentions", JSON.stringify(pings.ids));
+      form.append("mentionsEveryone", String(pings.everyone));
       for (const x of encrypted) form.append("file", x.blob, "file");
       return apiForm<Message>(url, form);
     }
-    if (sendingFiles.length === 0) return api<Message>(url, { body: { body } });
+    if (sendingFiles.length === 0) return api<Message>(url, { body: { body, ...(reply ?? {}) } });
     const form = new FormData();
     form.append("body", body);
+    for (const [k, v] of Object.entries(extra)) form.append(k, v);
     for (const f of sendingFiles) form.append("file", f, f.name);
     return apiForm<Message>(url, form);
   };
@@ -452,25 +503,34 @@ export function Chat({
       setSuggestAt((i) => (i + (e.key === "ArrowUp" ? suggestions.length - 1 : 1)) % suggestions.length);
       return;
     }
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    if (e.key === "Escape" && replyTo) {
+      e.preventDefault();
+      setReplyTo(null);
+    } else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void send();
     } else if (e.key === "ArrowUp" && !draft) {
       const mine = [...(history?.messages ?? [])].reverse().find((m) => m.authorId === me.id && !m.webhook && !m.deleted && !m.locked);
       if (mine) {
         e.preventDefault();
-        setEditing({ id: mine.id, text: fromTokens(mine.text, emojis) });
+        setEditing({ id: mine.id, text: fromMentionTokens(fromTokens(mine.text, emojis), conversation.members) });
       }
     }
   };
 
-  // ":rac" before the cursor offers matching emoji.
+  // ":rac" before the cursor offers matching emoji, and "@ka" matching people.
   const caret = inputRef.current?.selectionStart ?? draft.length;
   const typed = /(?:^|\s):([A-Za-z0-9_]{2,32})$/.exec(draft.slice(0, caret));
-  const suggestions = typed ? suggest(typed[1]!, emojis) : [];
+  const atTyped = typed ? null : typedMention(draft, caret);
+  const everyoneOk = channel ? !!channel.canMentionEveryone : conversation.isGroup;
+  const suggestions: { label: string; insert: string; custom?: (ReturnType<typeof suggest>)[number]["custom"]; emoji?: string; user?: { displayName: string } }[] = typed
+    ? suggest(typed[1]!, emojis)
+    : atTyped
+      ? mentionSuggestions(atTyped.query, conversation.members, me.id, everyoneOk)
+      : [];
   const pickSuggestion = (insert: string) => {
-    if (!typed) return;
-    const start = caret - typed[1]!.length - 1;
+    if (!typed && !atTyped) return;
+    const start = typed ? caret - typed[1]!.length - 1 : atTyped!.start;
     const text = draft.slice(0, start) + insert + " " + draft.slice(caret);
     setDraft(text);
     setSuggestAt(0);
@@ -488,7 +548,7 @@ export function Chat({
 
   const saveEdit = async () => {
     if (!editing) return;
-    const text = toTokens(editing.text.trim(), emojis);
+    const text = toMentionTokens(toTokens(editing.text.trim(), emojis), conversation.members);
     const original = history?.messages.find((m) => m.id === editing.id);
     setEditing(null);
     if (!text || !original || text === original.text) return;
@@ -501,7 +561,11 @@ export function Chat({
       const edit = async (c: Conversation) => {
         const version = channel ? null : await keyring.forSending(c);
         const body = version ? await encryptMessage(c.id, me.id, version, text, original.files ?? []) : text;
-        return api<Message>(`/api/messages/${original.id}`, { method: "PATCH", body: { body, keyVersion: version } });
+        const pings = mentionsIn(text);
+        return api<Message>(`/api/messages/${original.id}`, {
+          method: "PATCH",
+          body: { body, keyVersion: version, ...(version ? { mentions: pings.ids, mentionsEveryone: pings.everyone } : {}) },
+        });
       };
       try {
         await edit(conversation);
@@ -540,6 +604,20 @@ export function Chat({
     }
   };
   const nameOf = (id: number) => members.get(id)?.displayName ?? "Someone";
+  const mine_ = (m: ChatMessage) => m.authorId === me.id && !m.webhook;
+  const maskText = (t: string) => (filter ? maskBlockedWords(t, filter) : t);
+  /** Scrolls to a message and highlights it for a moment; older pages load until it's there. */
+  const jumpTo = (messageId: number) => {
+    const el = document.getElementById(`msg-${messageId}`);
+    if (el) {
+      stickToBottom.current = false;
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      setFlash(messageId);
+      setTimeout(() => setFlash((f) => (f === messageId ? null : f)), 2000);
+      return true;
+    }
+    return false;
+  };
   const typingNames = typingIds.filter((id) => id !== me.id).map((id) => members.get(id)?.displayName ?? "Someone");
 
   return (
@@ -577,6 +655,12 @@ export function Chat({
             </>
           )
         )}
+        <span className="header-actions header-tools">
+          <button className="ghost icon" onClick={() => openSearch(channel ? { serverId: channel.serverId, conversationId: conversation.id } : { conversationId: conversation.id })} title="Search messages (Ctrl+F)" aria-label="Search messages">
+            🔍
+          </button>
+          <NotifyMenu conversationId={conversation.id} serverId={channel?.serverId} serverName={channel?.serverName} />
+        </span>
         {(channel?.onPins || channel?.actions) && (
           <span className="header-actions">
             {channel.actions}
@@ -667,7 +751,8 @@ export function Chat({
         {messages.map((m, i) => {
           const prev = messages[i - 1];
           const newDay = !prev || day(prev.createdAt) !== day(m.createdAt);
-          const grouped = !newDay && continues(prev, m);
+          const grouped = !newDay && continues(prev, m) && !m.replyTo;
+          const pingsMe = !m.deleted && !mine_(m) && (!!m.mentionsEveryone || !!m.mentions?.includes(me.id));
           const author = m.webhook ? undefined : members.get(m.authorId);
           const authorName = m.webhook ? m.webhook.name : (author?.displayName ?? "Someone who left");
           const mine = m.authorId === me.id && !m.webhook;
@@ -679,9 +764,9 @@ export function Chat({
             void report("profanity");
           }
           return (
-            <div key={m.id}>
+            <div key={m.id} id={`msg-${m.id}`}>
               {newDay && <div className="day-sep">{day(m.createdAt)}</div>}
-              <div className={`msg ${grouped ? "grouped" : ""}`} tabIndex={!m.deleted ? 0 : undefined}>
+              <div className={`msg ${grouped ? "grouped" : ""} ${pingsMe ? "mentioned" : ""} ${flash === m.id ? "flash" : ""}`} tabIndex={!m.deleted ? 0 : undefined}>
                 {grouped ? (
                   <span className="msg-time-gutter">{time(m.createdAt)}</span>
                 ) : (
@@ -690,6 +775,7 @@ export function Chat({
                   </ProfileLink>
                 )}
                 <div className="msg-content">
+                  {m.replyTo && <ReplyLine reply={m.replyTo} conversationId={m.conversationId} history={messages} nameOf={nameOf} meId={me.id} mask={maskText} onJump={() => void (jumpTo(m.replyTo!.id) || requestJump(conversation.id, m.replyTo!.id))} />}
                   {!grouped && (
                     <div className="msg-head">
                       <ProfileLink userId={m.webhook ? undefined : author?.id} serverId={channel?.serverId}>
@@ -752,13 +838,14 @@ export function Chat({
                         <GifView id={gifIn(m.text)!} link={m.text.trim()} />
                       ) : (
                         m.text && (
-                          <p className="msg-body" style={colors.text}>
-                            <RichText text={shown} />
+                          <div className="msg-body" style={colors.text}>
+                            <Markdown text={shown} nameOf={nameOf} meId={me.id} />
                             {m.editedAt && <span className="muted small"> (edited)</span>}
-                          </p>
+                          </div>
                         )
                       )}
                       {m.text && !m.poll && <GameLinks text={m.text} />}
+                      {m.text && !m.poll && !m.game && !gifIn(m.text) && !stickerIn(m.text) && <LinkPreviews text={m.text} encrypted={!!m.keyVersion} mask={maskText} />}
                       <MessageButtons m={m} />
                       {m.attachments.length > 0 && (
                         <div className="attachments">
@@ -820,6 +907,20 @@ export function Chat({
                         {m.pinned ? "Unpin" : "📌"}
                       </button>
                     )}
+                    {canReact && !m.locked && !channel?.readOnly && (
+                      <button
+                        className="ghost"
+                        onClick={() => {
+                          setReplyTo(m);
+                          setReplyPing(!m.webhook);
+                          inputRef.current?.focus();
+                        }}
+                        title="Reply"
+                        aria-label="Reply"
+                      >
+                        ↩
+                      </button>
+                    )}
                     {canReact && !m.locked && (
                       <button className="ghost" data-picker-toggle onClick={(e) => openReactions(m.id, e.currentTarget)} title="Add a reaction" aria-label="Add a reaction">
                         ☺+
@@ -831,7 +932,7 @@ export function Chat({
                       </button>
                     )}
                     {mine && !m.locked && !m.poll && !m.game && !m.nudge && (
-                      <button className="ghost" onClick={() => setEditing({ id: m.id, text: fromTokens(m.text, emojis) })} title="Edit">
+                      <button className="ghost" onClick={() => setEditing({ id: m.id, text: fromMentionTokens(fromTokens(m.text, emojis), conversation.members) })} title="Edit">
                         Edit
                       </button>
                     )}
@@ -900,8 +1001,23 @@ export function Chat({
             ))}
           </div>
         )}
+        {replyTo && (
+          <div className="reply-bar small">
+            <span className="ellipsis">
+              Replying to <strong>{replyTo.webhook?.name ?? nameOf(replyTo.authorId)}</strong>
+            </span>
+            {!replyTo.webhook && replyTo.authorId !== me.id && (
+              <button className={`ghost small ${replyPing ? "on" : ""}`} onClick={() => setReplyPing(!replyPing)} title={replyPing ? "They'll be pinged. Click to reply without a ping." : "They won't be pinged. Click to ping them."} aria-pressed={replyPing}>
+                {replyPing ? "@ On" : "@ Off"}
+              </button>
+            )}
+            <button className="ghost" onClick={() => setReplyTo(null)} aria-label="Cancel the reply">
+              ✕
+            </button>
+          </div>
+        )}
         {suggestions.length > 0 && (
-          <div className="emoji-suggest" role="listbox" aria-label="Emoji">
+          <div className="emoji-suggest" role="listbox" aria-label={atTyped ? "People" : "Emoji"}>
             {suggestions.map((x, i) => (
               <button
                 key={x.label + i}
@@ -913,7 +1029,17 @@ export function Chat({
                   pickSuggestion(x.insert);
                 }}
               >
-                {x.custom ? <RichText inline text={`<${x.custom.animated ? "a" : ""}:${x.custom.name}:${x.custom.id}>`} /> : x.emoji} <span className="small">{x.label}</span>
+                {x.user ? (
+                  <>
+                    <Avatar name={x.user.displayName} size={20} /> <span className="small">{x.label}</span> <span className="muted small">{x.insert}</span>
+                  </>
+                ) : x.insert === "@everyone" ? (
+                  <span className="small">@everyone · everyone here</span>
+                ) : (
+                  <>
+                    {x.custom ? <RichText inline text={`<${x.custom.animated ? "a" : ""}:${x.custom.name}:${x.custom.id}>`} /> : x.emoji} <span className="small">{x.label}</span>
+                  </>
+                )}
               </button>
             ))}
           </div>
@@ -1142,5 +1268,47 @@ export function AttachmentView({ a }: { a: Attachment }) {
       <span className="ellipsis">{a.name}</span>
       <span className="muted small">{bytes(a.size)}</span>
     </a>
+  );
+}
+
+/** The line above a reply: who said what it answers. Click to go to it. */
+function ReplyLine({
+  reply,
+  conversationId,
+  history,
+  nameOf,
+  meId,
+  mask,
+  onJump,
+}: {
+  reply: NonNullable<Message["replyTo"]>;
+  conversationId: number;
+  history: ChatMessage[];
+  nameOf: (id: number) => string;
+  meId: number;
+  mask: (t: string) => string;
+  onJump: () => void;
+}) {
+  const loaded = history.find((m) => m.id === reply.id);
+  const [text, setText] = useState<string | null>(loaded?.text ?? (reply.keyVersion ? null : reply.body));
+  useEffect(() => {
+    if (loaded) return setText(loaded.locked ? null : loaded.text);
+    if (!reply.keyVersion || reply.deleted) return;
+    let live = true;
+    // An encrypted message: decrypt it like any other.
+    void reveal({ id: reply.id, conversationId, authorId: reply.authorId, body: reply.body, keyVersion: reply.keyVersion, createdAt: "", editedAt: null, deleted: false, attachments: [], webhook: null, buttons: null, reactions: [] }).then(
+      (m) => live && setText(m.locked ? null : m.text),
+    );
+    return () => {
+      live = false;
+    };
+  }, [loaded, reply, conversationId]);
+  const who = reply.webhookName ?? nameOf(reply.authorId);
+  return (
+    <button className="reply-line small" onClick={onJump} title="Go to the message">
+      <span className="reply-curve" aria-hidden />
+      <strong className={reply.authorId === meId ? "mention mention-me" : ""}>{who}</strong>
+      <span className="muted ellipsis">{reply.deleted ? "Message deleted" : text === null ? "🔒 Encrypted message" : text ? mask(plainText(text, nameOf)) : "📎 Attachment"}</span>
+    </button>
   );
 }

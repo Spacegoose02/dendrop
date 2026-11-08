@@ -23,6 +23,9 @@ export function notificationFor(event: ServerEvent, o: NotifyOptions): Notificat
   if (event.type === "message.created") {
     const m = event.message;
     if ((m.authorId === o.meId && !m.webhook) || m.deleted) return null;
+    // The server says when someone's notification settings don't want this one (muted, or
+    // "only mentions" and it isn't one). Older servers don't say: notify.
+    if (event.notify === false) return null;
     let body = "New message";
     if (o.notifySender) {
       const c = o.conversation(m.conversationId);
