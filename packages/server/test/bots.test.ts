@@ -196,6 +196,7 @@ describe("bots", () => {
     assert.equal((await gw.waitFor("message.created")).message.body, "hello bot");
     const history = (await asBot("GET", `/channels/${general.id}/messages`)).body as Message[];
     assert.equal(history.at(-1)!.body, "hello bot");
+    assert.equal((history.at(-1) as Message & { author: { username: string } }).author.username, "bob");
     // Typing and presence aren't for bots.
     assert.ok(gw.events.every((e) => ["ready", "message.created", "message.updated", "server.updated", "server.removed", "interaction.created"].includes(e.type)));
     gw.ws.close();
