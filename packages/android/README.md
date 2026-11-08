@@ -14,7 +14,8 @@ screen and chat bubbles later).
 - **A small setup page is built into the APK** (`www-src/`, built into `www/`). It shows on first
   launch, when the server can't be reached, and from the launcher shortcut (long-press the icon,
   then **Server settings**). It picks the server and turns notifications on or off. It's styled
-  with the `--dd-*` tokens from `packages/theme`, which are inlined at build time.
+  with the `--dd-*` tokens from `packages/theme`, which are inlined at build time. The
+  [iPhone app](../ios/README.md) builds the same page, so keep `setup.js` working for both.
 - **Single sign-on stays in the app.** Redirects to your identity provider and back load in the
   WebView instead of the browser, so the app is the one that ends up signed in. Links people tap
   in chat still open in the browser.
