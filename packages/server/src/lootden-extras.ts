@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { ChannelRef, LootdenGame, LootdenPc } from "@dendrop/shared";
+import type { ChannelRef, EventRsvp, LootdenGame, LootdenPc } from "@dendrop/shared";
 import type { Context } from "./app.js";
 import { ConversationRepo, type NewAttachment } from "./conversations.js";
 import { now } from "./db.js";
@@ -50,6 +50,28 @@ const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
 /** Game nights are checked every this many link checks (30 s each): every 5 minutes. */
 const NIGHT_EVERY = 10;
 
+/** The moment a wall-clock day and time happen in a time zone ("2026-11-13", "19:00", "America/Chicago"). */
+export function zonedTime(date: string, time: string, timeZone: string): number {
+  const [y, m, d] = date.split("-").map(Number);
+  const [h, min] = (time || "19:00").split(":").map(Number);
+  const wall = Date.UTC(y!, (m ?? 1) - 1, d ?? 1, h ?? 19, min ?? 0);
+  let tz = timeZone;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+  } catch {
+    tz = "UTC";
+  }
+  const fmt = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const offset = (t: number) => {
+    const p = Object.fromEntries(fmt.formatToParts(new Date(t)).map((x) => [x.type, x.value]));
+    return Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute), Number(p.second)) - t;
+  };
+  // Twice, so a night on the day the clocks change lands right.
+  let t = wall - offset(wall);
+  t = wall - offset(t);
+  return t;
+}
+
 /** "Fri, Nov 13 at 7:00 PM" from LootDen's day and time (already in the household's time zone). */
 export function nightWhen(date: string, time: string): string {
   const [y, m, d] = date.split("-").map(Number);
@@ -86,6 +108,7 @@ export class LootdenExtras {
     this.convos = new ConversationRepo(ctx.db, ctx.users, new FriendRepo(ctx.db, ctx.users));
     this.uploads = path.join(ctx.config.dataDir, "uploads");
     mkdirSync(this.uploads, { recursive: true });
+    ctx.events.onRsvp.push((eventId, userId, status) => void this.rsvpToLootden(eventId, userId, status));
     ctx.lootden.afterPoll.push(async () => {
       // Game nights change rarely: every fifth minute, or right away after a setting changes.
       if (this.checks++ % NIGHT_EVERY === 0) await this.syncGameNights();
@@ -207,14 +230,22 @@ export class LootdenExtras {
       server_id: number;
       voice_channel_id: number | null;
       message_id: number | null;
+      event_id: number | null;
+      players: string;
       signature: string;
     }[];
-    const upcoming = target ? (await this.json<{ upcoming: GameNightRow[] }>("/api/game-nights")).upcoming ?? [] : [];
+    const list = target ? await this.json<{ upcoming: GameNightRow[]; timeZone?: string }>("/api/game-nights") : null;
+    const upcoming = list?.upcoming ?? [];
+    const timeZone = typeof list?.timeZone === "string" ? list.timeZone : "UTC";
     const live = new Set(upcoming.map((n) => Number(n.id)));
 
     // Over, deleted, or game nights turned off: take their voice channels away when empty.
     for (const k of known) {
       if (live.has(k.lootden_id) && k.server_id === ref?.serverId) continue;
+      if (k.event_id !== null) {
+        this.ctx.events.removeLinked(k.event_id);
+        db.prepare("UPDATE lootden_game_nights SET event_id = NULL WHERE lootden_id = ?").run(k.lootden_id);
+      }
       if (!removeVoiceWhenEmpty(this.ctx, this.servers, this.uploads, k.voice_channel_id)) continue;
       db.prepare("DELETE FROM lootden_game_nights WHERE lootden_id = ?").run(k.lootden_id);
     }
@@ -224,7 +255,7 @@ export class LootdenExtras {
       const id = Number(n.id);
       const signature = JSON.stringify([n.title, n.date, n.time, n.game?.title ?? null, n.players?.map((p) => p.name) ?? [], n.note]);
       const row = known.find((k) => k.lootden_id === id && k.server_id === ref.serverId);
-      if (row?.signature === signature) continue;
+      if (row?.signature === signature && row.event_id !== null && this.ctx.events.exists(row.event_id)) continue;
       let voice = row?.voice_channel_id ? this.servers.channelById(row.voice_channel_id) : undefined;
       if (!voice) {
         try {
@@ -247,11 +278,54 @@ export class LootdenExtras {
       } else {
         messageId = this.post(target.conversationId, ref.serverId, text)?.id ?? null;
       }
+      // A server event too, so people RSVP, get reminded and join its voice channel from it.
+      const description = [n.game ? `Playing ${n.game.title}` : null, n.players?.length ? `With ${n.players.map((p) => p.name).join(", ")}` : null, n.note, "Planned in LootDen"]
+        .filter(Boolean)
+        .join("\n");
+      let eventId: number | null = row?.event_id ?? null;
+      try {
+        eventId = this.ctx.events.upsertLinked(eventId, ref.serverId, {
+          name: `🎲 ${n.title}`,
+          description,
+          channelId: voice?.id ?? null,
+          location: voice ? "" : "Game night",
+          startsAt: zonedTime(n.date, n.time, timeZone),
+        });
+      } catch {
+        eventId = null; // Too many events in the server: the announcement still goes out.
+      }
+      // LootDen's players are going; anyone LootDen took off since last time isn't.
+      const players = (n.players ?? []).map((p) => this.ctx.lootden.userOf(Number(p.id))).filter((u): u is number => u !== undefined);
+      const before = JSON.parse(row?.players ?? "[]") as number[];
+      if (eventId !== null) this.ctx.events.setRsvps(eventId, players, before.filter((u) => !players.includes(u)));
       db.prepare(
-        `INSERT INTO lootden_game_nights (lootden_id, server_id, voice_channel_id, message_id, signature, created_at) VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO lootden_game_nights (lootden_id, server_id, voice_channel_id, message_id, event_id, players, signature, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(lootden_id) DO UPDATE SET server_id = excluded.server_id, voice_channel_id = excluded.voice_channel_id,
-           message_id = excluded.message_id, signature = excluded.signature`,
-      ).run(id, ref.serverId, voice?.id ?? null, messageId, signature, now());
+           message_id = excluded.message_id, event_id = excluded.event_id, players = excluded.players, signature = excluded.signature`,
+      ).run(id, ref.serverId, voice?.id ?? null, messageId, eventId, JSON.stringify(players), signature, now());
+    }
+  }
+
+  /**
+   * Someone said Going (or took it back) on a game night's event: LootDen puts them on the night
+   * (or takes them off), when their account is matched with a LootDen profile.
+   */
+  async rsvpToLootden(eventId: number, userId: number, status: EventRsvp | null): Promise<void> {
+    const row = this.ctx.db.prepare("SELECT lootden_id, players FROM lootden_game_nights WHERE event_id = ?").get(eventId) as { lootden_id: number; players: string } | undefined;
+    const profile = row ? this.ctx.lootden.profileOf(userId) : undefined;
+    if (!row || !profile) return;
+    const going = status === "going";
+    const players = new Set(JSON.parse(row.players) as number[]);
+    if (going === players.has(userId)) return;
+    try {
+      const res = await this.ctx.lootden.request(`/api/game-nights/${row.lootden_id}/players/${profile.id}`, { method: "PUT", body: { going } });
+      if (!res.ok) return; // e.g. the last player can't leave; the next sync puts things right.
+      if (going) players.add(userId);
+      else players.delete(userId);
+      this.ctx.db.prepare("UPDATE lootden_game_nights SET players = ?, signature = '' WHERE lootden_id = ?").run(JSON.stringify([...players]), row.lootden_id);
+      this.soon();
+    } catch {
+      // LootDen is down: it keeps its own list, and the next sync shows it.
     }
   }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import type { Activity, ChatServer, LootdenStatus, Me, Message, NewWebhook, ServerInvite, Webhook } from "@dendrop/shared";
+import type { Activity, ChatServer, LootdenStatus, Me, Message, NewWebhook, ScheduledEvent, ServerInvite, Webhook } from "@dendrop/shared";
 import type { LootdenFetch } from "../src/lootden.js";
 import { webhookPost } from "../src/routes/webhooks.js";
 import { account, listen, startServer, type TestServer } from "./helpers.js";
@@ -272,6 +272,7 @@ describe("LootDen game links, game nights, screenshots and kids", () => {
   let serverId: number;
   let general: { id: number; conversationId: number };
   let nights: object[] = [];
+  const seats: { path: string; body: string }[] = [];
   let shots: object[] = [];
   const installs: { device: string; body: string }[] = [];
   const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
@@ -315,7 +316,11 @@ describe("LootDen game links, game nights, screenshots and kids", () => {
       if (!g) return reply(404, { error: "No such game" });
       return m[2] ? reply(200, PNG, "image/png") : reply(200, g);
     }
-    if (p === "/api/game-nights") return reply(200, { upcoming: nights, past: [] });
+    if (p === "/api/game-nights") return reply(200, { upcoming: nights, past: [], timeZone: "America/Chicago" });
+    if (/^\/api\/game-nights\/\d+\/players\/\d+$/.test(p) && init.method === "PUT") {
+      seats.push({ path: p, body: init.body ?? "" });
+      return reply(200, {});
+    }
     if (p === "/api/screenshots") return reply(200, shots);
     if (/^\/api\/screenshots\/\d+\/image$/.test(p)) return reply(200, PNG, "image/png");
     return reply(404, { error: "Not found" });
@@ -399,11 +404,36 @@ describe("LootDen game links, game nights, screenshots and kids", () => {
     [m] = await lastMessages(1);
     assert.match(m!.body, /at 8:30 PM/);
     assert.ok(m!.editedAt);
-    // Over: the voice channel goes.
+    // It's a server event too, in the household's time zone, with LootDen's players going.
+    let events = (await call(bob, "GET", `/api/servers/${serverId}/events`)).body as ScheduledEvent[];
+    assert.equal(events.length, 1);
+    const ev = events[0]!;
+    assert.equal(ev.name, "🎲 Mario Party");
+    assert.equal(ev.channelId, voice!.id);
+    assert.equal(ev.startsAt, "2026-11-14T02:30:00.000Z", "8:30 PM in Chicago");
+    assert.equal(ev.myRsvp, "going");
+    assert.match(ev.description, /Playing Mario Party/);
+    // Bob takes his Going back: LootDen takes him off the night.
+    assert.equal((await call(bob, "PUT", `/api/events/${ev.id}/rsvp`, { status: null })).status, 200);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(seats.at(-1), { path: "/api/game-nights/5/players/2", body: JSON.stringify({ going: false }) });
+    // The admin (LootDen profile 1) says Going: LootDen adds them.
+    assert.equal((await call(admin, "PUT", `/api/events/${ev.id}/rsvp`, { status: "going" })).status, 200);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(seats.at(-1), { path: "/api/game-nights/5/players/1", body: JSON.stringify({ going: true }) });
+    // LootDen now says the admin is playing and Bob isn't; the next sync keeps that.
+    nights = [{ ...nights[0]!, players: [{ id: 1, name: "Admin" }] }];
+    await call(admin, "PUT", "/api/admin/lootden/channels", {});
+    events = (await call(bob, "GET", `/api/servers/${serverId}/events`)).body as ScheduledEvent[];
+    assert.equal(events.length, 1, "updated, not doubled");
+    assert.equal(events[0]!.myRsvp, null);
+    assert.deepEqual(events[0]!.goingIds, [s.ctx.users.byUsername("admin")!.id]);
+    // Over: the voice channel and the event go.
     nights = [];
     await call(admin, "PUT", "/api/admin/lootden/channels", {});
     view = (await call(bob, "GET", `/api/servers/${serverId}`)).body as ChatServer;
     assert.equal(view.channels.some((c) => c.kind === "voice"), false);
+    assert.deepEqual((await call(bob, "GET", `/api/servers/${serverId}/events`)).body, []);
     await call(admin, "PUT", "/api/admin/lootden/channels", { gameNights: null });
   });
 

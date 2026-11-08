@@ -43,7 +43,7 @@ A session cookie never counts here, and a bot token counts nowhere else.
 | --- | --- |
 | `GET /me` | The bot. |
 | `GET /servers` | Servers it's in, with the channels it can see. |
-| `GET /channels/:channelId/messages?before=&limit=` | History (needs *reads messages*). |
+| `GET /channels/:channelId/messages?before=&limit=` | History (needs *reads messages*). Each message has `author` `{ id, username, displayName }`. |
 | `POST /channels/:channelId/messages` | `{ content, buttons? }`: posts in a text channel. |
 | `PATCH /messages/:id` | `{ content?, buttons? }`: edits its own message. `buttons: null` or `[]` removes them. |
 | `DELETE /messages/:id` | Deletes its own message. |

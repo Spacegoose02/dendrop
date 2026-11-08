@@ -295,7 +295,82 @@ export class EventService {
       throw new HttpError(400, "RSVP going, interested, or null");
     }
     this.broadcast(eventId);
+    for (const fn of this.onRsvp) {
+      try {
+        fn(eventId, user.id, status === null ? null : (status as EventRsvp));
+      } catch {
+        // A listener never stops the RSVP.
+      }
+    }
     return this.get(eventId, user.id);
+  }
+
+  /** Called after someone changes their RSVP themselves (LootDen's game nights listen). */
+  readonly onRsvp: Array<(eventId: number, userId: number, status: EventRsvp | null) => void> = [];
+
+  // ---- Events another app keeps (LootDen's game nights) -----------------------------
+
+  /** Whether an event still exists (a one-off is gone once it ends). */
+  exists(eventId: number): boolean {
+    return !!this.row(eventId);
+  }
+
+  /**
+   * Makes or changes an event on another app's behalf: no maker, no permission checks, and
+   * a start that may already have passed (it then goes live straight away).
+   */
+  upsertLinked(eventId: number | null, serverId: number, f: { name: string; description: string; channelId: number | null; location: string; startsAt: number }): number {
+    const name = f.name.slice(0, EVENT_LIMITS.name) || "Game night";
+    const description = f.description.slice(0, EVENT_LIMITS.description);
+    const old = eventId === null ? undefined : this.row(eventId);
+    let id: number;
+    if (old && old.server_id === serverId) {
+      const moved = Date.parse(old.starts_at) !== f.startsAt && old.status !== "live";
+      this.db
+        .prepare("UPDATE server_events SET name = ?, description = ?, channel_id = ?, location = ?, starts_at = ?, reminded = ? WHERE id = ?")
+        .run(name, description, f.channelId, f.location, moved ? iso(f.startsAt) : old.starts_at, moved ? (this.reminderDue(f.startsAt) ? 1 : 0) : old.reminded, old.id);
+      id = old.id;
+    } else {
+      const res = this.db
+        .prepare(
+          `INSERT INTO server_events (server_id, channel_id, name, description, location, starts_at, ends_at, repeats, reminded, created_by, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, NULL, 'none', ?, NULL, ?)`,
+        )
+        .run(serverId, f.channelId, name, description, f.location, iso(f.startsAt), this.reminderDue(f.startsAt) ? 1 : 0, now());
+      id = Number(res.lastInsertRowid);
+    }
+    this.broadcast(id);
+    this.tick();
+    return id;
+  }
+
+  /** Takes an event another app kept away (its night was deleted). */
+  removeLinked(eventId: number): void {
+    const r = this.row(eventId);
+    if (r) this.remove(r);
+  }
+
+  /** Marks people going, or takes their RSVP back, on another app's word. Doesn't call onRsvp. */
+  setRsvps(eventId: number, going: number[], notGoing: number[]): void {
+    const r = this.row(eventId);
+    if (!r) return;
+    const members = new Set(this.servers.memberIds(r.server_id));
+    let changed = false;
+    for (const u of going) {
+      if (!members.has(u)) continue;
+      const res = this.db
+        .prepare(
+          `INSERT INTO server_event_rsvps (event_id, user_id, status, created_at) VALUES (?, ?, 'going', ?)
+           ON CONFLICT(event_id, user_id) DO UPDATE SET status = 'going' WHERE status != 'going'`,
+        )
+        .run(eventId, u, now());
+      changed ||= Number(res.changes) > 0;
+    }
+    for (const u of notGoing) {
+      const res = this.db.prepare("DELETE FROM server_event_rsvps WHERE event_id = ? AND user_id = ? AND status = 'going'").run(eventId, u);
+      changed ||= Number(res.changes) > 0;
+    }
+    if (changed) this.broadcast(eventId);
   }
 
   /** A host starts it now, early or on time. */

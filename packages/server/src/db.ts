@@ -818,6 +818,12 @@ export const MIGRATIONS: string[] = [
   );
   ALTER TABLE kid_rules ADD COLUMN link_previews INTEGER NOT NULL DEFAULT 0;
   `,
+  `
+  -- LootDen's game nights also become server events, whose RSVPs go back to LootDen; players is
+  -- the Dendrop accounts LootDen last said are playing.
+  ALTER TABLE lootden_game_nights ADD COLUMN event_id INTEGER;
+  ALTER TABLE lootden_game_nights ADD COLUMN players TEXT NOT NULL DEFAULT '[]';
+  `,
 ];
 
 export function now(): string {

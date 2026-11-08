@@ -174,6 +174,11 @@ export class LootdenLink {
     return this.accounts.find((a) => a.user?.id === userId)?.lootden;
   }
 
+  /** The Dendrop account a LootDen profile goes with, if any. */
+  userOf(lootdenId: number): number | undefined {
+    return this.accounts.find((a) => a.lootden.id === lootdenId)?.user?.id;
+  }
+
   /** A request to LootDen's API with the saved token. */
   async request(path: string, init: { method?: string; body?: unknown } = {}) {
     const { url, token } = this.stored();

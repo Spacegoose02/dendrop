@@ -111,6 +111,13 @@ server, like `game-night-mario-kart-cup`. Changing the night in LootDen edits th
 announcement; once it's over or deleted, its voice channel goes as soon as nobody's in it.
 Dendrop looks for changes every 5 minutes.
 
+Each night is also a server **event** (see [Events](EVENTS.md)) at LootDen's time, in the
+household's time zone, held in its voice channel. The people LootDen has playing are marked
+**Going**, so they get the 15-minute heads-up and a button to join when it starts. It works the
+other way too: saying **Going** on the event puts you on the night in LootDen, and taking it back
+takes you off (for accounts matched with a LootDen profile; LootDen keeps at least one player).
+This needs LootDen 0.30 or newer.
+
 ## Family wall
 
 In **Instance admin → LootDen → Family wall**, pick a text channel, and new screenshots on

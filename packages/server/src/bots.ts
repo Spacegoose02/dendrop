@@ -413,10 +413,14 @@ export class BotService {
     return c;
   }
 
-  messages(bot: UserRecord, channelId: number, before?: number, limit?: number): Message[] {
+  messages(bot: UserRecord, channelId: number, before?: number, limit?: number): Array<Message & { author: { id: number; username: string; displayName: string } | null }> {
     const c = this.channel(bot, channelId);
     if (!this.row(bot.id)?.reads_messages) throw new HttpError(403, "This bot doesn't read messages; its owner can turn that on");
-    return this.convos.messages(c.conversationId, before, limit);
+    // Who wrote each one, so a bot can show the history without looking people up.
+    return this.convos.messages(c.conversationId, before, limit).map((m) => {
+      const u = this.users.byId(m.authorId);
+      return { ...m, author: u ? { id: u.id, username: u.username, displayName: u.displayName } : null };
+    });
   }
 
   /** Posts a message as the bot, through automod like anyone else's. */
