@@ -377,3 +377,24 @@
 .account-settings label.swatch-custom {
   display: inline-grid;
 }
+
+/* Sign-in methods in Settings */
+.signin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--dd-border);
+  max-width: 520px;
+}
+.signin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 420px;
+  margin: 8px 0 12px;
+}
+.signin-form p {
+  margin: 0;
+}

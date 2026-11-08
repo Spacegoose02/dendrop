@@ -734,6 +734,7 @@ export class FamilyService {
       rules: this.rules(kidId),
       status: this.status(kidId),
       linkedAt: link.t,
+      managed: this.users.byId(kidId)!.managedBy !== null,
     };
   }
 

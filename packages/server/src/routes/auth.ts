@@ -14,9 +14,9 @@ interface Credentials {
   displayName?: unknown;
 }
 
-const MIN_PASSWORD = 10;
+export const MIN_PASSWORD = 10;
 
-function checkNew(ctx: Context, body: Credentials): { username: string; password: string; displayName: string } {
+export function checkNew(ctx: Context, body: Credentials): { username: string; password: string; displayName: string } {
   const { username, password } = body;
   if (!isUsername(username)) throw new HttpError(400, "Usernames are 2 to 32 letters, numbers, dots, dashes or underscores");
   if (typeof password !== "string" || password.length < MIN_PASSWORD) throw new HttpError(400, `Passwords need at least ${MIN_PASSWORD} characters`);
@@ -26,7 +26,7 @@ function checkNew(ctx: Context, body: Credentials): { username: string; password
 }
 
 export function authRoutes(app: FastifyInstance, ctx: Context): void {
-  const { config, users, sessions, oidc } = ctx;
+  const { config, users, sessions, signin } = ctx;
   const secure = config.publicUrl.startsWith("https://") || !!config.tls;
 
   const signIn = (req: FastifyRequest, reply: FastifyReply, user: UserRecord) => {
@@ -34,17 +34,22 @@ export function authRoutes(app: FastifyInstance, ctx: Context): void {
     void reply.setCookie(SESSION_COOKIE, token, { path: "/", httpOnly: true, sameSite: "lax", secure, maxAge: maxAgeSeconds });
   };
 
-  app.get("/api/auth/info", async (): Promise<AuthInfo> => ({
-    needsSetup: users.count() === 0,
-    oidc: { enabled: oidc.enabled, name: config.oidc.name },
-    localLogin: config.localLogin,
-    signup: config.localLogin && config.signup,
-  }));
+  app.get("/api/auth/info", async (): Promise<AuthInfo> => {
+    const s = signin.settings();
+    const live = signin.live(s);
+    return {
+      needsSetup: users.count() === 0,
+      oidc: { enabled: live.tinyauth, name: config.oidc.name },
+      google: { enabled: live.google },
+      localLogin: live.password,
+      signup: live.password && s.signup,
+    };
+  });
 
   /** Makes the first account, the super admin. Only works while there are no accounts. */
   app.post<{ Body: Credentials }>("/api/auth/setup", async (req, reply) => {
     if (users.count() > 0) throw new HttpError(409, "Dendrop is already set up");
-    if (!config.localLogin) throw new HttpError(403, "Password sign-in is off; sign in with single sign-on to become the admin");
+    if (!signin.settings().passwordLogin) throw new HttpError(403, "Password sign-in is off; sign in with single sign-on to become the admin");
     const n = checkNew(ctx, req.body ?? {});
     const user = users.create({ username: n.username, displayName: n.displayName, passwordHash: await hashPassword(n.password), isSuperAdmin: true });
     signIn(req, reply, user);
@@ -52,7 +57,8 @@ export function authRoutes(app: FastifyInstance, ctx: Context): void {
   });
 
   app.post<{ Body: Credentials }>("/api/auth/signup", async (req, reply) => {
-    if (!config.localLogin || !config.signup) throw new HttpError(403, "Sign-up is off; ask the admin for an account");
+    const s = signin.settings();
+    if (!s.passwordLogin || !s.signup) throw new HttpError(403, "Sign-up is off; ask the admin for an account");
     const n = checkNew(ctx, req.body ?? {});
     const user = users.create({ username: n.username, displayName: n.displayName, passwordHash: await hashPassword(n.password) });
     signIn(req, reply, user);
@@ -60,7 +66,7 @@ export function authRoutes(app: FastifyInstance, ctx: Context): void {
   });
 
   app.post<{ Body: Credentials }>("/api/auth/login", async (req, reply) => {
-    if (!config.localLogin) throw new HttpError(403, "Password sign-in is off");
+    if (!signin.settings().passwordLogin) throw new HttpError(403, "Password sign-in is off");
     const { username, password } = req.body ?? {};
     const user = typeof username === "string" ? users.byUsername(username) : undefined;
     // Always run a hash, so a wrong username takes as long as a wrong password.
@@ -77,22 +83,31 @@ export function authRoutes(app: FastifyInstance, ctx: Context): void {
     return { ok: true };
   });
 
-  app.get<{ Querystring: { returnTo?: string } }>("/api/auth/oidc/start", async (req, reply) => {
-    if (!oidc.enabled) throw new HttpError(404, "Single sign-on isn't set up");
-    return reply.redirect(await oidc.start(req.query.returnTo ?? "/"));
-  });
+  // TinyAuth keeps its /api/auth/oidc/... paths, so redirect URIs already set up still work.
+  for (const [path, service] of [
+    ["oidc", ctx.oidc],
+    ["google", ctx.google],
+  ] as const) {
+    app.get<{ Querystring: { returnTo?: string } }>(`/api/auth/${path}/start`, async (req, reply) => {
+      if (!service.enabled) throw new HttpError(404, `Sign-in with ${service.name} isn't set up`);
+      return reply.redirect(await service.start(req.query.returnTo ?? "/"));
+    });
 
-  app.get("/api/auth/oidc/callback", async (req, reply) => {
-    if (!oidc.enabled) throw new HttpError(404, "Single sign-on isn't set up");
-    try {
-      const { user, returnTo } = await oidc.finish(new URL(req.url, config.publicUrl));
-      signIn(req, reply, user);
-      return reply.redirect(safeReturn(returnTo));
-    } catch (err) {
-      req.log.warn({ err }, "OIDC sign-in failed");
-      return reply.redirect(`/login?error=${encodeURIComponent(err instanceof Error ? err.message : "Sign-in failed")}`);
-    }
-  });
+    app.get(`/api/auth/${path}/callback`, async (req, reply) => {
+      if (!service.enabled) throw new HttpError(404, `Sign-in with ${service.name} isn't set up`);
+      try {
+        const { user, returnTo, linked } = await service.finish(new URL(req.url, config.publicUrl));
+        if (!linked) signIn(req, reply, user);
+        const to = safeReturn(returnTo);
+        return reply.redirect(linked ? `${to}${to.includes("?") ? "&" : "?"}linked=${service.provider}` : to);
+      } catch (err) {
+        req.log.warn({ err }, `${service.name} sign-in failed`);
+        const message = encodeURIComponent(err instanceof Error ? err.message : "Sign-in failed");
+        // Someone already signed in was linking; tell them in the app, not on the sign-in page.
+        return reply.redirect(req.user ? `/?signin_error=${message}` : `/login?error=${message}`);
+      }
+    });
+  }
 
   app.get("/api/me", async (req) => toMe(requireUser(req)));
 
