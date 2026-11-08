@@ -19,6 +19,7 @@ import {
 } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
+import { ExpressionRepo } from "./expressions.js";
 import { toPublic, type UserRecord, type UserRepo } from "./users.js";
 
 interface ServerRow {
@@ -286,6 +287,8 @@ export class ServerRepo {
       members: this.members(serverId),
       createdAt: r.created_at,
       timedOutUntil: this.timedOutUntil(serverId, viewerId),
+      emojis: new ExpressionRepo(this.db).emojis(serverId),
+      stickers: new ExpressionRepo(this.db).stickers(serverId),
     };
   }
 
@@ -399,7 +402,7 @@ export class ServerRepo {
     if (!r) throw new HttpError(404, "No such server");
     return this.atomic(() => {
       const convs = this.channelRows(serverId).map((c) => c.conversation_id);
-      const files: string[] = [];
+      const files: string[] = new ExpressionRepo(this.db).files(serverId);
       for (const cid of convs) {
         for (const a of this.db.prepare("SELECT id FROM attachments WHERE conversation_id = ?").all(cid) as { id: string }[]) files.push(a.id);
         this.db.prepare("DELETE FROM conversations WHERE id = ?").run(cid);

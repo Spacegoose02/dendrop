@@ -84,6 +84,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     timeoutMembers: "Time out",
     deleteMessages: "Delete messages",
     createInvites: "Make invites",
+    manageExpressions: "Manage emoji & stickers",
   };
   /** A 404 if they aren't in the server, a 403 if none of their roles allow any of `perms`. */
   const allowed = (serverId: number, user: UserRecord, ...perms: ServerPermission[]) => {

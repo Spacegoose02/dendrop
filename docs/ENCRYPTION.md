@@ -69,3 +69,6 @@ readable for everyone else.
   MLS) would fix that; it's on the roadmap.
 - **Metadata.** The server still knows who talks to whom and when, file sizes, and presence and
   typing signals, because it has to route them.
+- **Reactions** are stored in the clear: the server sees who reacted to which message with which
+  emoji (not the message). Custom emoji, stickers and GIF links inside a message are encrypted
+  with it, though loading their pictures tells the server which ones are being looked at.

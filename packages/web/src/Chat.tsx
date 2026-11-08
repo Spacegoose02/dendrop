@@ -11,9 +11,23 @@ import {
   type KidStatus,
   type Me,
   type Message,
+  type Reaction,
 } from "@dendrop/shared";
 import { api, apiForm, ApiError } from "./api.ts";
-import { EMOJI } from "./emoji.ts";
+import {
+  ExpressionPicker,
+  fromTokens,
+  GifView,
+  gifIn,
+  Reactions,
+  RichText,
+  stickerIn,
+  StickerView,
+  suggest,
+  toTokens,
+  usableEmoji,
+  useExpressions,
+} from "./expressions.tsx";
 import { ActivityLine } from "./activity.tsx";
 import { GameLinks } from "./GameLink.tsx";
 import { MessageButtons } from "./Bots.tsx";
@@ -91,7 +105,27 @@ export function Chat({
   const fileRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
-  const [showEmoji, setShowEmoji] = useState(false);
+  /** The emoji, GIF and sticker picker under the composer, or the reaction picker on a message. */
+  const [picker, setPicker] = useState<"composer" | "gifs" | { reactTo: number; above: boolean } | null>(null);
+  /** Opens the reaction picker on a message: above it in the lower half of the screen, below it in the upper half. */
+  const openReactions = (messageId: number, from: Element) => {
+    const open = typeof picker === "object" && picker?.reactTo === messageId;
+    setPicker(open ? null : { reactTo: messageId, above: from.getBoundingClientRect().top > window.innerHeight / 2 });
+  };
+  /** Where to put the cursor once the draft has re-rendered (after inserting an emoji). */
+  const pendingCaret = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (pendingCaret.current === null) return;
+    inputRef.current?.focus();
+    inputRef.current?.setSelectionRange(pendingCaret.current, pendingCaret.current);
+    pendingCaret.current = null;
+  }, [draft]);
+  /** Which ":name" suggestion is picked while typing one. */
+  const [suggestAt, setSuggestAt] = useState(0);
+  const expressions = useExpressions();
+  const emojis = usableEmoji(expressions.servers, channel?.serverId);
+  // Kids get GIFs only once a parent allows them (the server checks too).
+  const gifsOn = expressions.gifs && (!kid || kid.rules.gifs);
   const [dragging, setDragging] = useState(false);
   const lastMarked = useRef(0);
   const [showInfo, setShowInfo] = useState(false);
@@ -134,7 +168,8 @@ export function Chat({
   useLayoutEffect(() => {
     const el = listRef.current;
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [history?.messages.length, typingIds.length]);
+    // Every change to the list (new messages, reactions growing the last one) while at the bottom.
+  }, [history?.messages, typingIds.length]);
 
   // Tell the server how far this person has read, whenever new messages show while the window
   // is in front.
@@ -181,11 +216,8 @@ export function Chat({
     const start = el?.selectionStart ?? draft.length;
     const end = el?.selectionEnd ?? draft.length;
     setDraft(draft.slice(0, start) + emoji + draft.slice(end));
-    setShowEmoji(false);
-    requestAnimationFrame(() => {
-      el?.focus();
-      el?.setSelectionRange(start + emoji.length, start + emoji.length);
-    });
+    setPicker(null);
+    pendingCaret.current = start + emoji.length;
   };
 
   const onScroll = () => {
@@ -214,7 +246,7 @@ export function Chat({
   };
 
   const send = async () => {
-    const body = draft.trim();
+    const body = toTokens(draft.trim(), emojis);
     if ((!body && files.length === 0) || sending) return;
     if (filter && findBlockedWords(body, filter).length) {
       setError("That message has a word your family filter blocks. Your parents get a heads-up (not the word).");
@@ -239,11 +271,42 @@ export function Chat({
       const shown = await reveal(m);
       setHistory((h) => (h ? { ...h, messages: upsert(h.messages, shown) } : { messages: [shown], hasMore: false }));
     } catch (err) {
-      setDraft(body);
+      setDraft(fromTokens(body, emojis));
       setFiles(sendingFiles);
       setError((err as Error).message);
     } finally {
       setSending(false);
+    }
+  };
+
+  /** Sends a sticker or a GIF as a message of its own, leaving the draft alone. */
+  const sendOnly = async (body: string) => {
+    setPicker(null);
+    setError(null);
+    stickToBottom.current = true;
+    try {
+      let m: Message;
+      try {
+        m = await post(conversation, body, []);
+      } catch (err) {
+        if (!(err instanceof ApiError && err.status === 409)) throw err;
+        m = await post(await api<Conversation>(`/api/conversations/${conversation.id}`), body, []);
+      }
+      const shown = await reveal(m);
+      setHistory((h) => (h ? { ...h, messages: upsert(h.messages, shown) } : { messages: [shown], hasMore: false }));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  /** Adds your reaction, or takes it back. */
+  const toggleReaction = async (m: ChatMessage, emoji: string, mine: boolean) => {
+    setPicker(null);
+    try {
+      const reactions = await api<Reaction[]>(`/api/messages/${m.id}/reactions/${encodeURIComponent(emoji)}`, { method: mine ? "DELETE" : "PUT" });
+      setHistory((h) => (h ? { ...h, messages: h.messages.map((x) => (x.id === m.id ? { ...x, reactions } : x)) } : { messages: [], hasMore: true }));
+    } catch (err) {
+      setError((err as Error).message);
     }
   };
 
@@ -270,6 +333,16 @@ export function Chat({
   };
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (suggestions.length && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) {
+      e.preventDefault();
+      pickSuggestion(suggestions[Math.min(suggestAt, suggestions.length - 1)]!.insert);
+      return;
+    }
+    if (suggestions.length && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      e.preventDefault();
+      setSuggestAt((i) => (i + (e.key === "ArrowUp" ? suggestions.length - 1 : 1)) % suggestions.length);
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void send();
@@ -277,13 +350,27 @@ export function Chat({
       const mine = [...(history?.messages ?? [])].reverse().find((m) => m.authorId === me.id && !m.webhook && !m.deleted && !m.locked);
       if (mine) {
         e.preventDefault();
-        setEditing({ id: mine.id, text: mine.text });
+        setEditing({ id: mine.id, text: fromTokens(mine.text, emojis) });
       }
     }
   };
 
+  // ":rac" before the cursor offers matching emoji.
+  const caret = inputRef.current?.selectionStart ?? draft.length;
+  const typed = /(?:^|\s):([A-Za-z0-9_]{2,32})$/.exec(draft.slice(0, caret));
+  const suggestions = typed ? suggest(typed[1]!, emojis) : [];
+  const pickSuggestion = (insert: string) => {
+    if (!typed) return;
+    const start = caret - typed[1]!.length - 1;
+    const text = draft.slice(0, start) + insert + " " + draft.slice(caret);
+    setDraft(text);
+    setSuggestAt(0);
+    pendingCaret.current = start + insert.length + 1;
+  };
+
   const onDraft = (text: string) => {
     setDraft(text);
+    setSuggestAt(0);
     if (text && Date.now() - lastTypingSent.current > 3000) {
       lastTypingSent.current = Date.now();
       sendTyping();
@@ -292,7 +379,7 @@ export function Chat({
 
   const saveEdit = async () => {
     if (!editing) return;
-    const text = editing.text.trim();
+    const text = toTokens(editing.text.trim(), emojis);
     const original = history?.messages.find((m) => m.id === editing.id);
     setEditing(null);
     if (!text || !original || text === original.text) return;
@@ -335,6 +422,7 @@ export function Chat({
   const seenBy = myLast
     ? conversation.reads.filter((r) => r.userId !== me.id && r.messageId !== null && r.messageId >= myLast.id).map((r) => members.get(r.userId)?.displayName ?? "Someone")
     : [];
+  const canReact = !timeUp && !timedOutUntil;
   const typingNames = typingIds.filter((id) => id !== me.id).map((id) => members.get(id)?.displayName ?? "Someone");
 
   return (
@@ -439,7 +527,7 @@ export function Chat({
           return (
             <div key={m.id}>
               {newDay && <div className="day-sep">{day(m.createdAt)}</div>}
-              <div className={`msg ${grouped ? "grouped" : ""}`} tabIndex={(mine || channel?.canModerate) && !m.deleted ? 0 : undefined}>
+              <div className={`msg ${grouped ? "grouped" : ""}`} tabIndex={!m.deleted ? 0 : undefined}>
                 {grouped ? (
                   <span className="msg-time-gutter">{time(m.createdAt)}</span>
                 ) : (
@@ -484,11 +572,17 @@ export function Chat({
                     <p className="msg-body deleted">🔒 {m.locked}</p>
                   ) : (
                     <>
-                      {m.text && (
-                        <p className="msg-body" style={colors.text}>
-                          {shown}
-                          {m.editedAt && <span className="muted small"> (edited)</span>}
-                        </p>
+                      {m.text && stickerIn(m.text) ? (
+                        <StickerView {...stickerIn(m.text)!} />
+                      ) : m.text && gifIn(m.text) ? (
+                        <GifView id={gifIn(m.text)!} link={m.text.trim()} />
+                      ) : (
+                        m.text && (
+                          <p className="msg-body" style={colors.text}>
+                            <RichText text={shown} />
+                            {m.editedAt && <span className="muted small"> (edited)</span>}
+                          </p>
+                        )
                       )}
                       {m.text && <GameLinks text={m.text} />}
                       <MessageButtons m={m} />
@@ -505,20 +599,47 @@ export function Chat({
                       )}
                     </>
                   )}
+                  {!m.deleted && (
+                    <Reactions
+                      reactions={m.reactions ?? []}
+                      meId={me.id}
+                      nameOf={(id) => (id === me.id ? "You" : (members.get(id)?.displayName ?? "Someone"))}
+                      onToggle={(emoji, mineR) => void toggleReaction(m, emoji, mineR)}
+                      onAdd={(el) => openReactions(m.id, el)}
+                      disabled={!canReact}
+                    />
+                  )}
                   {m.id === myLast?.id && seenBy.length > 0 && (
                     <div className="seen small muted">{conversation.isGroup ? `Seen by ${seenBy.join(", ")}` : "Seen"}</div>
                   )}
                 </div>
-                {(mine || channel?.canModerate) && !m.deleted && editing?.id !== m.id && (
+                {typeof picker === "object" && picker?.reactTo === m.id && (
+                  <div className={`reaction-pop ${picker.above ? "above" : "below"}`}>
+                    <ExpressionPicker
+                      mode="reaction"
+                      currentServerId={channel?.serverId}
+                      onEmoji={(emoji) => void toggleReaction(m, emoji, !!m.reactions?.find((r) => r.emoji === emoji)?.userIds.includes(me.id))}
+                      onClose={() => setPicker(null)}
+                    />
+                  </div>
+                )}
+                {!m.deleted && editing?.id !== m.id && (canReact || mine || channel?.canModerate) && (
                   <div className="msg-actions">
+                    {canReact && !m.locked && (
+                      <button className="ghost" data-picker-toggle onClick={(e) => openReactions(m.id, e.currentTarget)} title="Add a reaction" aria-label="Add a reaction">
+                        ☺+
+                      </button>
+                    )}
                     {mine && !m.locked && (
-                      <button className="ghost" onClick={() => setEditing({ id: m.id, text: m.text })} title="Edit">
+                      <button className="ghost" onClick={() => setEditing({ id: m.id, text: fromTokens(m.text, emojis) })} title="Edit">
                         Edit
                       </button>
                     )}
-                    <button className="ghost danger" onClick={() => void remove(m)} title="Delete">
-                      Delete
-                    </button>
+                    {(mine || channel?.canModerate) && (
+                      <button className="ghost danger" onClick={() => void remove(m)} title="Delete">
+                        Delete
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -573,6 +694,24 @@ export function Chat({
             ))}
           </div>
         )}
+        {suggestions.length > 0 && (
+          <div className="emoji-suggest" role="listbox" aria-label="Emoji">
+            {suggestions.map((x, i) => (
+              <button
+                key={x.label + i}
+                role="option"
+                aria-selected={i === Math.min(suggestAt, suggestions.length - 1)}
+                className={`ghost ${i === Math.min(suggestAt, suggestions.length - 1) ? "active" : ""}`}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pickSuggestion(x.insert);
+                }}
+              >
+                {x.custom ? <RichText inline text={`<${x.custom.animated ? "a" : ""}:${x.custom.name}:${x.custom.id}>`} /> : x.emoji} <span className="small">{x.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="composer-row" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
           <button className="ghost icon" onClick={() => fileRef.current?.click()} title="Add files" aria-label="Add files">
             ＋
@@ -598,17 +737,32 @@ export function Chat({
             onPaste={onPaste}
           />
           <div className="emoji-wrap">
-            <button className="ghost icon" onClick={() => setShowEmoji(!showEmoji)} title="Emoji" aria-label="Emoji" aria-expanded={showEmoji}>
+            {gifsOn && (
+              <button className="ghost icon gif-button" data-picker-toggle onClick={() => setPicker(picker === "gifs" ? null : "gifs")} title="GIFs" aria-label="GIFs" aria-expanded={picker === "gifs"}>
+                GIF
+              </button>
+            )}
+            <button
+              className="ghost icon"
+              data-picker-toggle
+              onClick={() => setPicker(picker === "composer" ? null : "composer")}
+              title="Emoji, GIFs and stickers"
+              aria-label="Emoji, GIFs and stickers"
+              aria-expanded={picker === "composer"}
+            >
               🙂
             </button>
-            {showEmoji && (
-              <div className="emoji-picker" role="listbox" aria-label="Emoji">
-                {EMOJI.map((e) => (
-                  <button key={e} className="ghost" onClick={() => insertEmoji(e)} aria-label={e}>
-                    {e}
-                  </button>
-                ))}
-              </div>
+            {(picker === "composer" || picker === "gifs") && (
+              <ExpressionPicker
+                key={picker}
+                mode="composer"
+                initialTab={picker === "gifs" ? "gifs" : "emoji"}
+                currentServerId={channel?.serverId}
+                onEmoji={insertEmoji}
+                onSticker={timeUp || timedOutUntil ? undefined : (token) => void sendOnly(token)}
+                onGif={gifsOn && !timeUp && !timedOutUntil ? (link) => void sendOnly(link) : undefined}
+                onClose={() => setPicker(null)}
+              />
             )}
           </div>
           <button className="primary send" onClick={() => void send()} disabled={sending || !!timeUp || !!timedOutUntil || (!draft.trim() && files.length === 0)} aria-label="Send">

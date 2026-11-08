@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type { AdminServer, ChannelRef, ChatServer, DendutyStatus, LootdenStatus, ServerCreatorRequest } from "@dendrop/shared";
+import { GIF_RATINGS, type AdminServer, type ChannelRef, type ChatServer, type DendutyStatus, type GifRating, type GifSettings, type LootdenStatus, type ServerCreatorRequest } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { Modal } from "./Modal.tsx";
 import { ServerIcon } from "./Servers.tsx";
@@ -85,9 +85,101 @@ export function AdminDialog({ onClose, version }: { onClose: () => void; version
         </div>
       ))}
 
+      <GifSection />
       <LootdenSection />
       <DendutySection />
     </Modal>
+  );
+}
+
+const RATING_NAMES: Record<GifRating, string> = { g: "G (all ages)", pg: "PG", "pg-13": "PG-13", r: "R" };
+
+/** GIF search through GIPHY: off until a super admin adds an API key and turns it on. */
+function GifSection() {
+  const [settings, setSettings] = useState<GifSettings | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    void api<GifSettings>("/api/admin/gifs").then(setSettings, (err: Error) => setError(err.message));
+  }, []);
+
+  const save = async (patch: Partial<{ enabled: boolean; apiKey: string; rating: GifRating }>) => {
+    setBusy(true);
+    setError(null);
+    setSaved(false);
+    try {
+      setSettings(await api<GifSettings>("/api/admin/gifs", { method: "PUT", body: patch }));
+      setApiKey("");
+      setSaved(true);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="section-label">GIFs</div>
+      <p className="muted small">
+        GIF search uses GIPHY, an outside service, so it's off until you turn it on. Searches and the GIFs themselves go through this server (and are cached here),
+        so GIPHY never sees who is searching or looking. Get a free API key at developers.giphy.com. Kids also need a parent to allow GIFs, and only get ones rated G.
+      </p>
+      {settings && (
+        <form
+          className="lootden-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save({ apiKey, enabled: true });
+          }}
+        >
+          <label>
+            GIPHY API key
+            <input
+              type="password"
+              autoComplete="off"
+              placeholder={settings.hasKey ? "Saved (leave empty to keep it)" : "From developers.giphy.com"}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+            />
+          </label>
+          <label>
+            Strongest rating anyone gets
+            <select value={settings.rating} onChange={(e) => void save({ rating: e.target.value as GifRating })} disabled={busy}>
+              {GIF_RATINGS.map((r) => (
+                <option key={r} value={r}>
+                  {RATING_NAMES[r]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="account-save">
+            {settings.enabled ? (
+              <>
+                {apiKey && (
+                  <button className="primary" disabled={busy}>
+                    Save key
+                  </button>
+                )}
+                <button type="button" className="ghost danger" disabled={busy} onClick={() => void save({ enabled: false })}>
+                  Turn GIFs off
+                </button>
+              </>
+            ) : (
+              <button className="primary" disabled={busy || (!apiKey.trim() && !settings.hasKey)}>
+                Turn GIFs on
+              </button>
+            )}
+            <span className="muted small">{settings.enabled ? "GIFs are on." : "GIFs are off."}</span>
+            {saved && <span className="muted small">Saved</span>}
+          </div>
+        </form>
+      )}
+      {error && <p className="error small">{error}</p>}
+    </>
   );
 }
 

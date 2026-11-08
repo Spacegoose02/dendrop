@@ -13,6 +13,7 @@ export const PERMISSION_INFO: Record<ServerPermission, { label: string; detail: 
   timeoutMembers: { label: "Time out", detail: "Stop people ranked below them posting for a while.", moderates: true },
   deleteMessages: { label: "Delete messages", detail: "Delete anyone's message in the channels.", moderates: true },
   createInvites: { label: "Make invites", detail: "Make invite links, even when members can't.", moderates: false },
+  manageExpressions: { label: "Manage emoji & stickers", detail: "Upload, rename and delete the server's custom emoji and stickers.", moderates: false },
 };
 
 /** A member's custom roles, highest first. */

@@ -1,6 +1,7 @@
 import { LIMITS, type Attachment, type MessageButton, type Conversation, type ConversationE2ee, type Message, type ReadState, type WrappedKey } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
+import { ExpressionRepo } from "./expressions.js";
 import { guardianIds } from "./family.js";
 import type { FriendRepo } from "./friends.js";
 import { toPublic, type UserRepo } from "./users.js";
@@ -70,11 +71,15 @@ export function cleanBody(body: unknown, allowEmpty = false): string {
 }
 
 export class ConversationRepo {
+  private readonly expressions: ExpressionRepo;
+
   constructor(
     private readonly db: Db,
     private readonly users: UserRepo,
     private readonly friends: FriendRepo,
-  ) {}
+  ) {
+    this.expressions = new ExpressionRepo(db);
+  }
 
   memberIds(conversationId: number): number[] {
     return (this.db.prepare("SELECT user_id FROM conversation_members WHERE conversation_id = ? ORDER BY user_id").all(conversationId) as {
@@ -270,6 +275,7 @@ export class ConversationRepo {
     const files = this.db
       .prepare(`SELECT * FROM attachments WHERE message_id IN (${ids.map(() => "?").join(",")}) ORDER BY rowid`)
       .all(...ids) as unknown as AttachmentRow[];
+    const reactions = this.expressions.reactions(ids);
     return rows.map((r) => ({
       id: r.id,
       conversationId: r.conversation_id,
@@ -282,6 +288,7 @@ export class ConversationRepo {
       attachments: r.deleted_at ? [] : files.filter((f) => f.message_id === r.id).map(toAttachment),
       webhook: r.webhook_name ? { id: r.webhook_id, name: r.webhook_name } : null,
       buttons: r.deleted_at || !r.buttons ? null : (JSON.parse(r.buttons) as MessageButton[]),
+      reactions: r.deleted_at ? [] : (reactions.get(r.id) ?? []),
     }));
   }
 
@@ -390,6 +397,7 @@ export class ConversationRepo {
     const removedFiles = tx(this.db, () => {
       const ids = (this.db.prepare("SELECT id FROM attachments WHERE message_id = ?").all(messageId) as { id: string }[]).map((r) => r.id);
       this.db.prepare("DELETE FROM attachments WHERE message_id = ?").run(messageId);
+      this.expressions.clearReactions(messageId);
       this.db.prepare("UPDATE messages SET body = '', key_version = NULL, buttons = NULL, deleted_at = ? WHERE id = ?").run(now(), messageId);
       return ids;
     });

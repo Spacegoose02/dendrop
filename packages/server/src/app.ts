@@ -16,6 +16,7 @@ import { openDb, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { FamilyService, type WebhookPost } from "./family.js";
 import { Gateway } from "./gateway.js";
+import { GifService, type GifFetch } from "./gifs.js";
 import { DendutyLink, type DendutyFetch } from "./denduty.js";
 import { builtinLivekit } from "./livekit.js";
 import { LootdenLink, type LootdenFetch } from "./lootden.js";
@@ -24,6 +25,7 @@ import { pushRoutes } from "./routes/push.js";
 import { authRoutes } from "./routes/auth.js";
 import { botRoutes } from "./routes/bots.js";
 import { dmRoutes } from "./routes/dms.js";
+import { expressionRoutes } from "./routes/expressions.js";
 import { familyRoutes, guardKids } from "./routes/family.js";
 import { dendutyRoutes } from "./routes/denduty.js";
 import { lootdenRoutes } from "./routes/lootden.js";
@@ -56,6 +58,8 @@ export interface Context {
   denduty: DendutyLink;
   /** Bot accounts, the bot API's tokens and events, and buttons on bots' messages. */
   bots: BotService;
+  /** GIF search through GIPHY, off until a super admin sets it up. */
+  gifs: GifService;
   /** Set by the server routes: sends a server's members its new state (and prunes voice). */
   serverChanged?: (serverId: number) => void;
   /** Set by the server routes: how many people are in a voice channel. */
@@ -77,7 +81,7 @@ export interface BuiltApp {
 export async function buildApp(
   config: ServerConfig,
   db: Db = openDb(path.join(config.dataDir, "dendrop.db")),
-  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2]; webhookPost?: WebhookPost; lootdenFetch?: LootdenFetch; dendutyFetch?: DendutyFetch; botFetch?: BotFetch } = {},
+  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2]; webhookPost?: WebhookPost; lootdenFetch?: LootdenFetch; dendutyFetch?: DendutyFetch; botFetch?: BotFetch; gifFetch?: GifFetch } = {},
 ): Promise<BuiltApp> {
   const logger = process.env.NODE_ENV === "test" ? false : { level: process.env.DENDROP_LOG_LEVEL ?? "info" };
   // Built-in HTTPS (config.tls) is the same app on an https server; the types are the plain one's.
@@ -104,12 +108,15 @@ export async function buildApp(
     lootden: new LootdenLink(db, users, gateway, options.lootdenFetch),
     denduty: new DendutyLink(db, users, gateway, family, push, options.dendutyFetch),
     bots: new BotService(db, users, gateway, automod, family, push, options.botFetch, (msg, err) => app.log.warn({ err }, msg)),
+    gifs: new GifService(db, family, config.dataDir, options.gifFetch),
     onClientEvent: [],
     onPresence: [],
     callRingMs: options.callRingMs,
   };
   // LootDen's play limits feed kids' time rules, when a parent turns that on.
   family.playLimits = (kidId, at) => ctx.lootden.kidLimits(kidId, at);
+  // GIF links pass automod's link rule while GIFs are on.
+  automod.extraAllowedHosts = () => ctx.gifs.linkHosts();
 
   await app.register(cookie);
   await app.register(multipart, { limits: { fileSize: config.maxUploadBytes } });
@@ -127,6 +134,7 @@ export async function buildApp(
 
   app.addHook("onClose", async () => {
     ctx.gateway.closeAll();
+    ctx.gifs.close();
     db.close();
   });
 
@@ -137,6 +145,7 @@ export async function buildApp(
 
   await app.register(async (api) => authRoutes(api, ctx));
   await app.register(async (api) => dmRoutes(api, ctx));
+  await app.register(async (api) => expressionRoutes(api, ctx));
   await app.register(async (api) => pushRoutes(api, ctx));
   await app.register(async (api) => serverRoutes(api, ctx));
   await app.register(async (api) => familyRoutes(api, ctx));

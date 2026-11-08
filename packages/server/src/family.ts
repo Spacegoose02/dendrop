@@ -11,6 +11,7 @@ import type {
   LootdenKidLimits,
   PublicUser,
 } from "@dendrop/shared";
+import { findBlockedWords } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import type { Gateway } from "./gateway.js";
@@ -46,6 +47,7 @@ const DEFAULT_RULES: KidRules = {
   choresFirst: false,
   lootdenBedtime: false,
   lootdenPlayTime: false,
+  gifs: false,
 };
 
 /**
@@ -108,6 +110,7 @@ interface RulesRow {
   chores_first: number;
   lootden_bedtime: number;
   lootden_play_time: number;
+  gifs: number;
 }
 
 interface AlertRow {
@@ -304,12 +307,13 @@ export class FamilyService {
       choresFirst: !!r.chores_first,
       lootdenBedtime: !!r.lootden_bedtime,
       lootdenPlayTime: !!r.lootden_play_time,
+      gifs: !!r.gifs,
     };
   }
 
   setRules(kidId: number, patch: Partial<Record<keyof KidRules, unknown>>): KidRules {
     const next = { ...this.rules(kidId) };
-    const bool = (k: "profanityFilter" | "approveFriends" | "canJoinServers" | "choresFirst" | "lootdenBedtime" | "lootdenPlayTime") => {
+    const bool = (k: "profanityFilter" | "approveFriends" | "canJoinServers" | "choresFirst" | "lootdenBedtime" | "lootdenPlayTime" | "gifs") => {
       if (patch[k] === undefined) return;
       if (typeof patch[k] !== "boolean") throw new HttpError(400, `${k} is true or false`);
       next[k] = patch[k];
@@ -320,6 +324,7 @@ export class FamilyService {
     bool("choresFirst");
     bool("lootdenBedtime");
     bool("lootdenPlayTime");
+    bool("gifs");
     if (patch.blockedWords !== undefined) {
       if (!Array.isArray(patch.blockedWords) || patch.blockedWords.length > 200) throw new HttpError(400, "blockedWords is a list of up to 200 words");
       const words = patch.blockedWords.map((w) => (typeof w === "string" ? w.trim().toLowerCase() : ""));
@@ -354,7 +359,7 @@ export class FamilyService {
     this.db
       .prepare(
         `UPDATE kid_rules SET profanity_filter = ?, blocked_words = ?, approve_friends = ?, can_join_servers = ?,
-         allowed_from = ?, allowed_until = ?, daily_minutes = ?, timezone = ?, chores_first = ?, lootden_bedtime = ?, lootden_play_time = ? WHERE kid_id = ?`,
+         allowed_from = ?, allowed_until = ?, daily_minutes = ?, timezone = ?, chores_first = ?, lootden_bedtime = ?, lootden_play_time = ?, gifs = ? WHERE kid_id = ?`,
       )
       .run(
         next.profanityFilter ? 1 : 0,
@@ -368,9 +373,16 @@ export class FamilyService {
         next.choresFirst ? 1 : 0,
         next.lootdenBedtime ? 1 : 0,
         next.lootdenPlayTime ? 1 : 0,
+        next.gifs ? 1 : 0,
         kidId,
       );
     return next;
+  }
+
+  /** Whether the kid's family filter blocks some text (always false with the filter off). */
+  blocksText(kidId: number, text: string): boolean {
+    const rules = this.rules(kidId);
+    return rules.profanityFilter && findBlockedWords(text, rules.blockedWords).length > 0;
   }
 
   status(kidId: number, at = new Date()): KidStatus {

@@ -580,23 +580,329 @@ textarea:focus {
 .emoji-wrap {
   position: relative;
 }
-.emoji-picker {
+/* Emoji, GIF and sticker picker */
+.expression-picker {
   position: absolute;
   right: 0;
   bottom: calc(100% + 6px);
-  display: grid;
-  grid-template-columns: repeat(8, 36px);
-  gap: 2px;
-  padding: 8px;
-  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100vw - 32px));
+  height: min(420px, 60vh);
   border-radius: var(--dd-radius);
   border: 1px solid var(--dd-border);
   background: var(--dd-bg-raised);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
   z-index: 5;
+  overflow: hidden;
 }
-.emoji-picker button {
-  font-size: 20px;
+.expression-picker.picker-reaction {
+  height: min(340px, 50vh);
+}
+.reaction-pop {
+  position: absolute;
+  right: 16px;
+  z-index: 6;
+}
+.reaction-pop.above {
+  bottom: calc(100% - 8px);
+}
+.reaction-pop.below {
+  top: 20px;
+}
+.reaction-pop .expression-picker {
+  position: static;
+}
+.picker-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px 0;
+}
+.picker-tabs button {
+  flex: 1;
+  padding: 6px;
+  border: none;
+  border-radius: var(--dd-radius-sm);
+  background: none;
+  color: var(--dd-text-muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.picker-tabs button.active {
+  background: var(--dd-bg-hover);
+  color: var(--dd-text);
+}
+.picker-search {
+  margin: 8px;
+  width: auto;
+}
+.picker-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+}
+.picker-section {
+  margin: 8px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--dd-text-muted);
+}
+.picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+  gap: 2px;
+}
+.picker-grid.quick {
+  margin-top: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--dd-border);
+}
+.picker-grid button {
+  font-size: 22px;
+  line-height: 1;
+  padding: 6px 4px;
+  display: grid;
+  place-items: center;
+}
+.picker-grid .custom-emoji {
+  width: 26px;
+  height: 26px;
+}
+.picker-empty,
+.picker-credit {
+  padding: 8px 4px;
+  margin: 0;
+}
+.picker-credit {
+  text-align: center;
+}
+.picker-more {
+  display: block;
+  margin: 8px auto 0;
+}
+.gif-grid {
+  columns: 2;
+  column-gap: 6px;
+}
+.gif-grid button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  margin-bottom: 6px;
+  break-inside: avoid;
+  border-radius: var(--dd-radius-sm);
+  overflow: hidden;
+}
+.gif-grid img {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--dd-bg-sidebar);
+}
+.sticker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 4px;
+}
+.sticker-grid button {
   padding: 4px;
+  border-radius: var(--dd-radius-sm);
+}
+.sticker-grid img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+.gif-button {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+.emoji-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px;
+  margin-bottom: 4px;
+  border-radius: var(--dd-radius);
+  border: 1px solid var(--dd-border);
+  background: var(--dd-bg-raised);
+}
+.emoji-suggest button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: var(--dd-radius-sm);
+}
+.emoji-suggest button.active {
+  background: var(--dd-bg-hover);
+}
+
+/* Custom emoji, stickers, GIFs and reactions in messages */
+.custom-emoji {
+  display: inline-block;
+  width: 1.5em;
+  height: 1.5em;
+  object-fit: contain;
+  vertical-align: -0.3em;
+}
+.jumbo {
+  font-size: 2.6em;
+  line-height: 1.2;
+}
+.jumbo .custom-emoji,
+.custom-emoji.big {
+  width: 48px;
+  height: 48px;
+  vertical-align: middle;
+}
+.sticker {
+  display: block;
+  width: 160px;
+  height: 160px;
+  object-fit: contain;
+  margin: 2px 0;
+}
+.gif-embed {
+  position: relative;
+  display: inline-block;
+  margin-top: 2px;
+}
+.gif-embed img {
+  display: block;
+  max-width: min(320px, 100%);
+  max-height: 320px;
+  border-radius: var(--dd-radius);
+  background: var(--dd-bg-raised);
+}
+.gif-badge {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  padding: 0 4px;
+  border-radius: var(--dd-radius-sm);
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+}
+.reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--dd-border);
+  background: var(--dd-bg-raised);
+  color: var(--dd-text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.reaction .custom-emoji {
+  width: 18px;
+  height: 18px;
+  vertical-align: middle;
+}
+.reaction.mine {
+  border-color: var(--dd-accent);
+  background: color-mix(in srgb, var(--dd-accent) 18%, var(--dd-bg-raised));
+}
+.reaction-count {
+  font-size: 12px;
+  font-weight: 700;
+}
+.reaction.add {
+  color: var(--dd-text-muted);
+  opacity: 0;
+}
+.msg:hover .reaction.add,
+.msg:focus-within .reaction.add {
+  opacity: 1;
+}
+@media (hover: none) {
+  .reaction.add {
+    opacity: 1;
+  }
+}
+.reaction:disabled {
+  cursor: default;
+}
+
+/* Server settings: emoji and stickers */
+.server-settings .row > button {
+  flex: none;
+  white-space: nowrap;
+}
+.expression-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.expression-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--dd-border);
+}
+.expression-row .grow {
+  flex: 1;
+  min-width: 120px;
+}
+.expression-row .error {
+  flex-basis: 100%;
+  margin: 0;
+}
+.sticker-form {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius);
+  padding: 8px 12px 12px;
+}
+.sticker-form input.short {
+  width: 6em;
+}
+.sticker-admin {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+.sticker-admin li {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius);
+}
+.sticker-admin img {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 /* Dialogs */
@@ -1079,4 +1385,16 @@ button.attachment-file {
 }
 .error-text {
   color: var(--dd-danger);
+}
+
+/* Phones: the picker spans the screen instead of hanging off its button. */
+@media (max-width: 720px) {
+  .expression-picker,
+  .reaction-pop .expression-picker {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    bottom: 76px;
+    width: auto;
+  }
 }

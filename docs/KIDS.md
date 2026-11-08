@@ -76,6 +76,9 @@ Each kid has rules their parents set:
 - **Approve new friends** (on by default). A friendship with a kid waits ("held") until a
   parent of each kid in it says yes; until then they can't start a chat. A kid's own parents
   don't need approving.
+- **GIFs** (off by default): whether the kid may search for GIFs and see the ones friends send.
+  They only ever get GIFs rated G, and a search with a filtered word finds nothing. See
+  [EXPRESSIONS.md](EXPRESSIONS.md).
 - **Chat servers** (off by default): whether the kid may join or make chat servers.
   In a server, a kid account can't be made an admin or given a custom role with moderator
   permissions (anything beyond Make invites). Color-only roles are fine. If an account with

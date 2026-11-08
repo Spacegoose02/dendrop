@@ -127,7 +127,149 @@ export interface Message {
   webhook: { id: number | null; name: string } | null;
   /** Buttons under a bot's message; clicking one tells the bot (see BotInteraction). */
   buttons: MessageButton[] | null;
+  /** Emoji reactions, in the order they were first added. */
+  reactions: Reaction[];
 }
+
+/**
+ * One emoji reacted to a message, and who used it. `emoji` is the emoji itself ("👍") or a
+ * custom emoji's token ("<:raccoon:12>", "<a:dance:13>" when animated).
+ */
+export interface Reaction {
+  emoji: string;
+  count: number;
+  userIds: number[];
+}
+
+// ---- Custom emoji, stickers and GIFs ---------------------------------------------------
+
+/**
+ * A server's own emoji. Members of the server use it anywhere (other servers, DMs, group chats)
+ * by its token: <:name:id>, or <a:name:id> when it's animated. Anyone signed in can see it.
+ */
+export interface CustomEmoji {
+  id: number;
+  serverId: number;
+  name: string;
+  animated: boolean;
+  url: string;
+  createdBy: number | null;
+  createdAt: string;
+}
+
+/**
+ * A server's sticker: a bigger picture sent on its own. Sent as a message whose whole text is
+ * its token, <sticker:name:id>, so it works in end-to-end encrypted chats too.
+ */
+export interface Sticker {
+  id: number;
+  serverId: number;
+  name: string;
+  description: string;
+  /** An emoji that goes with it, for search ("🦝"). */
+  emoji: string;
+  animated: boolean;
+  url: string;
+  createdBy: number | null;
+  createdAt: string;
+}
+
+/**
+ * A GIF from the GIF search. Pictures always come through Dendrop (/api/gifs/media/...), so the
+ * GIF service never sees who is looking. Sent as a message holding its link (`url`).
+ */
+export interface Gif {
+  id: string;
+  title: string;
+  /** The link a message carries: the GIF's page on the GIF service. */
+  url: string;
+  /** Small, for the picker. */
+  previewUrl: string;
+  /** Full size, for the chat. */
+  mediaUrl: string;
+  width: number;
+  height: number;
+}
+
+export interface GifPage {
+  gifs: Gif[];
+  /** Pass as offset for the next page, or null at the end. */
+  next: number | null;
+}
+
+/** Content ratings, mildest first. Kids always get "g". */
+export const GIF_RATINGS = ["g", "pg", "pg-13", "r"] as const;
+export type GifRating = (typeof GIF_RATINGS)[number];
+
+/** The super admin's GIF settings. Off until set up, since searches go to an outside service. */
+export interface GifSettings {
+  enabled: boolean;
+  provider: "giphy";
+  /** The provider's API key is never sent back, only whether there is one. */
+  hasKey: boolean;
+  /** The strongest rating anyone here gets. */
+  rating: GifRating;
+}
+
+/**
+ * The GIF id in a link to one (a GIPHY page or picture), or null. Giphy ids are letters and
+ * numbers; a page link ends with "-<id>".
+ */
+export function gifIdFromLink(link: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(link.trim());
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+  const host = u.hostname.toLowerCase();
+  const parts = u.pathname.split("/").filter(Boolean);
+  const ok = (id: string | undefined) => (id && /^[A-Za-z0-9]{4,64}$/.test(id) ? id : null);
+  if (host === "giphy.com" || host === "www.giphy.com") {
+    if ((parts[0] === "gifs" || parts[0] === "stickers") && parts[1]) return ok(parts[1].split("-").at(-1));
+    return null;
+  }
+  if (/^media\d?\.giphy\.com$/.test(host) && parts[0] === "media") {
+    // /media/<id>/giphy.gif, or /media/v1.<...>/<id>/giphy.gif
+    return ok(parts[1]?.startsWith("v1.") ? parts[2] : parts[1]);
+  }
+  if (host === "i.giphy.com") return ok((parts[0] === "media" ? parts[1] : parts[0])?.replace(/\.(gif|webp)$/, ""));
+  return null;
+}
+
+export const EXPRESSION_LIMITS = {
+  /** Still emoji per server; animated ones have their own allowance. */
+  emojis: 50,
+  animatedEmojis: 50,
+  emojiBytes: 256 * 1024,
+  stickers: 30,
+  stickerBytes: 512 * 1024,
+  /** Letters, numbers and _, 2 to 32 long. */
+  nameLength: 32,
+  stickerDescription: 100,
+  /** Different emoji on one message. */
+  reactionsPerMessage: 20,
+} as const;
+
+/** Custom emoji names: letters, numbers and underscores. */
+export const isEmojiName = (s: unknown): s is string => typeof s === "string" && /^[A-Za-z0-9_]{2,32}$/.test(s);
+
+/** <:name:id> or <a:name:id>. Group 1 is "a" when animated, 2 the name, 3 the id. */
+export const CUSTOM_EMOJI_RE = /<(a?):([A-Za-z0-9_]{2,32}):(\d{1,12})>/g;
+/** A message that is only a sticker: <sticker:name:id>. */
+export const STICKER_RE = /^<sticker:([A-Za-z0-9_]{2,32}):(\d{1,12})>$/;
+
+/**
+ * Whether a string is one emoji (or a short run of them, such as a flag or a family): what
+ * reactions accept besides custom emoji.
+ */
+export const isUnicodeEmoji = (s: unknown): s is string =>
+  typeof s === "string" &&
+  s.length > 0 &&
+  s.length <= 32 &&
+  /^[\p{Extended_Pictographic}\p{Emoji_Component}\u200d\ufe0f\u20e3]+$/u.test(s) &&
+  /[\p{Extended_Pictographic}\u{1f1e6}-\u{1f1ff}\u20e3]/u.test(s);
 
 export interface AuthInfo {
   /** True until the first account (the super admin) has been made. */
@@ -144,6 +286,8 @@ export interface ServerInfo {
   calls: boolean;
   /** LootDen's address when it's linked, so links to its games can show a card. */
   lootdenUrl: string | null;
+  /** GIF search is set up here (kids also need their parents to allow GIFs: KidRules.gifs). GIF links show as GIFs. */
+  gifs: boolean;
 }
 
 /** A call in a conversation. Calls live in memory on the server while they last. */
@@ -182,7 +326,8 @@ export type ServerPermission =
   | "kickMembers"
   | "timeoutMembers"
   | "deleteMessages"
-  | "createInvites";
+  | "createInvites"
+  | "manageExpressions";
 
 export const SERVER_PERMISSIONS: ServerPermission[] = [
   "manageServer",
@@ -193,10 +338,11 @@ export const SERVER_PERMISSIONS: ServerPermission[] = [
   "timeoutMembers",
   "deleteMessages",
   "createInvites",
+  "manageExpressions",
 ];
 
 /** Permissions that let someone moderate other people. Kid accounts can't hold them (or be admins). */
-export const MODERATION_PERMISSIONS: ServerPermission[] = SERVER_PERMISSIONS.filter((p) => p !== "createInvites");
+export const MODERATION_PERMISSIONS: ServerPermission[] = SERVER_PERMISSIONS.filter((p) => p !== "createInvites" && p !== "manageExpressions");
 
 /**
  * A role a server's moderators made, like "Cousins" or "Game night crew". Roles are ranked
@@ -245,6 +391,10 @@ export interface ChatServer extends ChatServerSummary {
   createdAt: string;
   /** Set while automod or a moderator has timed you out here: you can read but not post or talk. */
   timedOutUntil: string | null;
+  /** The server's custom emoji, by name. */
+  emojis: CustomEmoji[];
+  /** The server's stickers, newest last. */
+  stickers: Sticker[];
 }
 
 // ---- Automod --------------------------------------------------------------------------
@@ -445,6 +595,8 @@ export interface KidRules {
    * daily minutes above, or LootDen's daily play time when there are none.
    */
   lootdenPlayTime: boolean;
+  /** May search for and see GIFs (always the mildest rating). Off until a parent turns it on. */
+  gifs: boolean;
 }
 
 /** The kid's LootDen play limits, when LootDen is linked and their profile is matched. */
@@ -809,6 +961,8 @@ export type ServerEvent =
   | { type: "ready"; user: Me }
   | { type: "message.created"; message: Message }
   | { type: "message.updated"; message: Message }
+  /** Someone added or took back a reaction: the message's reactions now. */
+  | { type: "message.reactions"; conversationId: number; messageId: number; reactions: Reaction[] }
   | { type: "conversation.created"; conversation: Conversation }
   | { type: "conversation.updated"; conversation: Conversation }
   | { type: "friend.updated"; friend: Friend }

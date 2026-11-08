@@ -39,6 +39,7 @@ import { LootdenUrlContext } from "./GameLink.tsx";
 import { FamilyDialog } from "./Family.tsx";
 import { ChannelDialog, CreateServer, Directory, InviteDialog, InviteLinkDialog, ServerIcon, ServerSettings, ServerSidebar, type SettingsTab } from "./Servers.tsx";
 import { can } from "./roles.ts";
+import { ExpressionsContext } from "./expressions.tsx";
 
 // The call code (LiveKit) is big, so it only loads when a call starts.
 const CallPanel = lazy(() => import("./CallPanel.tsx").then((m) => ({ default: m.CallPanel })));
@@ -292,6 +293,13 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           );
           break;
         }
+        case "message.reactions":
+          setHistories((h) => {
+            const cur = h[e.conversationId];
+            if (!cur) return h;
+            return { ...h, [e.conversationId]: { ...cur, messages: cur.messages.map((x) => (x.id === e.messageId ? { ...x, reactions: e.reactions } : x)) } };
+          });
+          break;
         case "read":
           setConversations((cs) =>
             cs.map((c) =>
@@ -455,6 +463,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const ringing = Object.values(calls).find((c) => c.ringing.includes(me.id) && c.conversationId !== inCall?.call.conversationId);
 
   const kidRules = me.isKid && family?.rules && family.status ? { rules: family.rules, status: family.status } : null;
+  const expressions = useMemo(() => ({ servers, gifs: !!server?.gifs && (!me.isKid || !!family?.rules?.gifs) }), [servers, server?.gifs, me.isKid, family?.rules?.gifs]);
   const openAlerts = familyAlerts.filter((a) => !a.resolvedAt).length;
   const current = view.kind === "conversation" ? conversations.find((c) => c.id === view.id) : undefined;
   const currentServer = view.kind === "channel" ? servers.find((x) => x.id === view.serverId) : undefined;
@@ -833,7 +842,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   return (
     <LootdenUrlContext.Provider value={server?.lootdenUrl ?? null}>
       <ActivityContext.Provider value={activities}>
-        <ChoresContext.Provider value={chores}>{shell}</ChoresContext.Provider>
+        <ChoresContext.Provider value={chores}>
+          <ExpressionsContext.Provider value={expressions}>{shell}</ExpressionsContext.Provider>
+        </ChoresContext.Provider>
       </ActivityContext.Provider>
     </LootdenUrlContext.Provider>
   );
