@@ -112,6 +112,7 @@ function KidView({ me, family, conversations }: { me: Me; family: FamilyInfo; co
         <ul className="family-list small">
           <li>{status.allowedNow ? "You can chat right now." : `⏰ ${status.reason}`}</li>
           {rules.choresFirst && <li>Chores first: chat opens once today's Den Duty chores are done</li>}
+          <li>{rules.gifs ? "GIFs are on (rated G only)" : "GIFs are off: ask a parent if you'd like them"}</li>
           {rules.allowedFrom && rules.allowedUntil && (
             <li>
               Chat hours: {rules.allowedFrom} to {rules.allowedUntil}
@@ -454,6 +455,16 @@ function KidCard({ kid, onChanged }: { kid: FamilyKid; onChanged: () => void }) 
         <span>
           <strong>Chat servers</strong>
           <span className="muted small">Let them join or make chat servers.</span>
+        </span>
+      </label>
+      <label className="toggle">
+        <input type="checkbox" checked={rules.gifs} onChange={(e) => set({ gifs: e.target.checked })} />
+        <span>
+          <strong>GIFs</strong>
+          <span className="muted small">
+            Let them search for GIFs and see the ones friends send. They only ever get GIFs rated G, and searches with a filtered word find nothing. Off: GIFs
+            show as plain links.
+          </span>
         </span>
       </label>
       <label className="toggle">

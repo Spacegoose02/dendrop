@@ -463,6 +463,49 @@ export const MIGRATIONS: string[] = [
   -- A kid account a parent made under theirs. The parents look after how it signs in.
   ALTER TABLE users ADD COLUMN managed_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
   `,
+  `
+  -- Custom emoji and stickers, per server. The pictures live in <data>/uploads/<file>.
+  CREATE TABLE server_emojis (
+    id INTEGER PRIMARY KEY,
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    file TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    animated INTEGER NOT NULL DEFAULT 0,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX server_emojis_name ON server_emojis(server_id, name COLLATE NOCASE);
+
+  CREATE TABLE server_stickers (
+    id INTEGER PRIMARY KEY,
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    emoji TEXT NOT NULL DEFAULT '',
+    file TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    animated INTEGER NOT NULL DEFAULT 0,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX server_stickers_name ON server_stickers(server_id, name COLLATE NOCASE);
+
+  -- Reactions. emoji is the emoji itself, or "c:<id>" for a custom emoji, whose name and
+  -- whether it moves are kept so the reaction still reads well after the emoji is deleted.
+  CREATE TABLE message_reactions (
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    emoji TEXT NOT NULL,
+    custom_name TEXT,
+    custom_animated INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (message_id, emoji, user_id)
+  );
+
+  -- GIFs for kids: off until a parent turns them on.
+  ALTER TABLE kid_rules ADD COLUMN gifs INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export function now(): string {

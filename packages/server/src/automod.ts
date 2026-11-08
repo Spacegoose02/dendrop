@@ -138,6 +138,9 @@ export class AutomodService {
   /** Called when someone is timed out, so voice can drop them. */
   readonly onTimeout: ((serverId: number, userId: number) => void)[] = [];
 
+  /** Hosts the link rule always lets through (GIF links while GIFs are on). */
+  extraAllowedHosts: () => string[] = () => [];
+
   constructor(
     private readonly db: Db,
     private readonly users: UserRepo,
@@ -392,7 +395,7 @@ export class AutomodService {
       if (hit) hits.push(hit);
     }
     if (applies(settings.links) && text) {
-      const own = this.options.publicUrl ? [hostOf(this.options.publicUrl)] : [];
+      const own = [...(this.options.publicUrl ? [hostOf(this.options.publicUrl)] : []), ...this.extraAllowedHosts()];
       const bad = [...new Set(linkHosts(text).filter((h) => !allowedHost(h, [...settings.links.allowedDomains, ...own])))];
       if (bad.length) hits.push({ rule: "links", reason: `Link${bad.length > 1 ? "s" : ""} to ${bad.join(", ")}` });
     }

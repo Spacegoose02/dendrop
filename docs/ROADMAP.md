@@ -6,7 +6,7 @@ feature board into a build order.
 
 **Top priority:** private direct messaging (text and calls) between people you trust, so Dendrop can replace Discord DMs first.
 
-**Current state:** Phase 0 is in place, and Phase 1 has sign-in, friends, live DMs and group chats, files, emoji, read receipts, and voice and video calls. Phase 3's chat servers are in: servers, locked channels, invites, the public directory and super admin approval (GIFs still to come). Phase 4 has started with voice channels and screen sharing. The
+**Current state:** Phase 0 is in place, and Phase 1 has sign-in, friends, live DMs and group chats, files, emoji, read receipts, and voice and video calls. Phase 3's chat servers are in: servers, locked channels, invites, the public directory, super admin approval and GIFs. Phase 4 has started with voice channels and screen sharing. The
 status column is updated as each piece lands.
 
 ---
@@ -175,11 +175,11 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Backbone | Creator is owner of chat server | 3 | Done (owner and admin roles, ownership transfer) |
 | Backbone | Approval needed to create servers | 3 | Done |
 | Features | Message read receipts | 1 | Done |
-| Features | Emojis | 1 | Partial: built-in picker; search and custom emoji in Phase 7 |
-| Features | GIFs | 3 | Missing |
+| Features | Emojis | 1 | Done: searchable picker, `:name:` suggestions, reactions ([EXPRESSIONS.md](EXPRESSIONS.md)) |
+| Features | GIFs | 3 | Done: GIPHY search, off until a super admin adds a key; searches and GIFs go through the server; kids need a parent's OK and get G only ([EXPRESSIONS.md](EXPRESSIONS.md)) |
 | Features | Custom app icons | 7 | Missing |
 | Features | File uploading | 1 | Done (pictures inline, other files download) |
-| Features | Custom emoji upload, sections | 7 | Missing |
+| Features | Custom emoji upload, sections | 7 | Done: per-server still and animated emoji and stickers, sections per server in the picker, a Manage emoji & stickers permission ([EXPRESSIONS.md](EXPRESSIONS.md)) |
 | Features | Themes (dark, nuclear, gaming, laser) | 7 | Missing |
 | Features | Pop-out chats | 2 | Missing |
 | Features | Android chat bubbles for DMs | 2 | Missing |

@@ -134,6 +134,6 @@ export function authRoutes(app: FastifyInstance, ctx: Context): void {
 
   app.get("/api/server", async (req): Promise<ServerInfo> => {
     requireUser(req);
-    return { maxUploadBytes: config.maxUploadBytes, calls: callsEnabled(config), lootdenUrl: ctx.lootden.settings().url || null };
+    return { maxUploadBytes: config.maxUploadBytes, calls: callsEnabled(config), lootdenUrl: ctx.lootden.settings().url || null, gifs: ctx.gifs.settings().enabled };
   });
 }
