@@ -5,7 +5,9 @@ import { api } from "./api.ts";
 import { loadAudio, micError, playSound, useAudioPrefs } from "./audio.ts";
 import { RemoteAudio, Tile } from "./CallPanel.tsx";
 import { comboLabel, useKeybinds, voiceControls } from "./keybinds.ts";
-import { roomAudioOptions, useRoomAudio } from "./voiceAudio.ts";
+import { roomAudioOptions, useRoomAudio, type MicNote } from "./voiceAudio.ts";
+import { SoundboardButton } from "./SoundboardMenu.tsx";
+import { setSoundboardDeafened } from "./soundboard.ts";
 import { canShareScreen, ScreenTile, ShareDialog, shareOptions, type ShareQuality } from "./ScreenShare.tsx";
 import { can } from "./roles.ts";
 
@@ -56,7 +58,13 @@ export function VoicePanel({
   const prefs = useAudioPrefs();
   const keybinds = useKeybinds();
   const [sending, setSending] = useState(true);
-  useRoomAudio(room, prefs, setSending);
+  const [micNote, setMicNote] = useState<MicNote>(null);
+  useRoomAudio(room, prefs, setSending, setMicNote);
+  // Deafened means the soundboard is quiet too.
+  useEffect(() => {
+    setSoundboardDeafened(deafened);
+    return () => setSoundboardDeafened(false);
+  }, [deafened]);
   const bump = () => setVersion((v) => v + 1);
   const isStage = join.voice.stage;
   const members = live?.members ?? join.voice.members;
@@ -310,6 +318,7 @@ export function VoicePanel({
           </button>
         )
       )}
+      {!compact && status === "connected" && <SoundboardButton server={server} disabled={deafened} onError={setError} />}
       {isStage && !compact && (
         <button onClick={() => setSpeakerOf(me.id, false)} title="Stop speaking and listen with everyone else">
           🎧 Move to audience
@@ -435,6 +444,9 @@ export function VoicePanel({
             {" "}
             {keybinds.binds.pushToTalk ? (sending ? "Talking…" : `Hold ${comboLabel(keybinds.binds.pushToTalk)} to talk.`) : "Push to talk has no key yet (Settings)."}
           </span>
+        )}
+        {micNote === "browser-fallback" && prefs.noiseSuppression === "smart" && (
+          <span className="muted"> Smart noise suppression couldn't start here, so the browser's own is on. </span>
         )}
         {error && <span className="error">{error}</span>}
       </div>

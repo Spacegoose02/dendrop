@@ -3,9 +3,10 @@ import { createReadStream, createWriteStream, mkdirSync, rmSync, statSync } from
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { AUTOMOD_LIMITS, INLINE_IMAGE_TYPES, isVoiceKind, LIMITS, type ServerPermission } from "@dendrop/shared";
+import { AUTOMOD_LIMITS, INLINE_IMAGE_TYPES, isBuiltinSound, isVoiceKind, LIMITS, type ServerPermission } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
 import { ConversationRepo } from "../conversations.js";
+import { ExpressionRepo } from "../expressions.js";
 import { HttpError } from "../errors.js";
 import { FriendRepo } from "../friends.js";
 import { livekitUrl } from "../livekit.js";
@@ -533,6 +534,28 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     const b = req.body ?? {};
     const bool = (v: unknown) => (typeof v === "boolean" ? v : undefined);
     return voice.setState(me.id, { muted: bool(b.muted), deafened: bool(b.deafened), video: bool(b.video), screen: bool(b.screen) });
+  });
+
+  /**
+   * Plays a soundboard sound to your voice channel: { builtin: "tada" } for one everyone has,
+   * or { soundId } for one of the channel's server's sounds.
+   */
+  app.post<{ Body: { builtin?: unknown; soundId?: unknown } }>("/api/voice/sound", async (req) => {
+    const me = requireUser(req);
+    const cid = voice.channelOf(me.id);
+    const state = cid === undefined ? undefined : voice.state(cid);
+    if (!state) throw new HttpError(400, "You aren't in a voice channel");
+    ctx.automod.assertNotTimedOut(state.serverId, me.id);
+    const b = req.body ?? {};
+    if (b.builtin !== undefined) {
+      if (!isBuiltinSound(b.builtin)) throw new HttpError(400, "No such sound");
+      voice.playSound(me.id, { builtin: b.builtin });
+    } else {
+      const sound = new ExpressionRepo(db).sound(id(b.soundId));
+      if (!sound || sound.serverId !== state.serverId) throw new HttpError(404, "No such sound");
+      voice.playSound(me.id, { sound });
+    }
+    return { ok: true };
   });
 
   app.post("/api/voice/leave", async (req) => {

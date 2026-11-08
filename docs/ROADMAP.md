@@ -155,7 +155,7 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Systems | SSO with TinyAuth | 1 | Done |
 | Systems | MFA usable | 1 | Done (enforced in TinyAuth) |
 | Systems | Automatically adjust input sensitivity | 4 | Done (automatic, manual threshold, or always on) |
-| Systems | Noise suppression with levels | 4 | Partial: off, standard and strong (browser suppression and voice isolation); RNNoise still to come |
+| Systems | Noise suppression with levels | 4 | Done: off, smart (RNNoise in an AudioWorklet, the same in every browser) and the browser's own (with voice isolation where it has it) |
 | Systems | Advanced audio switches | 4 | Partial: echo cancellation, automatic gain control, no-mic warnings; ducking and quality-of-service still to come |
 | Systems | Automatically open when PC starts | 2 | Missing |
 | Systems | Keybinds | 2 | Done: push-to-talk, mute and deafen keys; in the PC app all three also work in the background (push to talk through a keyboard hook that only runs while you're in voice) |

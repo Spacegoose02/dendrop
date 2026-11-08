@@ -325,6 +325,7 @@ export class ServerRepo {
       timedOutUntil: this.timedOutUntil(serverId, viewerId),
       emojis: new ExpressionRepo(this.db).emojis(serverId),
       stickers: new ExpressionRepo(this.db).stickers(serverId),
+      sounds: new ExpressionRepo(this.db).sounds(serverId),
       levels: !!r.levels,
       welcome: this.welcome(serverId),
       welcomedAt: me.welcomed_at,
