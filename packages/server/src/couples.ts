@@ -1,6 +1,7 @@
 import { rmSync } from "node:fs";
 import path from "node:path";
-import { COUPLES_KINDS, COUPLES_LIMITS, LIMITS, type CouplesItem, type CouplesKind, type CouplesKit, type CouplesKitState } from "@dendrop/shared";
+import { COUPLES_KINDS, COUPLES_LIMITS, LIMITS, type CouplesItem, type CouplesKind, type CouplesKit, type CouplesKitState, type CouplesSpicyPack } from "@dendrop/shared";
+import { SPICY_PACK } from "./couples-spicy.js";
 import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { guardianIds } from "./family.js";
@@ -154,7 +155,31 @@ export class CouplesService {
       eligible: this.eligible(cid, other),
       unavailable,
       items: state === "on" && !unavailable ? this.items(cid, userId, at) : [],
+      spicy: { mine: this.spicyOn(cid, userId), partner: this.spicyOn(cid, other) },
     };
+  }
+
+  // ---- Spicy mode -------------------------------------------------------------------------
+
+  private spicyOn(cid: number, userId: number): boolean {
+    return !!this.db.prepare("SELECT 1 FROM couples_spicy WHERE conversation_id = ? AND user_id = ?").get(cid, userId);
+  }
+
+  /** Switches spicy mode on or off for yourself. The pack only comes once both have it on. */
+  setSpicy(cid: number, userId: number, on: unknown): CouplesKit {
+    this.requireOn(cid, userId);
+    if (typeof on !== "boolean") throw new HttpError(400, "on is true or false");
+    if (on) this.db.prepare("INSERT OR IGNORE INTO couples_spicy (conversation_id, user_id, created_at) VALUES (?, ?, ?)").run(cid, userId, now());
+    else this.db.prepare("DELETE FROM couples_spicy WHERE conversation_id = ? AND user_id = ?").run(cid, userId);
+    this.changed(cid);
+    return this.get(cid, userId);
+  }
+
+  /** The spicy pack, for the two people in a kit once both have switched spicy mode on. */
+  spicyPack(cid: number, userId: number): CouplesSpicyPack {
+    const other = this.requireOn(cid, userId);
+    if (!this.spicyOn(cid, userId) || !this.spicyOn(cid, other)) throw new HttpError(403, "Spicy mode is on only once you've both switched it on");
+    return SPICY_PACK;
   }
 
   /** Asks the other person to turn the kit on. */

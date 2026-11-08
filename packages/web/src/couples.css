@@ -228,3 +228,11 @@
     flex-wrap: wrap;
   }
 }
+.spicy-link {
+  display: block;
+  margin-top: 8px;
+}
+.couples-kit .toggle input {
+  width: auto;
+  margin: 0;
+}

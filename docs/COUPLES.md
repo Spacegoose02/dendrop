@@ -24,7 +24,15 @@ messages. Open it with the 💞 button in the chat header.
 - **Countdowns.** Anniversaries, trips, the next date: days to go, with an emoji. ↻ moves a past
   one to the same date next year.
 
-The built-in content is deliberately tame. Anything more explicit is for the two of you to write,
+- **🌶️ Spicy mode.** In the Settings tab, each of you switches it on for yourself ("I'm in"), and
+  it only turns on once you *both* have. It adds wilder starters: spicy Yes / No / Maybe ideas, an
+  "After dark" question deck and a "Dares" deck, spicy would you rather, and a "Tonight's menu"
+  spinner. Either of you can switch it off any time. When the other person has switched it on,
+  you see a small note pointing to it. The spicy pack lives on the server, not in the app's code,
+  and the server only sends it (`GET /spicy-pack`) to the two people in a kit once both have
+  switched it on, so kid accounts can't find it even by reading the app's code.
+
+The built-in content outside spicy mode is deliberately tame. Anything more explicit is for the two of you to write,
 and it's end-to-end encrypted when you do.
 
 ## Who can use it
@@ -75,6 +83,8 @@ All under `/api/couples/:conversationId`, for the two people in the chat:
 | `GET /` | Your view of the kit: state (`off`, `invited`, `on`), whether this chat could have one, why not, and its items |
 | `POST /invite`, `POST /accept` | Ask, and say yes |
 | `DELETE /` | Decline, cancel, or turn off (deletes everything) |
+| `PUT /spicy` | `{ on }`: switch spicy mode on or off for yourself |
+| `GET /spicy-pack` | The spicy starters, once both of you have spicy mode on |
 | `POST /items` | `{ kind, body, keyVersion, deliverAt? }`; a photo is multipart with one encrypted file |
 | `PATCH /items/:id` | Change a card, spinner list or countdown you added |
 | `DELETE /items/:id` | Delete an item (either of you) |

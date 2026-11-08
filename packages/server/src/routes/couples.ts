@@ -28,6 +28,13 @@ export function couplesRoutes(app: FastifyInstance, ctx: Context): void {
   app.get<P>("/api/couples/:cid", async (req) => couples.get(id(req.params.cid), requireUser(req).id));
   app.post<P>("/api/couples/:cid/invite", async (req) => couples.invite(id(req.params.cid), requireUser(req).id));
   app.post<P>("/api/couples/:cid/accept", async (req) => couples.accept(id(req.params.cid), requireUser(req).id));
+  /** Switches spicy mode on or off for yourself: { on }. */
+  app.put<P & { Body: { on?: unknown } }>("/api/couples/:cid/spicy", async (req) => couples.setSpicy(id(req.params.cid), requireUser(req).id, req.body?.on));
+  /** The spicy pack's starters, once both people have spicy mode on. */
+  app.get<P>("/api/couples/:cid/spicy-pack", async (req, reply) => {
+    const pack = couples.spicyPack(id(req.params.cid), requireUser(req).id);
+    return reply.header("cache-control", "no-store").send(pack);
+  });
   /** Declines, cancels or turns it off, deleting everything in it. */
   app.delete<P>("/api/couples/:cid", async (req) => couples.turnOff(id(req.params.cid), requireUser(req).id));
 
