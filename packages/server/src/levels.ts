@@ -6,7 +6,7 @@ import type { ServerRepo } from "./servers.js";
 import type { UserRecord } from "./users.js";
 
 /**
- * Server levels: members earn LEVEL_RULES.xpMin to xpMax XP for a message in a text channel, at
+ * Server levels: members earn LEVEL_RULES.xpMin to xpMax XP for a message in a text channel (or a thread or forum post), at
  * most once per cooldown so spamming doesn't pay. Levels give raccoon ranks (RACCOON_RANKS).
  * Bots and webhooks never earn XP. A server's owner and admins can turn levels off.
  */
@@ -22,8 +22,9 @@ export class LevelService {
   /** Gives XP for a message just posted. Returns the new level if it went up. */
   award(conversationId: number, user: UserRecord, at = new Date()): number | undefined {
     if (user.isBot) return undefined;
-    const channel = this.servers.channelForConversation(conversationId);
-    if (!channel || channel.kind !== "text" || !this.servers.levelsOn(channel.serverId)) return undefined;
+    // Threads and forum posts count as their channel's chat.
+    const channel = this.servers.channelOrThreadChannel(conversationId);
+    if (!channel || channel.kind === "voice" || !this.servers.levelsOn(channel.serverId)) return undefined;
     const sid = channel.serverId;
     if (!this.servers.role(sid, user.id)) return undefined;
     const row = this.db.prepare("SELECT xp, last_award_at FROM server_xp WHERE server_id = ? AND user_id = ?").get(sid, user.id) as

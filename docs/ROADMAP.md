@@ -91,6 +91,7 @@ Pulled up right after DMs, because chatting happens mostly from a phone and a PC
 - **Backbone → Lock channels, or owner chooses members** (per-channel permissions).
 - **Features → Invite links to chat servers**, **Backbone → Ability to browse other chat servers** (public server directory; private servers hidden).
 - **Features → GIFs** (off by default, since GIF search sends queries to a third party; can be proxied through the server).
+- **Threads, forum channels and a pinned board**: done, see [THREADS.md](THREADS.md).
 
 ### Phase 4: Voice channels, screen share, and audio quality
 - **Backbone → Voice chat** in server channels, **Screen sharing**, **Game streaming** (LiveKit rooms).

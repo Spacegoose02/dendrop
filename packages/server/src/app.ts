@@ -6,7 +6,7 @@ import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
-import type { ClientEvent } from "@dendrop/shared";
+import type { ClientEvent, Message } from "@dendrop/shared";
 import { AutomodService } from "./automod.js";
 import { BotService, type BotFetch } from "./bots.js";
 import { CouplesService } from "./couples.js";
@@ -38,6 +38,7 @@ import { dendutyRoutes } from "./routes/denduty.js";
 import { eventRoutes } from "./routes/events.js";
 import { lootdenRoutes } from "./routes/lootden.js";
 import { guardChannelConversations, serverRoutes } from "./routes/servers.js";
+import { threadRoutes } from "./routes/threads.js";
 import { webhookRoutes } from "./routes/webhooks.js";
 import { toMe, UserRepo, type UserRecord } from "./users.js";
 
@@ -88,6 +89,8 @@ export interface Context {
   /** Hooks for the gateway, so features can react to events from clients. */
   onClientEvent: ((user: UserRecord, event: ClientEvent) => void)[];
   onPresence: ((userId: number, online: boolean) => void)[];
+  /** Runs after someone posts a message through the conversation API (threads keep their counts). */
+  onMessageCreated: ((message: Message) => void)[];
   /** Set by the fun routes: sends out reminders due by `at` (runs by itself every few seconds). */
   fireReminders?: (at?: Date) => void;
   /** How long calls ring before they count as missed; shorter in tests. */
@@ -137,6 +140,7 @@ export async function buildApp(
     couples: new CouplesService(db, users, gateway, path.join(config.dataDir, "uploads"), (ids) => void push.notify(ids, "message")),
     onClientEvent: [],
     onPresence: [],
+    onMessageCreated: [],
     callRingMs: options.callRingMs,
   };
   // LootDen's play limits feed kids' time rules, when a parent turns that on.
@@ -180,6 +184,7 @@ export async function buildApp(
   await app.register(async (api) => funRoutes(api, ctx));
   await app.register(async (api) => pushRoutes(api, ctx));
   await app.register(async (api) => serverRoutes(api, ctx));
+  await app.register(async (api) => threadRoutes(api, ctx));
   await app.register(async (api) => eventRoutes(api, ctx));
   await app.register(async (api) => familyRoutes(api, ctx));
   await app.register(async (api) => webhookRoutes(api, ctx));

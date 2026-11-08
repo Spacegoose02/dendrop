@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  isVoiceKind,
   LIMITS,
   type Channel,
   type ChannelKind,
@@ -149,7 +150,8 @@ export function ServerSidebar({
           </button>
         )}
         {(["text", "voice", "stage"] as const).map((kind) => {
-          const list = server.channels.filter((c) => c.kind === kind);
+          // Forums sit with the text channels.
+          const list = server.channels.filter((c) => c.kind === kind || (kind === "text" && c.kind === "forum"));
           if (kind !== "text" && list.length === 0 && !mod) return null;
           const info = CHANNEL_KINDS[kind];
           return (
@@ -174,13 +176,13 @@ export function ServerSidebar({
                     <button
                       className={`nav-item channel ${activeChannel === c.id ? "active" : ""} ${unread.has(c.conversationId) ? "unread" : ""} ${inVoice === c.id ? "in-voice" : ""}`}
                       onClick={() => onOpen(c)}
-                      title={c.kind !== "text" ? (inVoice === c.id ? `You're in ${c.name}` : `Join ${c.name}`) : undefined}
+                      title={isVoiceKind(c.kind) ? (inVoice === c.id ? `You're in ${c.name}` : `Join ${c.name}`) : undefined}
                     >
                       <span className="channel-mark" aria-hidden>
                         {channelMark(c)}
                       </span>
                       <span className="ellipsis">{c.name}</span>
-                      {c.kind !== "text" && c.locked && (
+                      {c.kind !== "text" && c.kind !== "forum" && c.locked && (
                         <span className="channel-lock" aria-label="Locked">
                           🔒
                         </span>
@@ -648,13 +650,19 @@ export function ChannelDialog({
   const [locked, setLocked] = useState(channel?.locked ?? false);
   const [picked, setPicked] = useState<Set<number>>(new Set(channel?.memberIds ?? []));
   const [pickedRoles, setPickedRoles] = useState<Set<number>>(new Set(channel?.roleIds ?? []));
+  /** A forum's tags, as typed: comma separated. */
+  const [tags, setTags] = useState((channel?.tags ?? []).join(", "));
   const [error, setError] = useState<string | null>(null);
   // Owners and admins always see locked channels, so only members are picked.
   const pickable = server.members.filter((m) => m.role === "member");
 
   const save = async () => {
     setError(null);
-    const body = { name, topic, locked, memberIds: [...picked], roleIds: [...pickedRoles] };
+    const tagList = tags
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const body = { name, topic, locked, memberIds: [...picked], roleIds: [...pickedRoles], ...(kind === "forum" ? { tags: tagList } : {}) };
     try {
       if (channel) {
         await api(`/api/servers/${server.id}/channels/${channel.id}`, { method: "PATCH", body });
@@ -666,7 +674,7 @@ export function ChannelDialog({
   };
 
   const remove = async () => {
-    if (!channel || !confirm(`Delete ${channelTitle(channel)} and all its messages? This can't be undone.`)) return;
+    if (!channel || !confirm(`Delete ${channelTitle(channel)} and all its ${channel.kind === "forum" ? "posts" : "messages and threads"}? This can't be undone.`)) return;
     try {
       await api(`/api/servers/${server.id}/channels/${channel.id}`, { method: "DELETE" });
       onDone(null);
@@ -679,7 +687,7 @@ export function ChannelDialog({
     <Modal title={channel ? `Edit ${channelTitle(channel)}` : kind === "text" ? "New channel" : `New ${CHANNEL_KINDS[kind].label.toLowerCase()} channel`} onClose={onClose}>
       {!channel && (
         <div className="kind-picker" role="radiogroup" aria-label="Channel type">
-          {(["text", "voice", "stage"] as const).map((k) => (
+          {(["text", "forum", "voice", "stage"] as const).map((k) => (
             <label key={k} className={`kind-option ${kind === k ? "picked" : ""}`}>
               <input type="radio" name="channel-kind" checked={kind === k} onChange={() => setKind(k)} />
               <span className="channel-mark" aria-hidden>
@@ -704,9 +712,16 @@ export function ChannelDialog({
         />
       </label>
       <label>
-        Topic (optional)
+        {kind === "forum" ? "Guidelines (optional)" : "Topic (optional)"}
         <input value={topic} onChange={(e) => setTopic(e.target.value)} maxLength={LIMITS.channelTopic} />
       </label>
+      {kind === "forum" && (
+        <label>
+          Tags (optional, separated by commas)
+          <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Question, Bug, Idea" />
+          <span className="muted small">Posts can carry up to {LIMITS.tagsPerPost} of these, and people can filter by them.</span>
+        </label>
+      )}
       <label className="toggle">
         <input type="checkbox" checked={locked} onChange={(e) => setLocked(e.target.checked)} />
         <span>

@@ -11,10 +11,18 @@ export const CHANNEL_KINDS: Record<ChannelKind, { mark: string; label: string; s
     detail: "For game nights and movie nights: hosts talk and share their screen, everyone else listens and can raise a hand.",
     placeholder: "movie-night",
   },
+  forum: {
+    mark: "💬",
+    label: "Forum",
+    // Forums are listed with the text channels.
+    section: "Text channels",
+    detail: "Organized posts, each with a title, tags and its own replies.",
+    placeholder: "help-desk",
+  },
 };
 
-/** The mark before a channel's name: #, 🔊 or 🎙️ (a padlock for locked text channels). */
+/** The mark before a channel's name: #, 🔊, 🎙️ or 💬 (a padlock for locked text channels). */
 export const channelMark = (c: Pick<Channel, "kind" | "locked">): string => (c.kind === "text" && c.locked ? "🔒" : CHANNEL_KINDS[c.kind].mark);
 
-/** "#general", or a voice or stage channel's bare name. */
+/** "#general", or a voice, stage or forum channel's bare name. */
 export const channelTitle = (c: Pick<Channel, "kind" | "name">): string => (c.kind === "text" ? `#${c.name}` : c.name);

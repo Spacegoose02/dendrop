@@ -1,4 +1,4 @@
-import { LIMITS, type Attachment, type MessageButton, type Conversation, type ConversationE2ee, type Message, type NudgeKind, type ReadState, type WrappedKey } from "@dendrop/shared";
+import { LIMITS, type Attachment, type MessageButton, type Conversation, type ConversationE2ee, type Message, type NudgeKind, type ReadState, type ThreadRef, type WrappedKey } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { ExpressionRepo } from "./expressions.js";
@@ -280,6 +280,22 @@ export class ConversationRepo {
       .prepare(`SELECT * FROM attachments WHERE message_id IN (${ids.map(() => "?").join(",")}) ORDER BY rowid`)
       .all(...ids) as unknown as AttachmentRow[];
     const reactions = this.expressions.reactions(ids);
+    const marks = ids.map(() => "?").join(",");
+    const pinned = new Set((this.db.prepare(`SELECT message_id FROM message_pins WHERE message_id IN (${marks})`).all(...ids) as { message_id: number }[]).map((p) => p.message_id));
+    const threads = new Map(
+      (
+        this.db
+          .prepare(
+            `SELECT t.id, t.parent_message_id, t.conversation_id, t.title, c.last_message_at,
+               (SELECT COUNT(*) FROM messages x WHERE x.conversation_id = t.conversation_id AND x.deleted_at IS NULL) AS n
+             FROM channel_threads t JOIN conversations c ON c.id = t.conversation_id WHERE t.parent_message_id IN (${marks})`,
+          )
+          .all(...ids) as { id: number; parent_message_id: number; conversation_id: number; title: string; last_message_at: string | null; n: number }[]
+      ).map((t): [number, ThreadRef] => [
+        t.parent_message_id,
+        { id: t.id, conversationId: t.conversation_id, title: t.title, messageCount: Number(t.n), lastMessageAt: t.last_message_at },
+      ]),
+    );
     const polls = this.fun.polls(ids);
     const games = this.fun.games(ids);
     return rows.map((r) => ({
@@ -295,6 +311,9 @@ export class ConversationRepo {
       webhook: r.webhook_name ? { id: r.webhook_id, name: r.webhook_name } : null,
       buttons: r.deleted_at || !r.buttons ? null : (JSON.parse(r.buttons) as MessageButton[]),
       reactions: r.deleted_at ? [] : (reactions.get(r.id) ?? []),
+      // A thread outlives the message it was started from.
+      thread: threads.get(r.id) ?? null,
+      pinned: pinned.has(r.id),
       poll: r.deleted_at ? null : (polls.get(r.id) ?? null),
       game: r.deleted_at ? null : (games.get(r.id) ?? null),
       nudge: r.deleted_at ? null : ((r.nudge as NudgeKind | null) ?? null),
@@ -435,6 +454,7 @@ export class ConversationRepo {
       const ids = (this.db.prepare("SELECT id FROM attachments WHERE message_id = ?").all(messageId) as { id: string }[]).map((r) => r.id);
       this.db.prepare("DELETE FROM attachments WHERE message_id = ?").run(messageId);
       this.expressions.clearReactions(messageId);
+      this.db.prepare("DELETE FROM message_pins WHERE message_id = ?").run(messageId);
       this.db.prepare("UPDATE messages SET body = '', key_version = NULL, buttons = NULL, deleted_at = ? WHERE id = ?").run(now(), messageId);
       return ids;
     });

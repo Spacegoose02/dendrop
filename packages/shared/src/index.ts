@@ -134,6 +134,10 @@ export interface Message {
   buttons: MessageButton[] | null;
   /** Emoji reactions, in the order they were first added. */
   reactions: Reaction[];
+  /** Set on a server channel message that has a thread hanging off it. */
+  thread?: ThreadRef | null;
+  /** Whether it's on its channel's pinned board. */
+  pinned?: boolean;
   /** Set when the message is a poll (see Poll). */
   poll?: Poll | null;
   /** Set when the message is a quick game: tic-tac-toe, rock paper scissors or a dice roll. */
@@ -393,7 +397,8 @@ export type ServerPermission =
   | "deleteMessages"
   | "createInvites"
   | "manageExpressions"
-  | "manageEvents";
+  | "manageEvents"
+  | "pinMessages";
 
 export const SERVER_PERMISSIONS: ServerPermission[] = [
   "manageServer",
@@ -406,11 +411,12 @@ export const SERVER_PERMISSIONS: ServerPermission[] = [
   "createInvites",
   "manageExpressions",
   "manageEvents",
+  "pinMessages",
 ];
 
 /** Permissions that let someone moderate other people. Kid accounts can't hold them (or be admins). */
 export const MODERATION_PERMISSIONS: ServerPermission[] = SERVER_PERMISSIONS.filter(
-  (p) => p !== "createInvites" && p !== "manageExpressions" && p !== "manageEvents",
+  (p) => p !== "createInvites" && p !== "manageExpressions" && p !== "manageEvents" && p !== "pinMessages",
 );
 
 /**
@@ -613,8 +619,9 @@ export const AUTOMOD_LIMITS = {
  * Text channels hold messages; voice channels are rooms people drop into to talk (and keep a
  * text chat too). Stage channels are voice rooms for game nights and movie nights: a few
  * speakers talk and share their screen, everyone else listens and can raise a hand to speak.
+ * Forum channels hold posts, each a thread with a title and tags, instead of one chat.
  */
-export type ChannelKind = "text" | "voice" | "stage";
+export type ChannelKind = "text" | "voice" | "stage" | "forum";
 
 /** Voice and stage channels are both rooms people drop into. */
 export const isVoiceKind = (kind: ChannelKind): boolean => kind === "voice" || kind === "stage";
@@ -637,6 +644,55 @@ export interface Channel {
   memberIds: number[];
   /** For locked channels, custom roles whose members can see it too (same visibility as memberIds). */
   roleIds: number[];
+  /** Forum channels: the tags posts can carry, in order. Empty for other channels. */
+  tags: string[];
+}
+
+/** What a message shows about the thread hanging off it. */
+export interface ThreadRef {
+  id: number;
+  conversationId: number;
+  title: string;
+  messageCount: number;
+  lastMessageAt: string | null;
+}
+
+/**
+ * A thread: a side conversation started from a channel message, or a post in a forum channel
+ * (which has no starting message, just a title, tags and its first message). Everyone who can see
+ * the channel can see and post in its threads. Its messages go through the same
+ * /api/conversations/:conversationId endpoints as the channel's.
+ */
+export interface Thread {
+  id: number;
+  serverId: number;
+  channelId: number;
+  conversationId: number;
+  title: string;
+  /** The channel message it was started from, or null for a forum post. */
+  parentMessageId: number | null;
+  createdBy: number | null;
+  createdAt: string;
+  /** A closed thread is read only, except for people who can manage channels. */
+  closed: boolean;
+  /** Forum posts: tags from the channel's list. */
+  tags: string[];
+  /** Messages in it, not counting deleted ones. */
+  messageCount: number;
+  lastMessageAt: string | null;
+  /** The start of its first message, for forum lists ("" if none). */
+  preview: string;
+}
+
+/** A message on a server's pinned board, with where it is. */
+export interface PinnedMessage {
+  message: Message;
+  channelId: number;
+  /** Set when it's pinned inside a thread. */
+  threadId: number | null;
+  threadTitle: string | null;
+  pinnedBy: number | null;
+  pinnedAt: string;
 }
 
 /** Someone in a voice channel, and what they show the others. */
@@ -1336,6 +1392,11 @@ export const LIMITS = {
   channelName: 32,
   channelTopic: 200,
   channelsPerServer: 100,
+  threadTitle: 100,
+  forumTags: 20,
+  forumTagName: 24,
+  tagsPerPost: 5,
+  pinsPerChannel: 50,
   rolesPerServer: 50,
   roleName: 32,
   serversPerUser: 100,
@@ -1364,6 +1425,12 @@ export type ServerEvent =
   | { type: "server.updated"; server: ChatServer }
   /** You left or were removed, or the server was deleted. */
   | { type: "server.removed"; serverId: number }
+  /** A thread or forum post you can see was started or changed (title, closed, tags, new messages). */
+  | { type: "thread.updated"; thread: Thread }
+  /** A thread was deleted, or its channel was. */
+  | { type: "thread.removed"; serverId: number; channelId: number; threadId: number; conversationId: number }
+  /** A message was pinned or unpinned in a server: refresh its pinned board. */
+  | { type: "pins.updated"; serverId: number; channelId: number; messageId: number; pinned: boolean }
   /** You reached a new level in a server (rankUp: and a new raccoon rank). */
   | { type: "level.up"; serverId: number; level: number; rank: RaccoonRank; rankUp: boolean }
   /** A friend invited you to a server. */

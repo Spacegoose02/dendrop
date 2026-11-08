@@ -26,7 +26,8 @@ export function funRoutes(app: FastifyInstance, ctx: Context): void {
   const fun = convos.fun;
 
   const channelServer = (cid: number) =>
-    (db.prepare("SELECT server_id FROM server_channels WHERE conversation_id = ?").get(cid) as { server_id: number } | undefined)?.server_id;
+    // Threads belong to their channel's server.
+    (db.prepare("SELECT server_id FROM channel_conversations WHERE conversation_id = ?").get(cid) as { server_id: number } | undefined)?.server_id;
 
   const member = (cid: number, userId: number) => {
     if (!convos.isMember(cid, userId)) throw new HttpError(404, "No such conversation");
@@ -45,6 +46,7 @@ export function funRoutes(app: FastifyInstance, ctx: Context): void {
   /** Tells everyone in the chat, and wakes the phones of anyone with nothing open. */
   const announce = (m: Message, from: number) => {
     const memberIds = convos.memberIds(m.conversationId);
+    for (const fn of ctx.onMessageCreated) fn(m);
     gateway.send(memberIds, { type: "message.created", message: m });
     void ctx.push.notify(
       memberIds.filter((u) => u !== from && !gateway.isOnline(u)),

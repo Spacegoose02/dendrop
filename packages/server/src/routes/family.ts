@@ -296,6 +296,9 @@ export function guardKids(app: FastifyInstance, ctx: Context): void {
     ["POST", /^\/api\/friends$/],
     ["POST", /^\/api\/friends\/\d+\/accept$/],
     ["PUT", /^\/api\/messages\/\d+\/reactions\/[^/]+$/],
+    ["POST", /^\/api\/messages\/\d+\/thread$/],
+    ["POST", /^\/api\/servers\/\d+\/channels\/\d+\/threads$/],
+    ["PATCH", /^\/api\/threads\/\d+$/],
     ["POST", /^\/api\/servers\/\d+\/events$/],
     ["PATCH", /^\/api\/events\/\d+$/],
     // Polls, quick games and nudges.
@@ -317,11 +320,18 @@ export function guardKids(app: FastifyInstance, ctx: Context): void {
     if (hit(servers, req.method, url) && !ctx.family.rules(user.id).canJoinServers) {
       throw new HttpError(403, "Ask a parent: your account can't join chat servers yet");
     }
-    const sending = (req.method === "POST" && /^\/api\/conversations\/(\d+)\/messages$/.exec(url)) || (req.method === "PATCH" && /^\/api\/messages\/\d+$/.test(url));
+    const sending =
+      (req.method === "POST" && /^\/api\/conversations\/(\d+)\/messages$/.exec(url)) ||
+      (req.method === "PATCH" && /^\/api\/messages\/\d+$/.test(url)) ||
+      // Thread titles and forum posts show to everyone too.
+      (req.method === "POST" && /^\/api\/messages\/\d+\/thread$/.test(url)) ||
+      (req.method === "POST" && /^\/api\/servers\/\d+\/channels\/\d+\/threads$/.test(url)) ||
+      (req.method === "PATCH" && /^\/api\/threads\/\d+$/.test(url));
     if (sending && !req.isMultipart()) {
-      const body = req.body as { body?: unknown; keyVersion?: unknown } | undefined;
+      const body = req.body as { body?: unknown; title?: unknown; keyVersion?: unknown } | undefined;
       const rules = ctx.family.rules(user.id);
-      if (rules.profanityFilter && typeof body?.body === "string" && !body.keyVersion && findBlockedWords(body.body, rules.blockedWords).length) {
+      const text = [body?.body, body?.title].filter((t): t is string => typeof t === "string").join("\n");
+      if (rules.profanityFilter && text && !body?.keyVersion && findBlockedWords(text, rules.blockedWords).length) {
         const cid = Array.isArray(sending) ? Number(sending[1]) : undefined;
         if (cid) ctx.family.alert(user.id, "profanity", { conversationId: cid });
         throw new HttpError(400, "That message has a word your family filter blocks");
