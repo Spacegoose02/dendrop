@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { isHexColor, isUsername, LIMITS, type AuthInfo, type ServerInfo } from "@dendrop/shared";
+import { isHexColor, isUsername, LIMITS, type AuthInfo, type ServerInfo, type TwoFactorChallenge } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
 import { hashPassword, verifyPassword } from "../auth/crypto.js";
 import { safeReturn } from "../auth/oidc.js";
@@ -25,16 +25,18 @@ export function checkNew(ctx: Context, body: Credentials): { username: string; p
   return { username, password, displayName };
 }
 
+/** Starts a session for `user` and sets its cookie. */
+export function startSession(ctx: Context, req: FastifyRequest, reply: FastifyReply, user: UserRecord): void {
+  const secure = ctx.config.publicUrl.startsWith("https://") || !!ctx.config.tls;
+  const { token, maxAgeSeconds } = ctx.sessions.create(user.id, req.headers["user-agent"]);
+  void reply.setCookie(SESSION_COOKIE, token, { path: "/", httpOnly: true, sameSite: "lax", secure, maxAge: maxAgeSeconds });
+}
+
 export function authRoutes(app: FastifyInstance, ctx: Context): void {
   const { config, users, sessions, signin } = ctx;
-  const secure = config.publicUrl.startsWith("https://") || !!config.tls;
+  const signIn = (req: FastifyRequest, reply: FastifyReply, user: UserRecord) => startSession(ctx, req, reply, user);
 
-  const signIn = (req: FastifyRequest, reply: FastifyReply, user: UserRecord) => {
-    const { token, maxAgeSeconds } = sessions.create(user.id, req.headers["user-agent"]);
-    void reply.setCookie(SESSION_COOKIE, token, { path: "/", httpOnly: true, sameSite: "lax", secure, maxAge: maxAgeSeconds });
-  };
-
-  app.get("/api/auth/info", async (): Promise<AuthInfo> => {
+  app.get("/api/auth/info", async (req): Promise<AuthInfo> => {
     const s = signin.settings();
     const live = signin.live(s);
     return {
@@ -43,6 +45,7 @@ export function authRoutes(app: FastifyInstance, ctx: Context): void {
       google: { enabled: live.google },
       localLogin: live.password,
       signup: live.password && s.signup,
+      passkeys: !!ctx.twofactor.relyingParty(req.headers.host, req.protocol),
     };
   });
 
@@ -72,6 +75,11 @@ export function authRoutes(app: FastifyInstance, ctx: Context): void {
     // Always run a hash, so a wrong username takes as long as a wrong password.
     const ok = await verifyPassword(typeof password === "string" ? password : "", user?.passwordHash ?? "scrypt$16384$8$1$AAAA$AAAA");
     if (!user || !ok) throw new HttpError(401, "Wrong username or password");
+    // With an authenticator app on, the password alone isn't enough: send a ticket for the second step.
+    if (ctx.twofactor.required(user.id)) {
+      const challenge: TwoFactorChallenge = { twoFactor: { ticket: ctx.twofactor.loginTicket(user.id), totp: true, passkey: ctx.twofactor.passkeys(user.id).length > 0 } };
+      return challenge;
+    }
     signIn(req, reply, user);
     return toMe(user);
   });

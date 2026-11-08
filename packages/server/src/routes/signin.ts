@@ -29,12 +29,13 @@ export function signInRoutes(app: FastifyInstance, ctx: Context): void {
   const services = { tinyauth: ctx.oidc, google: ctx.google };
 
   /** The ways `u` could sign in with these settings. */
-  const waysIn = (u: UserRecord, s: SignInSettings = signin.settings()): ("password" | SignInProvider)[] => {
+  const waysIn = (u: UserRecord, s: SignInSettings = signin.settings()): ("password" | "passkey" | SignInProvider)[] => {
     const live = signin.live(s);
-    const ways: ("password" | SignInProvider)[] = [];
+    const ways: ("password" | "passkey" | SignInProvider)[] = [];
     if (u.passwordHash && live.password) ways.push("password");
     if (u.oidcSubject && live.tinyauth) ways.push("tinyauth");
     if (u.googleSubject && live.google) ways.push("google");
+    if (ctx.twofactor.passkeys(u.id).length) ways.push("passkey");
     return ways;
   };
 
@@ -126,6 +127,8 @@ export function signInRoutes(app: FastifyInstance, ctx: Context): void {
     tinyauth: !!u.oidcSubject,
     google: u.googleSubject ? (u.googleEmail ?? "linked") : null,
     createdAt: u.createdAt,
+    twoFactor: ctx.twofactor.totpOn(u.id),
+    passkeys: ctx.twofactor.passkeys(u.id).length,
   });
 
   app.get("/api/admin/accounts", async (req) => {

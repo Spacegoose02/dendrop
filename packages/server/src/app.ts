@@ -7,7 +7,10 @@ import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import type { ClientEvent, Message } from "@dendrop/shared";
+import { AuditLog, recordAudit } from "./audit.js";
+import { TwoFactorService } from "./auth/twofactor.js";
 import { AutomodService } from "./automod.js";
+import { BackupService } from "./backup.js";
 import { BotService, type BotFetch } from "./bots.js";
 import { CouplesService } from "./couples.js";
 import { OidcService } from "./auth/oidc.js";
@@ -30,6 +33,8 @@ import { ProfileService } from "./profiles.js";
 import { profileRoutes } from "./routes/profiles.js";
 import { pushRoutes } from "./routes/push.js";
 import { authRoutes } from "./routes/auth.js";
+import { adminToolRoutes } from "./routes/admin-tools.js";
+import { twoFactorRoutes } from "./routes/twofactor.js";
 import { signInRoutes } from "./routes/signin.js";
 import { botRoutes } from "./routes/bots.js";
 import { couplesRoutes } from "./routes/couples.js";
@@ -63,6 +68,12 @@ export interface Context {
   google: OidcService;
   /** The super admin's sign-in switches. */
   signin: SignInService;
+  /** Authenticator-app codes, recovery codes and passkeys. */
+  twofactor: TwoFactorService;
+  /** Who did what: servers' moderators and the instance's super admins. */
+  audit: AuditLog;
+  /** Backups of the database and uploads. */
+  backups: BackupService;
   gateway: Gateway;
   push: PushService;
   /** Kid accounts, parents, rules and alerts. */
@@ -135,6 +146,9 @@ export async function buildApp(
     oidc: new OidcService(config, users, signin, "tinyauth"),
     google: new OidcService(config, users, signin, "google"),
     signin,
+    twofactor: new TwoFactorService(db, config),
+    audit: new AuditLog(db),
+    backups: new BackupService(db, config.dataDir, config.backupDir, (msg, err) => (err ? app.log.error({ err }, msg) : app.log.info(msg))),
     gateway,
     push,
     family,
@@ -178,16 +192,21 @@ export async function buildApp(
     ctx.gifs.close();
     ctx.events.stop();
     ctx.couples.stop();
+    ctx.backups.stop();
+    await ctx.backups.waitForRunning();
     db.close();
   });
 
   guardChannelConversations(app, ctx);
   guardKids(app, ctx);
+  recordAudit(app, ctx.audit, db);
 
   app.get("/api/health", async () => ({ status: "ok" }));
 
   await app.register(async (api) => authRoutes(api, ctx));
   await app.register(async (api) => signInRoutes(api, ctx));
+  await app.register(async (api) => twoFactorRoutes(api, ctx));
+  await app.register(async (api) => adminToolRoutes(api, ctx));
   await app.register(async (api) => dmRoutes(api, ctx));
   await app.register(async (api) => expressionRoutes(api, ctx));
   await app.register(async (api) => funRoutes(api, ctx));
@@ -205,6 +224,7 @@ export async function buildApp(
   await app.register(async (api) => gatewayRoute(api, ctx));
   builtinLivekit(app, config);
   ctx.events.start();
+  if (process.env.NODE_ENV !== "test") ctx.backups.start();
 
   serveWeb(app, config);
   return { app, ctx };

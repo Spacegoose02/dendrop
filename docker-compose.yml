@@ -16,3 +16,5 @@ services:
     env_file: .env
     volumes:
       - ${APPDATA_PATH:-/mnt/user/appdata/dendrop}:/data
+      # Dendrop's own backups (see docs/BACKUPS.md). Without it they go in /data/backups.
+      - ${BACKUP_PATH:-/mnt/user/backups/dendrop}:/backups
