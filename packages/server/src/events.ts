@@ -471,7 +471,7 @@ export class EventService {
       .filter((u) => viewers.has(u));
     for (const u of who) this.gateway.send([u], { type: "event.reminder", event: this.toEvent(r, u), minutes });
     void this.push.notify(
-      who.filter((u) => !this.gateway.isOnline(u)),
+      who.filter((u) => !this.gateway.isActive(u)),
       "event",
     );
   }

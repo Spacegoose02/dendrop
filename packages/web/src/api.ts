@@ -34,6 +34,42 @@ export const getAuthInfo = () => api<AuthInfo>("/api/auth/info");
 export const getMe = () => api<Me>("/api/me");
 export const logout = () => api<{ ok: true }>("/api/auth/logout", { method: "POST", body: {} });
 
+/** Minutes without a tap, click or key before a visible app counts as left alone. */
+const IDLE_MS = 5 * 60_000;
+
+/**
+ * Tells the server whether this app is in front of someone. While it isn't (a phone with the
+ * screen off or another app open, a tab in the background, a PC left alone), the server sends
+ * pushes to the person's phones as if nothing were open.
+ */
+function watchActivity(report: (active: boolean) => void): { current: () => boolean; stop: () => void } {
+  let lastInput = Date.now();
+  let active = true;
+  const compute = () => document.visibilityState === "visible" && Date.now() - lastInput < IDLE_MS;
+  const update = () => {
+    const next = compute();
+    if (next !== active) report((active = next));
+  };
+  const onInput = () => {
+    lastInput = Date.now();
+    if (!active) update();
+  };
+  const inputs = ["pointerdown", "keydown", "wheel", "touchstart"] as const;
+  for (const e of inputs) window.addEventListener(e, onInput, { passive: true, capture: true });
+  document.addEventListener("visibilitychange", update);
+  window.addEventListener("pagehide", update);
+  const timer = setInterval(update, 30_000);
+  return {
+    current: () => (active = compute()),
+    stop: () => {
+      for (const e of inputs) window.removeEventListener(e, onInput, { capture: true });
+      document.removeEventListener("visibilitychange", update);
+      window.removeEventListener("pagehide", update);
+      clearInterval(timer);
+    },
+  };
+}
+
 /**
  * Keeps a WebSocket to the gateway open, reconnecting with backoff.
  * Returns send (dropped while disconnected) and close (for good).
@@ -46,6 +82,9 @@ export function connectGateway(
   let stopped = false;
   let delay = 1000;
   let ping: ReturnType<typeof setInterval> | undefined;
+  const activity = watchActivity((active) => {
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "active", active }));
+  });
 
   const open = () => {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -53,6 +92,8 @@ export function connectGateway(
     ws.onopen = () => {
       delay = 1000;
       onStatus(true);
+      // A new connection counts as active; say so if it isn't (reconnecting in the background).
+      if (!activity.current()) ws?.send(JSON.stringify({ type: "active", active: false }));
       ping = setInterval(() => ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: "ping" })), 25_000);
     };
     ws.onmessage = (m) => {
@@ -75,6 +116,7 @@ export function connectGateway(
     },
     close: () => {
       stopped = true;
+      activity.stop();
       ws?.close();
     },
   };

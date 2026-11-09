@@ -4,8 +4,11 @@ import type { ApnsConfig } from "./config.js";
 import { now, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 
-/** The only things a push ever says. No text, names or conversation ids. "event": an event you RSVP'd to starts soon. */
-export type PushKind = "message" | "call" | "event";
+/**
+ * The only things a push ever says. No text, names or conversation ids. "mention": a new message
+ * that @mentions you. "event": an event you RSVP'd to starts soon.
+ */
+export type PushKind = "message" | "mention" | "call" | "event";
 
 export interface PushSubscriptionInput {
   endpoint?: unknown;
@@ -27,6 +30,7 @@ interface Row {
  */
 const APNS_ALERTS: Record<Exclude<PushKind, "call">, { title: string; body: string }> = {
   message: { title: "Dendrop", body: "You have a new message" },
+  mention: { title: "Dendrop", body: "Someone mentioned you" },
   event: { title: "Event starting", body: "An event you're going to is starting soon" },
 };
 
@@ -128,7 +132,8 @@ export class PushService {
 
   private async sendOne(r: Row, kind: PushKind): Promise<void> {
     const payload = JSON.stringify({ type: kind });
-    const urgency = kind === "call" ? "high" : "normal";
+    // Chats should arrive right away, even on a phone saving battery; event reminders can wait a little.
+    const urgency = kind === "event" ? "normal" : "high";
     // A call is over in a minute and an event reminder in an hour; a message can wait a day.
     const ttl = kind === "call" ? 45 : kind === "event" ? 3600 : 24 * 3600;
     try {

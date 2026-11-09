@@ -35,7 +35,7 @@ import { PushService } from "./push.js";
 import { ProfileService } from "./profiles.js";
 import { profileRoutes } from "./routes/profiles.js";
 import { pushRoutes } from "./routes/push.js";
-import { authRoutes } from "./routes/auth.js";
+import { authRoutes, setSessionCookie } from "./routes/auth.js";
 import { adminToolRoutes } from "./routes/admin-tools.js";
 import { twoFactorRoutes } from "./routes/twofactor.js";
 import { signInRoutes } from "./routes/signin.js";
@@ -198,8 +198,12 @@ export async function buildApp(
     void reply.code(status).send({ error: status >= 500 ? "Something went wrong on the server" : err.message });
   });
 
-  app.addHook("onRequest", async (req) => {
-    req.user = ctx.sessions.resolve(req.cookies[SESSION_COOKIE]);
+  app.addHook("onRequest", async (req, reply) => {
+    const token = req.cookies[SESSION_COOKIE];
+    const session = ctx.sessions.resolveAndRenew(token);
+    req.user = session?.user;
+    // Using Dendrop keeps you signed in: the cookie's end moves forward with the session's.
+    if (token && session?.renewedMaxAgeSeconds && !req.headers.upgrade) setSessionCookie(ctx, reply, token, session.renewedMaxAgeSeconds);
   });
 
   app.addHook("onClose", async () => {
@@ -282,6 +286,10 @@ function gatewayRoute(app: FastifyInstance, ctx: Context): void {
       }
       if (event?.type === "ping") {
         socket.send(JSON.stringify({ type: "pong" }));
+        return;
+      }
+      if (event?.type === "active") {
+        ctx.gateway.setActive(socket, event.active !== false);
         return;
       }
       for (const fn of ctx.onClientEvent) {

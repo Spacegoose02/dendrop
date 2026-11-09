@@ -113,6 +113,46 @@ describe("phone notifications", () => {
     await new Promise((r) => setTimeout(r, 50));
   });
 
+  it("pushes when the open app is in the background or left alone, and says mention when you're @mentioned", async () => {
+    const momLive = await listen(s, mom);
+    // The phone's screen went off (or the PC was left alone) with the app still connected.
+    momLive.ws.send(JSON.stringify({ type: "active", active: false }));
+    await new Promise((r) => setTimeout(r, 30));
+    sent.length = 0;
+    await s.app.inject({ method: "POST", url: `/api/conversations/${dm}/messages`, headers: { cookie: dad }, payload: { body: "still there?" } });
+    await wait(1);
+    assert.equal(sent.length, 1);
+    assert.equal(decrypt(Buffer.from(sent[0]!.body), ua, auth), '{"type":"message"}');
+    assert.equal(sent[0]!.headers.Urgency, "high", "chats arrive right away");
+
+    // Back in front: no push.
+    momLive.ws.send(JSON.stringify({ type: "active", active: true }));
+    await new Promise((r) => setTimeout(r, 30));
+    sent.length = 0;
+    await s.app.inject({ method: "POST", url: `/api/conversations/${dm}/messages`, headers: { cookie: dad }, payload: { body: "ok good" } });
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(sent.length, 0);
+
+    // One idle connection doesn't hide another that's in use.
+    const momPc = await listen(s, mom);
+    momLive.ws.send(JSON.stringify({ type: "active", active: false }));
+    await new Promise((r) => setTimeout(r, 30));
+    await s.app.inject({ method: "POST", url: `/api/conversations/${dm}/messages`, headers: { cookie: dad }, payload: { body: "hello?" } });
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(sent.length, 0);
+    momPc.ws.close();
+    momLive.ws.close();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // A mention: its own kind, still nothing about who or what.
+    sent.length = 0;
+    const momId = s.ctx.users.byUsername("mom")!.id;
+    await s.app.inject({ method: "POST", url: `/api/conversations/${dm}/messages`, headers: { cookie: dad }, payload: { body: `<@${momId}> dinner`, mentions: [momId] } });
+    await wait(1);
+    const kinds = sent.map((x) => decrypt(Buffer.from(x.body), ua, auth));
+    assert.deepEqual(kinds, ['{"type":"mention"}']);
+  });
+
   it("sends a plain push to endpoints without keys, and forgets endpoints that are gone", async () => {
     await s.app.inject({ method: "POST", url: "/api/push/subscriptions", headers: { cookie: mom }, payload: { endpoint: "https://ntfy.example/upPlain" } });
     sent.length = 0;

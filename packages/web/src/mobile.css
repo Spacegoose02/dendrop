@@ -1,0 +1,251 @@
+/*
+ * Phones and tablets: the web client in a phone browser, added to the Home Screen, or inside the
+ * Android and iPhone apps' WebViews. Loaded after the other styles so these win. The layout
+ * itself (one column, Back to the list) is in styles.css and servers.css; this file makes it fit
+ * the screen, the keyboard, the notch and fingers.
+ */
+
+/* The visible screen, not the one behind the browser's toolbars, and it shrinks for the
+   on-screen keyboard (see interactive-widget in index.html) so the message box stays above it. */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+#root {
+  height: 100vh;
+  height: 100dvh;
+}
+body {
+  /* No pull-to-refresh or rubber band around the whole app; lists still scroll. */
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+.messages,
+.pane-body,
+.sidebar-list,
+.modal,
+.settings {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.main,
+.sidebar,
+.pane {
+  min-width: 0;
+}
+/* The message box takes the rest of the row (sizing to its text would leave it a sliver). */
+.composer-row textarea {
+  flex: 1 1 0;
+  min-width: 0;
+}
+/* "Message Dad Raccoon" on one line, so the empty box is one line tall. */
+.composer-row textarea::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.send-arrow {
+  display: none;
+}
+
+/* Fingers: no grey flash or double-tap zoom on buttons, and room to hit them. */
+@media (pointer: coarse) {
+  button,
+  .button,
+  a,
+  label,
+  summary,
+  [role="button"],
+  [role="tab"] {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .ghost.icon,
+  .icon {
+    min-width: 40px;
+    min-height: 40px;
+  }
+  .back,
+  .sidebar-header button,
+  .settings-gear {
+    min-width: 40px;
+    min-height: 40px;
+  }
+  .pick,
+  .toggle {
+    min-height: 40px;
+  }
+  /* Phones zoom in on any text box under 16px when it's tapped; keep them at 16px. */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 720px) {
+  /* Header: the title takes what's left, the buttons stay on one line. */
+  .pane-header {
+    gap: 4px;
+    padding: 6px 8px;
+    min-height: 52px;
+  }
+  .pane-header h2 {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .pane-header .channel-topic {
+    display: none;
+  }
+  .header-actions {
+    flex-shrink: 0;
+  }
+
+  /* The message box gets the room: Send is an arrow, and the edge padding is tighter. */
+  .composer {
+    padding: 0 8px 4px;
+  }
+  .composer-row {
+    gap: 2px;
+    align-items: flex-end;
+  }
+  .composer-row textarea {
+    padding: 9px 12px;
+    border-radius: 20px;
+    max-height: 30vh;
+    max-height: 30dvh;
+  }
+  .composer-row .send {
+    min-width: 42px;
+    min-height: 42px;
+    padding: 8px;
+    border-radius: 50%;
+  }
+  .send-label {
+    display: none;
+  }
+  .send-arrow {
+    display: block;
+  }
+  .composer-row .gif-button {
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  /* Friends and member rows: the name keeps more room next to its buttons. */
+  .person > button {
+    padding: 7px 10px;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  /* Messages use the width. */
+  .messages {
+    padding: 4px 0 8px;
+  }
+  .msg {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .msg img,
+  .msg video,
+  .attachments img,
+  .attachments video {
+    max-width: 100%;
+    height: auto;
+  }
+  .md-codeblock pre,
+  .msg-body pre {
+    overflow-x: auto;
+  }
+
+  /* Dialogs come up from the bottom, full width, clear of the home bar. */
+  .modal-backdrop {
+    padding: 0;
+    place-items: end stretch;
+  }
+  .modal,
+  .modal.wide {
+    max-width: none;
+    width: 100%;
+    max-height: 92vh;
+    max-height: 92dvh;
+    border-radius: var(--dd-radius-lg) var(--dd-radius-lg) 0 0;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    padding: 14px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Settings fill the screen; keep them out from under the notch and the home bar. */
+  .settings {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .settings-body {
+    padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Server settings tabs: one row you swipe along, instead of five rows of chips. */
+  .chips.server-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-left: -16px;
+    margin-right: -16px;
+    padding: 0 16px 4px;
+    scroll-snap-type: x proximity;
+  }
+  .chips.server-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .chips.server-tabs .chip {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+  }
+
+  /* Voice keybinds: label above, then the key and its button. */
+  .keybind {
+    grid-template-columns: 1fr auto;
+  }
+  .keybind > :first-child {
+    grid-column: 1 / -1;
+  }
+  .keycap {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+/* Small phones: slimmer buttons beside the message box. */
+@media (max-width: 400px) {
+  .composer-row .icon {
+    min-width: 34px;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+}
+
+/* Phones on their side: the screen is short, so headers and the composer get slimmer. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .pane-header {
+    min-height: 44px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+  .typing {
+    min-height: 0;
+  }
+  .modal,
+  .modal.wide {
+    max-height: 100vh;
+    max-height: 100dvh;
+  }
+}

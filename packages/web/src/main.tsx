@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { loadAppearance, setAppearance } from "@dendrop/theme";
 import "@dendrop/theme/tokens.css";
 import "./styles.css";
+import "./mobile.css";
 import { App } from "./App.tsx";
 
 // Apply the saved theme and icon before the first render so there is no flash of the default.

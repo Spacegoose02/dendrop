@@ -25,6 +25,7 @@ import type {
 } from "@dendrop/shared";
 import { isVoiceKind } from "@dendrop/shared";
 import { api, connectGateway, logout } from "./api.ts";
+import { startWebPush } from "./webpush.ts";
 import { channelTitle } from "./channels.ts";
 import { EventReminderCard, EventsDialog } from "./Events.tsx";
 import { BOT_REPLY_EVENT, type BotReplyDetail } from "./Bots.tsx";
@@ -486,6 +487,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   );
 
   const sendRef = useRef<(data: object) => void>(() => {});
+  // Browser notifications (when they're on): hand the server this browser's subscription again.
+  useEffect(() => startWebPush(), []);
   useEffect(() => {
     const gw = connectGateway(onEvent, setConnected);
     sendRef.current = gw.send;

@@ -38,8 +38,8 @@ distributor app, normally [ntfy](https://ntfy.sh) (F-Droid or Play Store), which
 public ntfy.sh server or your own ntfy container next to Dendrop on Unraid.
 
 **A push never carries what was said.** The server sends only a wake-up, at most
-`{"type":"message"}` or `{"type":"call"}`, and the app shows "Dendrop: You have a new message" or
-"Incoming call". No text, no sender name, no conversation. Pushes are also encrypted with Web Push
+`{"type":"message"}`, `{"type":"mention"}` or `{"type":"call"}`, and the app shows "Dendrop: You
+have a new message", "Someone mentioned you" or "Incoming call". No text, no sender name, no conversation. Pushes are also encrypted with Web Push
 keys (RFC 8291) when the server supports it, so ntfy only ever sees ciphertext anyway. The message
 notification is skipped while the app is open, and cleared when it's opened.
 
@@ -60,8 +60,8 @@ keys above) whose plaintext is `{"type":"message"}` or `{"type":"call"}`. Encryp
 recommended but optional; a plain POST with that JSON body also works. Send it when a user gets a
 DM (or a mention) and has no gateway connection open, and drop subscriptions whose endpoint
 answers 404 or 410. The server sends `{"type":"call"}` to every phone when a call starts (urgency
-high, 45 second TTL), and `{"type":"message"}` only when the person has no gateway connection
-open. Push endpoints must be `https://`; set `DENDROP_PUSH_ALLOW_HTTP=true` on the server to
+high, 45 second TTL), and `{"type":"message"}` (or `"mention"`) only when none of the person's apps is in front of
+them: no gateway connection open, or every one says `{"type":"active","active":false}`. Push endpoints must be `https://`; set `DENDROP_PUSH_ALLOW_HTTP=true` on the server to
 allow a plain-HTTP ntfy server on your home network. On a server without these routes, the setup page says "your server doesn't
 send phone notifications yet", and the app retries on its own once it's updated.
 

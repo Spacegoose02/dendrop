@@ -22,6 +22,7 @@ public final class Notifier {
     private static final int ID_MESSAGES = 1;
     private static final int ID_CALL = 2;
     private static final int ID_EVENT = 3;
+    private static final int ID_MENTION = 4;
 
     private Notifier() {}
 
@@ -44,14 +45,17 @@ public final class Notifier {
         nm.createNotificationChannel(calls);
     }
 
-    /** "You have a new message", with no content. Repeats update one notification. */
-    static void showMessage(Context context) {
+    /**
+     * "You have a new message", or "Someone mentioned you", with no content. Repeats update one
+     * notification of each, so a mention isn't hidden by the chatter after it.
+     */
+    static void showMessage(Context context, boolean mention) {
         show(
             context,
-            ID_MESSAGES,
+            mention ? ID_MENTION : ID_MESSAGES,
             new NotificationCompat.Builder(context, CHANNEL_MESSAGES)
                 .setContentTitle(context.getString(R.string.notify_message_title))
-                .setContentText(context.getString(R.string.notify_message_text))
+                .setContentText(context.getString(mention ? R.string.notify_mention_text : R.string.notify_message_text))
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
         );
@@ -91,6 +95,7 @@ public final class Notifier {
     /** Clears the content-free notifications, for when the app is opened. */
     public static void clear(Context context) {
         NotificationManagerCompat.from(context).cancel(ID_MESSAGES);
+        NotificationManagerCompat.from(context).cancel(ID_MENTION);
     }
 
     private static void show(Context context, int id, NotificationCompat.Builder builder) {

@@ -63,6 +63,20 @@ app's notifications and unread dots. The gateway's `message.created` event says,
 API: `GET /api/notification-settings`, `PUT /api/notification-settings` with
 `{ conversationId | serverId, level: "all" | "mentions" | "nothing" | null }`.
 
+## Phone and browser notifications
+
+- **Android and iPhone apps** notify on their own (see their READMEs).
+- **A phone or PC browser** (Chrome, Edge, Firefox, Safari): Settings → **Notifications on this
+  device**. It uses the browser's own Web Push and the server's VAPID key, so there's nothing to
+  set up on the server, but the page has to be on `https://`. On an iPhone or iPad, Apple only
+  allows it after **Share → Add to Home Screen**, opened from the Home Screen icon.
+- A push says only **"You have a new message"** or **"Someone mentioned you"** (and "Incoming
+  call", "Event starting"): never who or what. A burst of messages updates one notification.
+- **When pushes go out:** whenever none of your apps is in front of you. An app tells the server
+  when it goes to the background (phone screen off, another app or tab in front) or has been
+  left alone for 5 minutes, so a PC sitting idle at home doesn't stop your phone from buzzing.
+  The PC app's tray connection counts as in the background too.
+
 ## Formatting
 
 | Type | Shows as |

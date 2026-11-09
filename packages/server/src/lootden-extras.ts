@@ -199,7 +199,7 @@ export class LootdenExtras {
     const members = this.convos.memberIds(conversationId);
     this.ctx.gateway.send(members, { type: "message.created", message: m });
     void this.ctx.push.notify(
-      members.filter((u) => !this.ctx.gateway.isOnline(u)),
+      members.filter((u) => !this.ctx.gateway.isActive(u)),
       "message",
     );
     return m;

@@ -346,7 +346,7 @@ export class CouplesService {
     const item = this.row(cid, Number(res.lastInsertRowid));
     // A note sent straight away pops up for the other person now; a scheduled one at its time.
     this.changed(cid, kind === "note" && !deliverAt ? { to: other, from: userId } : undefined);
-    if (kind === "note" && !deliverAt) this.notify([other].filter((u) => !this.gateway.isOnline(u)));
+    if (kind === "note" && !deliverAt) this.notify([other].filter((u) => !this.gateway.isActive(u)));
     return this.view(item, userId, []);
   }
 
@@ -431,7 +431,7 @@ export class CouplesService {
       this.db.prepare("UPDATE couples_items SET notified_at = ? WHERE id = ?").run(at.toISOString(), d.id);
       const to = this.memberIds(d.conversation_id).filter((u) => u !== d.author_id);
       this.changed(d.conversation_id, to[0] ? { to: to[0], from: d.author_id } : undefined);
-      this.notify(to.filter((u) => !this.gateway.isOnline(u)));
+      this.notify(to.filter((u) => !this.gateway.isActive(u)));
     }
   }
 

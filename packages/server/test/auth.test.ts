@@ -33,6 +33,33 @@ describe("auth", () => {
     assert.equal((await s.app.inject({ url: "/api/me", headers: { cookie } })).statusCode, 401);
   });
 
+  it("keeps people signed in while they use Dendrop, and signs out sign-ins left unused", async () => {
+    const cookie = await account(s, "sleepy");
+    const token = cookie.split("=")[1]!;
+    const row = () => s.ctx.db.prepare("SELECT expires_at FROM sessions WHERE token_hash = (SELECT token_hash FROM sessions ORDER BY created_at DESC LIMIT 1)").get() as { expires_at: string };
+    const daysLeft = () => (Date.parse(row().expires_at) - Date.now()) / 86400_000;
+    assert.ok(daysLeft() > 89, "a new sign-in lasts 90 days");
+
+    // Used the same day: nothing to renew, no new cookie.
+    const soon = await s.app.inject({ url: "/api/me", headers: { cookie } });
+    assert.equal(soon.statusCode, 200);
+    assert.equal(soon.cookies.find((c) => c.name === "dendrop_session"), undefined);
+
+    // Two months later, still in use: pushed back to 90 days, with the cookie sent again.
+    s.ctx.db.prepare("UPDATE sessions SET expires_at = ?").run(new Date(Date.now() + 30 * 86400_000).toISOString());
+    const later = await s.app.inject({ url: "/api/me", headers: { cookie } });
+    assert.equal(later.statusCode, 200);
+    const renewed = later.cookies.find((c) => c.name === "dendrop_session")!;
+    assert.equal(renewed.value, token);
+    assert.equal(renewed.maxAge, 90 * 86400);
+    assert.equal(renewed.httpOnly, true);
+    assert.ok(daysLeft() > 89);
+
+    // Left alone past the end: signed out.
+    s.ctx.db.prepare("UPDATE sessions SET expires_at = ?").run(new Date(Date.now() - 1000).toISOString());
+    assert.equal((await s.app.inject({ url: "/api/me", headers: { cookie } })).statusCode, 401);
+  });
+
   it("rejects weak passwords and taken names", async () => {
     const short = await s.app.inject({ method: "POST", url: "/api/auth/signup", payload: { username: "newbie", password: "short" } });
     assert.equal(short.statusCode, 400);
