@@ -11,6 +11,7 @@
     <string name="channel_calls_description">Someone is calling you.</string>
     <string name="notify_message_title">Dendrop</string>
     <string name="notify_message_text">You have a new message</string>
+    <string name="notify_mention_text">Someone mentioned you</string>
     <string name="notify_event_title">Event starting</string>
     <string name="notify_event_text">An event you\'re going to is starting soon</string>
     <string name="notify_call_title">Incoming call</string>

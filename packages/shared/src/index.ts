@@ -1790,7 +1790,11 @@ export type ServerEvent =
   | { type: "couples.updated"; conversationId: number; noteFrom?: number };
 
 /** Events a client sends over the gateway. Everything else goes through the HTTP API. */
-export type ClientEvent = { type: "typing"; conversationId: number } | { type: "ping" };
+export type ClientEvent =
+  | { type: "typing"; conversationId: number }
+  | { type: "ping" }
+  /** The app went to the background or idle (false), or is in front and used again (true). Phones get pushes while no app is active. */
+  | { type: "active"; active: boolean };
 
 export * from "./profanity.js";
 

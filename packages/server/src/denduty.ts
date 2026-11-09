@@ -436,7 +436,7 @@ export class DendutyLink {
     const members = this.convos.memberIds(c.conversationId);
     this.gateway.send(members, { type: "message.created", message: m });
     void this.push.notify(
-      members.filter((u) => !this.gateway.isOnline(u)),
+      members.filter((u) => !this.gateway.isActive(u)),
       "message",
     );
   }

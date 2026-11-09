@@ -4,6 +4,13 @@ There are three ways to sign in: a **username and password**, **TinyAuth** (or a
 Connect provider), and **Google**. Someone can have all three on one account and use any of
 them.
 
+## Staying signed in
+
+A sign-in lasts **90 days from the last time it was used**: every day you open Dendrop (in a
+browser, the phone apps or the PC app), its end moves forward again, so a device you use stays
+signed in for good. One left unused for 90 days signs in again. Signing out, changing your
+password, or a parent ending a kid's sign-ins (Family) still signs those devices out at once.
+
 ## Making accounts
 
 - **The first account** is made on the sign-in page with a password and becomes the super

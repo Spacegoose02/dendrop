@@ -472,7 +472,7 @@ export class BotService {
     this.gateway.send(memberIds, { type, message: m });
     if (type === "message.created") {
       void this.push.notify(
-        memberIds.filter((u) => u !== m.authorId && !this.gateway.isOnline(u) && !this.isBot(u)),
+        memberIds.filter((u) => u !== m.authorId && !this.gateway.isActive(u) && !this.isBot(u)),
         "message",
       );
     }

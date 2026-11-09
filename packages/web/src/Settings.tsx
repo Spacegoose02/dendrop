@@ -24,6 +24,7 @@ import { useColors } from "./colors.ts";
 import { securityCode } from "./e2ee.ts";
 import { HTTPS_GUIDE, isSecure } from "./secure.ts";
 import type { EncryptionMode } from "./EncryptionDialog.tsx";
+import { disableWebPush, enableWebPush, webPushState, type WebPushState } from "./webpush.ts";
 import "./settings.css";
 
 /** The gear button and the settings dialog it opens: your account and privacy, voice and audio, then appearance. */
@@ -131,6 +132,7 @@ function SettingsPane({
       </header>
 
       <AccountSection me={me} onSaved={onSaved} />
+      <DeviceNotificationsSection />
       <section>
         <h3>Profile</h3>
         <p className="muted small">What friends and the people in your chats and servers see when they click your name.</p>
@@ -334,6 +336,59 @@ function AccountSection({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) 
         </button>
         {status && !changed && <span className="muted small">{status}</span>}
       </div>
+    </section>
+  );
+}
+
+/** Phone and browser notifications for Dendrop opened in a browser (the apps have their own). */
+function DeviceNotificationsSection() {
+  const [state, setState] = useState<WebPushState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    void webPushState().then(setState, () => setState("unsupported"));
+  }, []);
+  if (!state || state === "app") return null;
+
+  const flip = async (on: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const next = on ? await enableWebPush() : await disableWebPush();
+      setState(next);
+      if (on && next === "off") setError("Notifications weren't allowed. Try again and pick Allow.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't turn notifications on");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const note: Partial<Record<WebPushState, string>> = {
+    "needs-install": "On iPhone and iPad, Apple only sends notifications to Dendrop once it's on your Home Screen: tap Share, then Add to Home Screen, and open Dendrop from there. Or use the iPhone app.",
+    insecure: "Browsers only allow notifications on a secure https:// address, and this page was opened over plain http://.",
+    unsupported: "This browser can't get notifications from Dendrop. Try Chrome, Firefox, Edge or Safari, or the phone app.",
+    denied: "Notifications are blocked for this site. Allow them in your browser's site settings, then come back here.",
+  };
+
+  return (
+    <section>
+      <h3>Notifications on this device</h3>
+      {state === "on" || state === "off" ? (
+        <label className="toggle">
+          <input type="checkbox" checked={state === "on"} disabled={busy} onChange={(e) => void flip(e.target.checked)} />
+          <span>
+            <strong>Notify me about new messages and mentions</strong>
+            <span className="muted small">
+              Even with Dendrop closed. A notification only says that something came in, never who sent it or what it says. Nothing shows while you're
+              using Dendrop on another device.
+            </span>
+          </span>
+        </label>
+      ) : (
+        <p className="muted small">{note[state]}</p>
+      )}
+      {error && <p className="error small">{error}</p>}
     </section>
   );
 }

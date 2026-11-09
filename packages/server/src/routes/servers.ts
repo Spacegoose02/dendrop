@@ -789,7 +789,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     const preview = servers.preview(invite.code, friendId);
     if (isNew && preview) {
       gateway.send([friendId], { type: "server.invited", invite: preview });
-      void ctx.push.notify([friendId].filter((u) => !gateway.isOnline(u)), "message");
+      void ctx.push.notify([friendId].filter((u) => !gateway.isActive(u)), "message");
     }
     return invite;
   });

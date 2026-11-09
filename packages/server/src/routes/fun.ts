@@ -138,7 +138,7 @@ export function funRoutes(app: FastifyInstance, ctx: Context): void {
     const after = changed(m.id);
     // If it's someone's turn and they've nothing open, give their phone a nudge.
     const next = after.game?.turn;
-    if (next && next !== me.id && !gateway.isOnline(next)) void ctx.push.notify([next], "message");
+    if (next && next !== me.id && !gateway.isActive(next)) void ctx.push.notify([next], "message");
     return after;
   });
 
@@ -183,7 +183,7 @@ export function funRoutes(app: FastifyInstance, ctx: Context): void {
       const m = convos.isMember(r.conversationId, r.userId) ? convos.message(r.messageId) : undefined;
       const { userId, ...reminder } = r;
       gateway.send([userId], { type: "reminder", reminder, message: m && !m.deleted ? m : null });
-      if (!gateway.isOnline(userId)) void ctx.push.notify([userId], "message");
+      if (!gateway.isActive(userId)) void ctx.push.notify([userId], "message");
     }
   };
   const timer = setInterval(() => ctx.fireReminders?.(), REMINDER_TICK_MS);

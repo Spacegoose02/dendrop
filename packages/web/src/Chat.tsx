@@ -85,6 +85,9 @@ export interface ChannelInfo {
   canMentionEveryone?: boolean;
 }
 
+/** A phone or tablet typing on its on-screen keyboard: touch only, no mouse or trackpad. */
+const onScreenKeyboard = () => matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches;
+
 export function Chat({
   me,
   conversation,
@@ -506,7 +509,8 @@ export function Chat({
     if (e.key === "Escape" && replyTo) {
       e.preventDefault();
       setReplyTo(null);
-    } else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    } else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && !onScreenKeyboard()) {
+      // On a phone, Return starts a new line (there's no Shift) and the Send button sends.
       e.preventDefault();
       void send();
     } else if (e.key === "ArrowUp" && !draft) {
@@ -1097,6 +1101,7 @@ export function Chat({
             onChange={(e) => onDraft(e.target.value)}
             onKeyDown={onKey}
             onPaste={onPaste}
+            enterKeyHint={onScreenKeyboard() ? "enter" : "send"}
           />
           <div className="emoji-wrap">
             {gifsOn && (
@@ -1133,7 +1138,16 @@ export function Chat({
             </button>
           )}
           <button className="primary send" onClick={() => void send()} disabled={sending || !!timeUp || !!timedOutUntil || !!channel?.readOnly || (!draft.trim() && files.length === 0)} aria-label="Send">
-            {sending ? "…" : "Send"}
+            {sending ? (
+              "…"
+            ) : (
+              <>
+                <svg className="send-arrow" viewBox="0 0 24 24" width="20" height="20" aria-hidden>
+                  <path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12.6 2-12.6 2z" />
+                </svg>
+                <span className="send-label">Send</span>
+              </>
+            )}
           </button>
         </div>
         <div className="typing small muted" aria-live="polite">

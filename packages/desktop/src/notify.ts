@@ -162,6 +162,9 @@ export class GatewayWatcher {
     socket.on("open", () => {
       if (socket !== this.socket) return;
       this.delay = 1000;
+      // This connection only listens for notifications; nobody is looking at it. Saying so lets
+      // the server still wake your phone while the PC sits in the tray.
+      socket.send(JSON.stringify({ type: "active", active: false }));
       this.ping = this.setT(() => this.sendPing(socket), 25_000);
     });
     socket.on("message", (data) => {

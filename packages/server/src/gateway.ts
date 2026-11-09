@@ -6,6 +6,11 @@ export class Gateway {
   private sockets = new Map<number, Set<WebSocket>>();
   /** Bots' listeners (their gateway connections and events addresses), instead of sockets. */
   private sinks = new Map<number, Set<(event: ServerEvent) => void>>();
+  /**
+   * Connections whose app says it's in the background or left alone (a phone's screen off, a
+   * PC nobody's touched). Still connected, but nobody's looking, so phones get a push.
+   */
+  private idle = new WeakSet<WebSocket>();
 
   /** Sends a user's events to fn instead of a socket. Returns a function that stops it. */
   addSink(userId: number, fn: (event: ServerEvent) => void): () => void {
@@ -42,6 +47,21 @@ export class Gateway {
 
   isOnline(userId: number): boolean {
     return (this.sockets.get(userId)?.size ?? 0) > 0;
+  }
+
+  /** The app on this connection is in front and being used (true), or in the background or idle (false). */
+  setActive(ws: WebSocket, active: boolean): void {
+    if (active) this.idle.delete(ws);
+    else this.idle.add(ws);
+  }
+
+  /**
+   * Whether someone has Dendrop open in front of them right now: what decides if their phone
+   * needs a push. Apps that never say otherwise count as active while connected.
+   */
+  isActive(userId: number): boolean {
+    for (const ws of this.sockets.get(userId) ?? []) if (!this.idle.has(ws)) return true;
+    return false;
   }
 
   send(userIds: Iterable<number>, event: ServerEvent, except?: WebSocket): void {

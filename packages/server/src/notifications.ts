@@ -70,6 +70,7 @@ export class NotificationService {
   deliver(m: Message, recipients: number[], senderId: number | null): void {
     const groups = new Map<string, number[]>();
     const wake: number[] = [];
+    const wakeMentioned: number[] = [];
     for (const uid of recipients) {
       const own = uid === senderId;
       const mentioned = !own && (!!m.mentionsEveryone || !!m.mentions?.includes(uid));
@@ -78,13 +79,16 @@ export class NotificationService {
       const muted = level === "nothing";
       const key = `${notify}|${mentioned}|${muted}`;
       groups.set(key, [...(groups.get(key) ?? []), uid]);
-      if (notify && !this.gateway.isOnline(uid)) wake.push(uid);
+      // Connected but in the background (a phone with the screen off) still gets a push.
+      if (notify && !this.gateway.isActive(uid)) (mentioned ? wakeMentioned : wake).push(uid);
     }
     for (const [key, ids] of groups) {
       const [notify, mentioned, muted] = key.split("|").map((x) => x === "true") as [boolean, boolean, boolean];
       this.gateway.send(ids, { type: "message.created", message: m, notify, mentioned, muted });
     }
-    // Phones of people with nothing open get a wake-up that says only "message".
+    // Phones of people with nothing open get a wake-up that says only "message", or "mention"
+    // when they were @mentioned. Still nothing about who, where or what.
     if (wake.length) void this.push.notify(wake, "message");
+    if (wakeMentioned.length) void this.push.notify(wakeMentioned, "mention");
   }
 }

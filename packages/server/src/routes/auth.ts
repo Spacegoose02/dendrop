@@ -25,11 +25,16 @@ export function checkNew(ctx: Context, body: Credentials): { username: string; p
   return { username, password, displayName };
 }
 
+/** Sets the session cookie. Also used when a session is extended, so the phone keeps it as long. */
+export function setSessionCookie(ctx: Context, reply: FastifyReply, token: string, maxAgeSeconds: number): void {
+  const secure = ctx.config.publicUrl.startsWith("https://") || !!ctx.config.tls;
+  void reply.setCookie(SESSION_COOKIE, token, { path: "/", httpOnly: true, sameSite: "lax", secure, maxAge: maxAgeSeconds });
+}
+
 /** Starts a session for `user` and sets its cookie. */
 export function startSession(ctx: Context, req: FastifyRequest, reply: FastifyReply, user: UserRecord): void {
-  const secure = ctx.config.publicUrl.startsWith("https://") || !!ctx.config.tls;
   const { token, maxAgeSeconds } = ctx.sessions.create(user.id, req.headers["user-agent"]);
-  void reply.setCookie(SESSION_COOKIE, token, { path: "/", httpOnly: true, sameSite: "lax", secure, maxAge: maxAgeSeconds });
+  setSessionCookie(ctx, reply, token, maxAgeSeconds);
 }
 
 export function authRoutes(app: FastifyInstance, ctx: Context): void {
