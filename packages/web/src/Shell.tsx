@@ -74,7 +74,7 @@ export type View =
 type ServerDialog =
   | { kind: "create" }
   | { kind: "invite"; serverId: number }
-  | { kind: "channel"; serverId: number; channel: Channel | null; channelKind?: ChannelKind }
+  | { kind: "channel"; serverId: number; channel: Channel | null; channelKind?: ChannelKind; categoryId?: number | null }
   | { kind: "settings"; serverId: number; tab?: SettingsTab }
   | { kind: "welcome"; serverId: number }
   | { kind: "admin" }
@@ -418,6 +418,10 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           setInVoice((cur) => (cur && cur.voice.channelId === v.channelId && !v.members.some((m) => m.userId === me.id) ? null : cur));
           break;
         }
+        case "voice.move":
+          // A moderator moved you: the effect below joins the new channel.
+          window.dispatchEvent(new CustomEvent("dendrop:voice-move", { detail: { serverId: e.serverId, channelId: e.channelId } }));
+          break;
         case "voice.sound":
           // Only people in that voice channel get these.
           playSoundboard(e.play);
@@ -575,6 +579,18 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       setCallError((err as Error).message);
     }
   };
+
+  // Moved by a moderator: drop into the channel they picked.
+  useEffect(() => {
+    const onMove = (ev: Event) => {
+      const { serverId, channelId } = (ev as CustomEvent<{ serverId: number; channelId: number }>).detail;
+      const sv = servers.find((x) => x.id === serverId);
+      const ch = sv?.channels.find((c) => c.id === channelId);
+      if (sv && ch) void joinVoice(sv, ch);
+    };
+    window.addEventListener("dendrop:voice-move", onMove);
+    return () => window.removeEventListener("dendrop:voice-move", onMove);
+  });
 
   const startCall = async (conversationId: number, video: boolean) => {
     if (inVoice) {
@@ -864,7 +880,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             events={eventsOf(currentServer)}
             onEvents={() => setServerDialog({ kind: "events", serverId: currentServer.id })}
             onWelcome={() => setServerDialog({ kind: "welcome", serverId: currentServer.id })}
-            onChannel={(c, channelKind) => setServerDialog({ kind: "channel", serverId: currentServer.id, channel: c, channelKind })}
+            onChannel={(c, channelKind, categoryId) => setServerDialog({ kind: "channel", serverId: currentServer.id, channel: c, channelKind, categoryId })}
           />
         ) : (
         <>
@@ -1051,6 +1067,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
               canModerate: can(currentServer, "deleteMessages"),
               timedOutUntil: currentServer.timedOutUntil,
               canPin: canPinIn(currentServer, currentChannel),
+              readOnly: currentChannel.canPost === false ? "Only some people can post in this channel. You can still read it and react." : null,
+              slowmode: can(currentServer, "manageChannels") || can(currentServer, "deleteMessages") ? 0 : (currentChannel.slowmode ?? 0),
               onPins: () => setPinsOpen({ serverId: currentServer.id, channelId: currentChannel.id }),
               onThread: (m) => void startThread(currentServer.id, m.id, m.thread?.id),
               voice: isVoiceKind(currentChannel.kind)
@@ -1222,6 +1240,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           server={dialogServer}
           channel={serverDialog.channel}
           kind={serverDialog.channelKind}
+          categoryId={serverDialog.categoryId}
           onClose={() => setServerDialog(null)}
           onDone={(made) => {
             setServerDialog(null);

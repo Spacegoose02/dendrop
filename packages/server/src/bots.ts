@@ -22,7 +22,7 @@ import { FriendRepo } from "./friends.js";
 import type { Gateway } from "./gateway.js";
 import type { LootdenFetch } from "./lootden.js";
 import type { PushService } from "./push.js";
-import { isModerator, ServerRepo } from "./servers.js";
+import { ServerRepo } from "./servers.js";
 import { toPublic, type UserRecord, type UserRepo } from "./users.js";
 
 /** Same shape as LootDen's: just enough of fetch, swapped out in tests. */
@@ -580,6 +580,6 @@ export class BotService {
   assertModerator(serverId: number, user: UserRecord): void {
     const role = this.servers.role(serverId, user.id);
     if (!role) throw new HttpError(404, "No such server");
-    if (!isModerator(role)) throw new HttpError(403, "Only the owner and admins can do that");
+    if (!this.servers.can(serverId, user.id, "manageWebhooks", role)) throw new HttpError(403, "You need Manage webhooks & bots to do that");
   }
 }

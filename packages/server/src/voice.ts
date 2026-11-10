@@ -33,6 +33,8 @@ export interface VoiceChannelRef {
  */
 export class VoiceService {
   private channels = new Map<number, { ref: VoiceChannelRef; members: VoiceMember[]; watch: WatchSession | null }>();
+  /** Moderators' mutes and deafens, by "serverId:userId": they hold if someone leaves and comes back. */
+  private held = new Map<string, { serverMuted?: boolean; serverDeafened?: boolean }>();
   /** When each person last played a soundboard sound. */
   private lastSound = new Map<number, number>();
 
@@ -86,10 +88,13 @@ export class VoiceService {
     if (!m) {
       const speaker = !ref.stage || moderator;
       m = { userId: user.id, muted: !speaker, deafened: false, video: false, screen: false, joinedAt: now(), speaker, handRaised: false };
+      const held = this.held.get(`${ref.serverId}:${user.id}`);
+      if (held?.serverMuted) Object.assign(m, { serverMuted: true, muted: true });
+      if (held?.serverDeafened) Object.assign(m, { serverDeafened: true, deafened: true, muted: true });
       c.members.push(m);
     }
     this.broadcast(ref.channelId);
-    const token = await livekitToken(this.config, this.roomName(ref.channelId), user, m.speaker);
+    const token = await livekitToken(this.config, this.roomName(ref.channelId), user, m.speaker && !m.serverMuted && !m.serverDeafened);
     return { voice: this.state(ref.channelId)!, url, token };
   }
 
@@ -119,7 +124,7 @@ export class VoiceService {
     if (m.speaker !== speaker) {
       m.speaker = speaker;
       if (!speaker) Object.assign(m, { muted: true, video: false, screen: false });
-      void setCanPublish(this.config, this.roomName(channelId), String(userId), speaker);
+      void setCanPublish(this.config, this.roomName(channelId), String(userId), speaker && !m.serverMuted && !m.serverDeafened);
     }
     this.broadcast(channelId);
     return this.state(channelId)!;
@@ -134,12 +139,49 @@ export class VoiceService {
     for (const k of ["muted", "deafened", "video", "screen"] as const) {
       if (typeof patch[k] === "boolean") m[k] = patch[k];
     }
+    // A moderator's mute or deafen holds until a moderator lifts it.
+    if (m.serverDeafened) m.deafened = true;
+    if (m.serverMuted) m.muted = true;
     // Deafened people can't hear, so they aren't heard either.
     if (m.deafened) m.muted = true;
     // Stage listeners only listen.
     if (!m.speaker) Object.assign(m, { muted: true, video: false, screen: false });
     this.broadcast(id);
     return this.state(id)!;
+  }
+
+  /**
+   * A moderator mutes or deafens someone (or lifts it). While server-muted the call server
+   * stops them publishing sound and video, so it holds even with an old app; server deafen is
+   * kept by their app, which stops playing the room.
+   */
+  moderate(userId: number, patch: { serverMuted?: boolean; serverDeafened?: boolean }): VoiceChannelState {
+    const id = this.channelOf(userId);
+    if (id === undefined) throw new HttpError(400, "They aren't in a voice channel");
+    const c = this.channels.get(id)!;
+    const m = c.members.find((x) => x.userId === userId)!;
+    const wasMuted = !!m.serverMuted || !!m.serverDeafened;
+    if (patch.serverMuted !== undefined) m.serverMuted = patch.serverMuted;
+    if (patch.serverDeafened !== undefined) m.serverDeafened = patch.serverDeafened;
+    const key = `${c.ref.serverId}:${userId}`;
+    if (m.serverMuted || m.serverDeafened) this.held.set(key, { serverMuted: m.serverMuted, serverDeafened: m.serverDeafened });
+    else this.held.delete(key);
+    if (m.serverDeafened) m.deafened = true;
+    if (m.serverMuted || m.serverDeafened) Object.assign(m, { muted: true, video: false, screen: false });
+    const nowMuted = !!m.serverMuted || !!m.serverDeafened;
+    if (wasMuted !== nowMuted && m.speaker) void setCanPublish(this.config, this.roomName(id), String(userId), !nowMuted);
+    this.broadcast(id);
+    return this.state(id)!;
+  }
+
+  /** A moderator takes someone out of voice: their token stops working and their app hangs up. */
+  disconnect(userId: number): void {
+    const id = this.channelOf(userId);
+    if (id === undefined) return;
+    const c = this.channels.get(id)!;
+    this.leave(userId);
+    void removeFromRoom(this.config, this.roomName(id), String(userId));
+    this.gateway.send([userId], { type: "voice.updated", voice: { ...c.ref, members: c.members, watch: c.watch } });
   }
 
   /**

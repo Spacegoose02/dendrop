@@ -3,6 +3,9 @@ import {
   isVoiceKind,
   LIMITS,
   type Channel,
+  type ChannelCategory,
+  type ServerMember,
+  type VoiceMember,
   type ChannelKind,
   type ChatServer,
   type ChatServerSummary,
@@ -15,6 +18,7 @@ import {
   type ServerTimeout,
   type VoiceChannelState,
   type ServerPermission,
+  SLOWMODE_CHOICES,
 } from "@dendrop/shared";
 import { api, ApiError } from "./api.ts";
 import { AuditLogTab } from "./Audit.tsx";
@@ -56,7 +60,7 @@ export function ServerIcon({ server, size = 48 }: { server: Pick<ChatServerSumma
 
 export const isMod = (s: ChatServer) => s.myRole === "owner" || s.myRole === "admin";
 /** Any of these lets someone read the server's audit log (the server checks the same). */
-const AUDIT_PERMISSIONS: ServerPermission[] = ["manageServer", "manageChannels", "manageRoles", "manageAutomod", "kickMembers", "timeoutMembers", "deleteMessages"];
+const AUDIT_PERMISSIONS: ServerPermission[] = ["viewAuditLog", "manageServer", "manageChannels", "manageRoles", "manageAutomod", "kickMembers", "banMembers", "timeoutMembers", "deleteMessages"];
 export const canInvite = (s: ChatServer) => can(s, "createInvites") || s.memberInvites;
 export const inviteUrl = (code: string) => `${location.origin}/invite/${code}`;
 
@@ -65,6 +69,46 @@ export const inviteCode = (text: string): string | null => {
   const m = /(?:\/invite\/)?([A-Za-z0-9_-]{8,32})\/?$/.exec(text.trim());
   return m ? m[1]! : null;
 };
+
+/** What a moderator can do to someone in voice: mute, deafen, move and disconnect. */
+function VoiceModMenu({ server, channel, member, state }: { server: ChatServer; channel: Channel; member: ServerMember; state: VoiceMember }) {
+  const mute = can(server, "muteMembers");
+  const move = can(server, "moveMembers");
+  // The server checks rank too; this just hides the menu where it could never work.
+  const above = member.role === "owner" || (member.role === "admin" && server.myRole !== "owner");
+  if ((!mute && !move) || member.user.isBot || above) return null;
+  const others = server.channels.filter((c) => isVoiceKind(c.kind) && c.id !== channel.id);
+  const act = (value: string) => {
+    const base = `/api/servers/${server.id}/voice/${member.user.id}`;
+    const done = (p: Promise<unknown>) => void p.catch((err: Error) => alert(err.message));
+    if (value === "mute") done(api(base, { method: "PUT", body: { serverMuted: !state.serverMuted } }));
+    else if (value === "deafen") done(api(base, { method: "PUT", body: { serverDeafened: !state.serverDeafened } }));
+    else if (value === "disconnect") done(api(`${base}/disconnect`, { body: {} }));
+    else if (value.startsWith("move:")) done(api(`${base}/move`, { body: { channelId: Number(value.slice(5)) } }));
+  };
+  return (
+    <select className="voice-mod" value="" aria-label={`Moderate ${member.nickname ?? member.user.displayName} in voice`} title="Moderate" onChange={(e) => act(e.target.value)}>
+      <option value="">⋯</option>
+      {mute && <option value="mute">{state.serverMuted ? "Let them talk" : "Mute for everyone"}</option>}
+      {mute && <option value="deafen">{state.serverDeafened ? "Let them hear" : "Deafen"}</option>}
+      {move &&
+        others.map((c) => (
+          <option key={c.id} value={`move:${c.id}`}>
+            Move to {c.name}
+          </option>
+        ))}
+      {move && <option value="disconnect">Disconnect</option>}
+    </select>
+  );
+}
+
+function loadCollapsed(serverId: number): Set<number> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(`dendrop.collapsed.${serverId}`) ?? "[]") as number[]);
+  } catch {
+    return new Set();
+  }
+}
 
 /** The channel list for a server, with its banner and menu. */
 export function ServerSidebar({
@@ -96,8 +140,8 @@ export function ServerSidebar({
   onOpen: (c: Channel) => void;
   onSettings: () => void;
   onInvite: () => void;
-  /** Make a channel (null, of this kind) or edit one. */
-  onChannel: (c: Channel | null, kind?: ChannelKind) => void;
+  /** Make a channel (null, of this kind, in this category) or edit one. */
+  onChannel: (c: Channel | null, kind?: ChannelKind, categoryId?: number | null) => void;
   /** Automod alerts the owner or an admin hasn't looked at yet. */
   automodAlerts?: number;
   onModLog?: () => void;
@@ -109,6 +153,106 @@ export function ServerSidebar({
 }) {
   const colorsOf = useColors();
   const mod = can(server, "manageChannels");
+  const categoryIds = new Set(server.categories.map((c) => c.id));
+  const loose = server.channels.filter((c) => c.categoryId === null || !categoryIds.has(c.categoryId));
+  const [collapsed, setCollapsed] = useState<Set<number>>(() => loadCollapsed(server.id));
+  useEffect(() => setCollapsed(loadCollapsed(server.id)), [server.id]);
+  const toggleCategory = (id: number) =>
+    setCollapsed((cur) => {
+      const n = new Set(cur);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      try {
+        localStorage.setItem(`dendrop.collapsed.${server.id}`, JSON.stringify([...n]));
+      } catch {
+        /* private mode: just this session */
+      }
+      return n;
+    });
+  const newCategory = async () => {
+    const name = prompt("Name the new category (like Games or Grown-ups):");
+    if (!name?.trim()) return;
+    await api(`/api/servers/${server.id}/categories`, { body: { name } }).catch((err: Error) => alert(err.message));
+  };
+  const editCategory = async (cat: ChannelCategory) => {
+    const name = prompt(`Rename ${cat.name}. Leave it empty to delete the category (its channels stay).`, cat.name);
+    if (name === null) return;
+    if (!name.trim()) {
+      if (confirm(`Delete the ${cat.name} category? Its channels stay, without a category.`)) await api(`/api/servers/${server.id}/categories/${cat.id}`, { method: "DELETE" }).catch((err: Error) => alert(err.message));
+      return;
+    }
+    await api(`/api/servers/${server.id}/categories/${cat.id}`, { method: "PATCH", body: { name } }).catch((err: Error) => alert(err.message));
+  };
+  const channelRow = (c: Channel) => (
+                <div key={c.id}>
+                  <div className="channel-row">
+                    <button
+                      className={`nav-item channel ${activeChannel === c.id ? "active" : ""} ${unread.has(c.conversationId) ? "unread" : ""} ${inVoice === c.id ? "in-voice" : ""}`}
+                      onClick={() => onOpen(c)}
+                      title={isVoiceKind(c.kind) ? (inVoice === c.id ? `You're in ${c.name}` : `Join ${c.name}`) : undefined}
+                    >
+                      <span className="channel-mark" aria-hidden>
+                        {channelMark(c)}
+                      </span>
+                      <span className="ellipsis">{c.name}</span>
+                      {c.kind !== "text" && c.kind !== "forum" && c.locked && (
+                        <span className="channel-lock" aria-label="Locked">
+                          🔒
+                        </span>
+                      )}
+                      {unread.has(c.conversationId) && <span className="dot" aria-label="Unread" />}
+                    </button>
+                    {mod && (
+                      <button className="ghost channel-edit" onClick={() => onChannel(c)} title={`Edit ${c.name}`} aria-label={`Edit ${c.name}`}>
+                        ✎
+                      </button>
+                    )}
+                  </div>
+                  {c.kind !== "text" && voice[c.id] && (
+                    <ul className="voice-members" aria-label={`In ${c.name}`}>
+                      {voice[c.id]!.members
+                        .filter((v) => v.speaker || v.handRaised)
+                        .sort((a, b) => Number(b.speaker) - Number(a.speaker))
+                        .map((v) => {
+                        const m = server.members.find((x) => x.user.id === v.userId);
+                        const name = m ? (m.nickname ?? m.user.displayName) : "Someone";
+                        const talking = inVoice === c.id && speaking.has(v.userId);
+                        return (
+                          <li key={v.userId} className={`voice-member ${talking ? "speaking" : ""}`}>
+                            <Avatar name={name} src={m?.user.avatar} size={22} />
+                            <span className="ellipsis" style={colorsOf(memberColors(m)).name}>
+                              {name}
+                            </span>
+                            <span
+                              className={`voice-icons ${v.serverMuted || v.serverDeafened ? "server-held" : ""}`}
+                              title={v.serverDeafened ? "Deafened by a moderator" : v.serverMuted ? "Muted by a moderator" : undefined}
+                              aria-label={[
+                                v.handRaised && "hand raised",
+                                v.screen && "sharing screen",
+                                v.video && "camera on",
+                                v.speaker && (v.deafened ? "deafened" : v.muted && "muted"),
+                                (v.serverMuted || v.serverDeafened) && "by a moderator",
+                              ]
+                                .filter(Boolean)
+                                .join(", ")}
+                            >
+                              {v.handRaised && "✋"}
+                              {v.screen && "🖥️"}
+                              {v.video && "📷"}
+                              {v.speaker && (v.deafened ? "🙉" : v.muted ? "🔇" : "")}
+                            </span>
+                            {m && <VoiceModMenu server={server} channel={c} member={m} state={v} />}
+                          </li>
+                        );
+                      })}
+                      {(() => {
+                        const listening = voice[c.id]!.members.filter((v) => !v.speaker).length;
+                        return listening > 0 ? <li className="voice-member muted small stage-listeners">🎧 {listening} listening</li> : null;
+                      })()}
+                    </ul>
+                  )}
+                </div>
+  );
   return (
     <>
       <header className={`server-header ${server.bannerUrl ? "with-banner" : ""}`}>
@@ -156,9 +300,10 @@ export function ServerSidebar({
           </button>
         )}
         {(["text", "voice", "stage"] as const).map((kind) => {
-          // Forums sit with the text channels.
-          const list = server.channels.filter((c) => c.kind === kind || (kind === "text" && c.kind === "forum"));
+          // Forums sit with the text channels. Channels in a category are listed under it instead.
+          const list = loose.filter((c) => c.kind === kind || (kind === "text" && c.kind === "forum"));
           if (kind !== "text" && list.length === 0 && !mod) return null;
+          if (kind === "text" && list.length === 0 && server.categories.length > 0 && !mod) return null;
           const info = CHANNEL_KINDS[kind];
           return (
             <div key={kind}>
@@ -176,71 +321,45 @@ export function ServerSidebar({
                 )}
               </div>
               {list.length === 0 && <p className="muted small">No {info.label.toLowerCase()} channels yet.</p>}
-              {list.map((c) => (
-                <div key={c.id}>
-                  <div className="channel-row">
-                    <button
-                      className={`nav-item channel ${activeChannel === c.id ? "active" : ""} ${unread.has(c.conversationId) ? "unread" : ""} ${inVoice === c.id ? "in-voice" : ""}`}
-                      onClick={() => onOpen(c)}
-                      title={isVoiceKind(c.kind) ? (inVoice === c.id ? `You're in ${c.name}` : `Join ${c.name}`) : undefined}
-                    >
-                      <span className="channel-mark" aria-hidden>
-                        {channelMark(c)}
-                      </span>
-                      <span className="ellipsis">{c.name}</span>
-                      {c.kind !== "text" && c.kind !== "forum" && c.locked && (
-                        <span className="channel-lock" aria-label="Locked">
-                          🔒
-                        </span>
-                      )}
-                      {unread.has(c.conversationId) && <span className="dot" aria-label="Unread" />}
-                    </button>
-                    {mod && (
-                      <button className="ghost channel-edit" onClick={() => onChannel(c)} title={`Edit ${c.name}`} aria-label={`Edit ${c.name}`}>
-                        ✎
-                      </button>
-                    )}
-                  </div>
-                  {c.kind !== "text" && voice[c.id] && (
-                    <ul className="voice-members" aria-label={`In ${c.name}`}>
-                      {voice[c.id]!.members
-                        .filter((v) => v.speaker || v.handRaised)
-                        .sort((a, b) => Number(b.speaker) - Number(a.speaker))
-                        .map((v) => {
-                        const m = server.members.find((x) => x.user.id === v.userId);
-                        const name = m ? (m.nickname ?? m.user.displayName) : "Someone";
-                        const talking = inVoice === c.id && speaking.has(v.userId);
-                        return (
-                          <li key={v.userId} className={`voice-member ${talking ? "speaking" : ""}`}>
-                            <Avatar name={name} src={m?.user.avatar} size={22} />
-                            <span className="ellipsis" style={colorsOf(memberColors(m)).name}>
-                              {name}
-                            </span>
-                            <span
-                              className="voice-icons"
-                              aria-label={[v.handRaised && "hand raised", v.screen && "sharing screen", v.video && "camera on", v.speaker && (v.deafened ? "deafened" : v.muted && "muted")]
-                                .filter(Boolean)
-                                .join(", ")}
-                            >
-                              {v.handRaised && "✋"}
-                              {v.screen && "🖥️"}
-                              {v.video && "📷"}
-                              {v.speaker && (v.deafened ? "🙉" : v.muted ? "🔇" : "")}
-                            </span>
-                          </li>
-                        );
-                      })}
-                      {(() => {
-                        const listening = voice[c.id]!.members.filter((v) => !v.speaker).length;
-                        return listening > 0 ? <li className="voice-member muted small stage-listeners">🎧 {listening} listening</li> : null;
-                      })()}
-                    </ul>
-                  )}
-                </div>
-              ))}
+              {list.map(channelRow)}
             </div>
           );
         })}
+        {server.categories.map((cat) => {
+          const list = server.channels.filter((c) => c.categoryId === cat.id);
+          if (list.length === 0 && !mod) return null;
+          const closed = collapsed.has(cat.id);
+          return (
+            <div key={`cat-${cat.id}`} className="channel-category">
+              <div className="section-label with-action">
+                <button className="ghost category-toggle" onClick={() => toggleCategory(cat.id)} aria-expanded={!closed}>
+                  <span className="category-caret" aria-hidden>
+                    {closed ? "▸" : "▾"}
+                  </span>
+                  {cat.name}
+                </button>
+                {mod && (
+                  <>
+                    <button className="ghost" onClick={() => void editCategory(cat)} title={`Rename or delete ${cat.name}`} aria-label={`Edit ${cat.name}`}>
+                      ✎
+                    </button>
+                    <button className="ghost" onClick={() => onChannel(null, "text", cat.id)} title={`New channel in ${cat.name}`} aria-label={`New channel in ${cat.name}`}>
+                      ＋
+                    </button>
+                  </>
+                )}
+              </div>
+              {!closed && list.length === 0 && <p className="muted small">No channels yet.</p>}
+              {/* A collapsed category still shows the channel you're in and voice channels with people. */}
+              {list.filter((c) => !closed || activeChannel === c.id || inVoice === c.id || unread.has(c.conversationId)).map(channelRow)}
+            </div>
+          );
+        })}
+        {mod && (
+          <button className="ghost small new-category" onClick={() => void newCategory()}>
+            ＋ New category
+          </button>
+        )}
         <div className="section-label">Members · {server.memberCount}</div>
         {byRank(server).map((m) => {
           const top = rolesOf(server, m)[0];
@@ -639,11 +758,18 @@ export function InviteDialog({ server, friends, onClose }: { server: ChatServer;
   );
 }
 
+/** "30 seconds", "5 minutes", "1 hour". */
+export const slowLabel = (seconds: number) => {
+  const [n, unit] = seconds >= 3600 && seconds % 3600 === 0 ? [seconds / 3600, "hour"] : seconds >= 60 && seconds % 60 === 0 ? [seconds / 60, "minute"] : [seconds, "second"];
+  return n === 1 ? unit : `${n} ${unit}s`;
+};
+
 /** Makes or edits a channel, including who can see a locked one. */
 export function ChannelDialog({
   server,
   channel,
   kind: initialKind = "text",
+  categoryId: initialCategory,
   onClose,
   onDone,
 }: {
@@ -651,6 +777,8 @@ export function ChannelDialog({
   channel: Channel | null;
   /** For a new channel, the kind to start with. */
   kind?: ChannelKind;
+  /** For a new channel, the category to put it in. */
+  categoryId?: number | null;
   onClose: () => void;
   onDone: (opened: Channel | null) => void;
 }) {
@@ -662,6 +790,10 @@ export function ChannelDialog({
   const [pickedRoles, setPickedRoles] = useState<Set<number>>(new Set(channel?.roleIds ?? []));
   /** A forum's tags, as typed: comma separated. */
   const [tags, setTags] = useState((channel?.tags ?? []).join(", "));
+  const [categoryId, setCategoryId] = useState<number | null>(channel ? channel.categoryId : (initialCategory ?? null));
+  const [slowmode, setSlowmode] = useState(channel?.slowmode ?? 0);
+  const [readOnly, setReadOnly] = useState(channel?.readOnly ?? false);
+  const [postRoles, setPostRoles] = useState<Set<number>>(new Set(channel?.postRoleIds ?? []));
   const [error, setError] = useState<string | null>(null);
   // Owners and admins always see locked channels, so only members are picked.
   const pickable = server.members.filter((m) => m.role === "member");
@@ -672,7 +804,18 @@ export function ChannelDialog({
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean);
-    const body = { name, topic, locked, memberIds: [...picked], roleIds: [...pickedRoles], ...(kind === "forum" ? { tags: tagList } : {}) };
+    const texty = kind === "text" || kind === "forum";
+    const body = {
+      name,
+      topic,
+      locked,
+      memberIds: [...picked],
+      roleIds: [...pickedRoles],
+      categoryId,
+      ...(texty ? { slowmode } : {}),
+      ...(kind === "text" ? { readOnly, postRoleIds: [...postRoles] } : {}),
+      ...(kind === "forum" ? { tags: tagList } : {}),
+    };
     try {
       if (channel) {
         await api(`/api/servers/${server.id}/channels/${channel.id}`, { method: "PATCH", body });
@@ -731,6 +874,66 @@ export function ChannelDialog({
           <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Question, Bug, Idea" />
           <span className="muted small">Posts can carry up to {LIMITS.tagsPerPost} of these, and people can filter by them.</span>
         </label>
+      )}
+      {server.categories.length > 0 && (
+        <label>
+          Category
+          <select value={categoryId ?? ""} onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : null)}>
+            <option value="">None</option>
+            {server.categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {(kind === "text" || kind === "forum") && (
+        <label>
+          Slowmode
+          <select value={slowmode} onChange={(e) => setSlowmode(Number(e.target.value))}>
+            {SLOWMODE_CHOICES.map((n) => (
+              <option key={n} value={n}>
+                {n === 0 ? "Off" : `One message every ${slowLabel(n)}`}
+              </option>
+            ))}
+          </select>
+          <span className="muted small">How long each person waits between messages. People who can manage channels or delete messages don't wait.</span>
+        </label>
+      )}
+      {kind === "text" && (
+        <label className="toggle">
+          <input type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} />
+          <span>
+            <strong>Read-only</strong>
+            <span className="muted small">Everyone who can see it can read and react, but only the roles you pick (and people who can manage channels) can post. Good for news and rules.</span>
+          </span>
+        </label>
+      )}
+      {kind === "text" && readOnly && server.roles.length > 0 && (
+        <>
+          <div className="section-label">Roles that can post · {postRoles.size}</div>
+          <div className="chips">
+            {server.roles.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                className={`chip ${postRoles.has(r.id) ? "on" : ""}`}
+                aria-pressed={postRoles.has(r.id)}
+                onClick={() =>
+                  setPostRoles((p) => {
+                    const n = new Set(p);
+                    if (n.has(r.id)) n.delete(r.id);
+                    else n.add(r.id);
+                    return n;
+                  })
+                }
+              >
+                <RoleChip role={r} plain />
+              </button>
+            ))}
+          </div>
+        </>
       )}
       <label className="toggle">
         <input type="checkbox" checked={locked} onChange={(e) => setLocked(e.target.checked)} />
@@ -830,14 +1033,14 @@ export function ServerSettings({
     ...(can(server, "manageExpressions") || server.sounds.length ? [{ id: "sounds" as const, label: "Sounds" }] : []),
     ...(canInvite(server) ? [{ id: "invites" as const, label: "Invites" }] : []),
     ...(can(server, "deleteMessages") ? [{ id: "reports" as const, label: "Reports" }] : []),
-    ...(can(server, "kickMembers") ? [{ id: "bans" as const, label: "Bans" }] : []),
+    ...(can(server, "banMembers") ? [{ id: "bans" as const, label: "Bans" }] : []),
     ...(can(server, "manageAutomod")
       ? [
           { id: "automod" as const, label: "Automod" },
           { id: "modlog" as const, label: "Mod log" },
         ]
       : []),
-    ...(isMod(server) ? [{ id: "webhooks" as const, label: "Webhooks" }, { id: "bots" as const, label: "Bots" }] : []),
+    ...(can(server, "manageWebhooks") ? [{ id: "webhooks" as const, label: "Webhooks" }, { id: "bots" as const, label: "Bots" }] : []),
     ...(AUDIT_PERMISSIONS.some((p) => can(server, p)) ? [{ id: "audit" as const, label: "Audit log" }] : []),
   ];
   const [tab, setTab] = useState<SettingsTab>(initialTab && tabs.some((t) => t.id === initialTab) ? initialTab : "profile");
@@ -1049,6 +1252,8 @@ function MembersTab({ me, server }: { me: Me; server: ChatServer }) {
         const below = outranks(server, me.id, m);
         const canTimeout = below && can(server, "timeoutMembers");
         const canKick = below && can(server, "kickMembers");
+        const canBan = below && can(server, "banMembers");
+        const canNick = (below || m.user.id === me.id) && can(server, "manageNicknames") && !m.user.isBot;
         return (
           <div key={m.user.id} className="member-row">
             <span className="nav-text">
@@ -1076,8 +1281,19 @@ function MembersTab({ me, server }: { me: Me; server: ChatServer }) {
             ) : (
               <span className={`role-tag ${m.role}`}>{m.role}</span>
             )}
-            {(canTimeout || canKick) && (
+            {(canTimeout || canKick || canBan || canNick) && (
               <span className="member-actions">
+                {canNick && (
+                  <button
+                    className="ghost small"
+                    onClick={() => {
+                      const nickname = prompt(`Nickname for ${m.user.displayName} here (leave empty to clear):`, m.nickname ?? "");
+                      if (nickname !== null) void run(() => api(`/api/servers/${server.id}/members/${m.user.id}/nickname`, { method: "PATCH", body: { nickname: nickname.trim() || null } }));
+                    }}
+                  >
+                    Nickname
+                  </button>
+                )}
                 {!canTimeout ? null : timeouts.has(m.user.id) ? (
                   <button className="ghost small" onClick={() => void run(() => api(`/api/servers/${server.id}/timeouts/${m.user.id}`, { method: "DELETE" }).then(loadTimeouts))}>
                     End timeout
@@ -1112,13 +1328,15 @@ function MembersTab({ me, server }: { me: Me; server: ChatServer }) {
                   </button>
                 )}
                 {canKick && (
+                  <button
+                    className="ghost small"
+                    onClick={() => confirm(`Remove ${m.user.displayName}?`) && void run(() => api(`/api/servers/${server.id}/members/${m.user.id}`, { method: "DELETE" }))}
+                  >
+                    Remove
+                  </button>
+                )}
+                {canBan && (
                   <>
-                    <button
-                      className="ghost small"
-                      onClick={() => confirm(`Remove ${m.user.displayName}?`) && void run(() => api(`/api/servers/${server.id}/members/${m.user.id}`, { method: "DELETE" }))}
-                    >
-                      Remove
-                    </button>
                     <button
                       className="ghost small danger"
                       onClick={() =>

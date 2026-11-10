@@ -2209,3 +2209,48 @@ h5.md-h {
   padding: 10px;
   margin-top: 8px;
 }
+
+/* Channel categories, slowmode and voice moderation */
+.section-label.with-action .category-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  margin-right: auto;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+.category-caret {
+  width: 10px;
+  display: inline-block;
+}
+.new-category {
+  margin: 8px 8px 0;
+}
+.voice-icons.server-held {
+  color: var(--dd-danger);
+}
+.voice-mod {
+  margin-left: auto;
+  padding: 0 4px;
+  min-height: 0;
+  font-size: 12px;
+  background: transparent;
+  border: none;
+  color: var(--dd-text-muted);
+  opacity: 0;
+}
+.voice-member:hover .voice-mod,
+.voice-mod:focus {
+  opacity: 1;
+}
+@media (pointer: coarse) {
+  .voice-mod {
+    opacity: 1;
+  }
+}
+.slowmode-note {
+  margin: 0 0 4px;
+}
