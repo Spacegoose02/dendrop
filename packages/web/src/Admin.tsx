@@ -1,3 +1,4 @@
+import { ReportsList } from "./Safety.tsx";
 import { useEffect, useState, type FormEvent } from "react";
 import { GIF_RATINGS, type AdminServer, type ChannelRef, type ChatServer, type DendutyStatus, type GifRating, type GifSettings, type WatchSettings, type LinkPreviewSettings, type LootdenStatus, type ServerCreatorRequest } from "@dendrop/shared";
 import { api } from "./api.ts";
@@ -47,6 +48,9 @@ export function AdminDialog({ onClose, version }: { onClose: () => void; version
   return (
     <Modal title="Instance admin" onClose={onClose}>
       {error && <p className="error">{error}</p>}
+      <div className="section-label">Reports</div>
+      <p className="muted small">Reports of people, and of messages in DMs and group chats. Messages in servers go to each server's moderators instead.</p>
+      <ReportsList key={version} serverId={null} />
       <AdminSignInSection />
       <div className="section-label">Who can make servers</div>
       {requests?.length === 0 && <p className="muted small">No requests yet.</p>}

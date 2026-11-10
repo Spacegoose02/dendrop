@@ -80,6 +80,11 @@ export class Gateway {
     }
   }
 
+  /** Closes someone's connections, for example when their account is deleted. */
+  closeUser(userId: number, reason = "Signed out"): void {
+    for (const ws of this.sockets.get(userId) ?? []) ws.close(4401, reason);
+  }
+
   closeAll(): void {
     for (const set of this.sockets.values()) for (const ws of set) ws.close(1001, "Server shutting down");
     this.sockets.clear();

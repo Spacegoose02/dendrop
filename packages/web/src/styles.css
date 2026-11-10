@@ -2178,3 +2178,34 @@ h5.md-h {
 .account-actions .small-button.on {
   color: var(--dd-accent);
 }
+
+/* Safety: blocked messages, reports, deleting your account */
+.blocked-msg {
+  padding: 4px 16px 4px 60px;
+  font-style: italic;
+}
+.report-quote {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--dd-border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 12em;
+  overflow-y: auto;
+}
+.report-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--dd-border);
+}
+.report-row.done {
+  opacity: 0.7;
+}
+.report-row .row {
+  gap: 8px;
+}
+.danger-zone {
+  border: 1px solid var(--dd-danger);
+  border-radius: var(--dd-radius);
+  padding: 10px;
+  margin-top: 8px;
+}

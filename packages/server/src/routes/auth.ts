@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { isHexColor, isUsername, LIMITS, type AuthInfo, type ServerInfo, type TwoFactorChallenge } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
 import { hashPassword, verifyPassword } from "../auth/crypto.js";
+import { FailureLimiter } from "../auth/limiter.js";
 import { safeReturn } from "../auth/oidc.js";
 import { SESSION_COOKIE } from "../auth/sessions.js";
 import { callsEnabled } from "../config.js";
@@ -15,6 +16,16 @@ interface Credentials {
 }
 
 export const MIN_PASSWORD = 10;
+
+/** Wrong passwords allowed per username, and per address, in LOGIN_WINDOW_MS. */
+export const LOGIN_TRIES_PER_NAME = 10;
+export const LOGIN_TRIES_PER_IP = 50;
+export const LOGIN_WINDOW_MS = 15 * 60_000;
+
+const waitText = (ms: number) => {
+  const mins = Math.ceil(ms / 60_000);
+  return `Too many wrong passwords. Try again in ${mins} minute${mins === 1 ? "" : "s"}.`;
+};
 
 export function checkNew(ctx: Context, body: Credentials): { username: string; password: string; displayName: string } {
   const { username, password } = body;
@@ -73,13 +84,28 @@ export function authRoutes(app: FastifyInstance, ctx: Context): void {
     return toMe(user);
   });
 
+  // Slows down password guessing: per username (wherever the guesses come from) and per address.
+  const byName = new FailureLimiter(LOGIN_TRIES_PER_NAME, LOGIN_WINDOW_MS);
+  const byIp = new FailureLimiter(LOGIN_TRIES_PER_IP, LOGIN_WINDOW_MS);
+
   app.post<{ Body: Credentials }>("/api/auth/login", async (req, reply) => {
     if (!signin.settings().passwordLogin) throw new HttpError(403, "Password sign-in is off");
     const { username, password } = req.body ?? {};
+    const nameKey = typeof username === "string" ? username.trim().toLowerCase().slice(0, 64) : "";
+    const wait = Math.max(byName.waitMs(nameKey), byIp.waitMs(req.ip));
+    if (wait > 0) {
+      void reply.header("retry-after", Math.ceil(wait / 1000));
+      throw new HttpError(429, waitText(wait));
+    }
     const user = typeof username === "string" ? users.byUsername(username) : undefined;
     // Always run a hash, so a wrong username takes as long as a wrong password.
     const ok = await verifyPassword(typeof password === "string" ? password : "", user?.passwordHash ?? "scrypt$16384$8$1$AAAA$AAAA");
-    if (!user || !ok) throw new HttpError(401, "Wrong username or password");
+    if (!user || !ok) {
+      byName.fail(nameKey);
+      byIp.fail(req.ip);
+      throw new HttpError(401, "Wrong username or password");
+    }
+    byName.clear(nameKey);
     // With an authenticator app on, the password alone isn't enough: send a ticket for the second step.
     if (ctx.twofactor.required(user.id)) {
       const challenge: TwoFactorChallenge = { twoFactor: { ticket: ctx.twofactor.loginTicket(user.id), totp: true, passkey: ctx.twofactor.passkeys(user.id).length > 0 } };
