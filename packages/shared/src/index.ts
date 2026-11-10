@@ -98,6 +98,21 @@ export interface Me extends PublicUser {
    * it on for. Always false for kid accounts.
    */
   couplesKit?: boolean;
+  /** How you show up: online as usual, Do Not Disturb (no message notifications), or invisible (look offline). */
+  presence?: PresenceMode;
+  /** When Do Not Disturb ends by itself, or null for until you turn it off. */
+  dndUntil?: string | null;
+}
+
+export type PresenceMode = "online" | "dnd" | "invisible";
+
+/** Unread messages in one conversation (a DM, group, channel or thread), since you last read it. */
+export interface UnreadCount {
+  conversationId: number;
+  /** Messages from others you haven't read (capped at 100). */
+  count: number;
+  /** How many of them ping you. */
+  mentions: number;
 }
 
 /** "held": both said yes, but a kid's parent still has to approve it before they can chat. */
@@ -107,8 +122,10 @@ export interface Friend {
   user: PublicUser;
   state: FriendState;
   since: string;
-  /** Whether an accepted friend is connected right now. */
+  /** Whether an accepted friend is connected right now (people who appear offline aren't). */
   online?: boolean;
+  /** An online friend has Do Not Disturb on. */
+  dnd?: boolean;
 }
 
 export interface ReadState {
@@ -1787,7 +1804,9 @@ export type ServerEvent =
   | { type: "read"; conversationId: number; userId: number; messageId: number }
   | { type: "call.updated"; call: Call }
   | { type: "call.ended"; conversationId: number; missed: boolean }
-  | { type: "presence"; userId: number; online: boolean }
+  | { type: "presence"; userId: number; online: boolean; dnd?: boolean }
+  /** You marked a conversation unread on another device (or this one): its count now. */
+  | { type: "unread"; unread: UnreadCount }
   /** A server you're in changed, or you joined it. Each member gets their own view. */
   | { type: "server.updated"; server: ChatServer }
   /** You left or were removed, or the server was deleted. */
@@ -1824,6 +1843,8 @@ export type ServerEvent =
   | { type: "activity"; userId: number; activity: Activity | null }
   /** Someone's name, colors, picture or custom status changed: to them and everyone who can see them. */
   | { type: "user.updated"; user: PublicUser }
+  /** Your own settings changed on another device (presence, for now). */
+  | { type: "me.updated"; user: Me }
   /** You and others in a server are playing the same game: a voice channel is open for it. */
   | { type: "play.together"; invite: PlayTogether }
   /** A kid's chores today changed (from Den Duty), to the kid and their parents (null: nothing to show). */

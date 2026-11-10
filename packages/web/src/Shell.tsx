@@ -20,11 +20,13 @@ import type {
   ServerEvent,
   ServerInfo,
   Thread,
+  UnreadCount,
   VoiceChannelState,
   VoiceJoin,
 } from "@dendrop/shared";
 import { isVoiceKind } from "@dendrop/shared";
 import { api, connectGateway, logout } from "./api.ts";
+import { PresencePicker, UnreadBadge } from "./Unread.tsx";
 import { startWebPush } from "./webpush.ts";
 import { channelTitle } from "./channels.ts";
 import { EventReminderCard, EventsDialog } from "./Events.tsx";
@@ -138,7 +140,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [histories, setHistories] = useState<Record<number, History>>({});
   const [typing, setTyping] = useState<Record<number, Record<number, number>>>({});
-  const [unread, setUnread] = useState<Set<number>>(new Set());
+  /** Unread messages and pings per conversation; a conversation that's caught up isn't in it. */
+  const [unread, setUnread] = useState<Map<number, { count: number; mentions: number }>>(new Map());
+  const [dnd, setDnd] = useState<Set<number>>(new Set());
   const [servers, setServers] = useState<ChatServer[]>([]);
   const [invites, setInvites] = useState<InvitePreview[]>([]);
   /** Automod alerts not looked at yet, per server (owners and admins only get them). */
@@ -234,7 +238,12 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     setCalls(Object.fromEntries(live.map((x) => [x.conversationId, x])));
     setFriends(f);
     setOnline(new Set(f.filter((x) => x.online).map((x) => x.user.id)));
+    setDnd(new Set(f.filter((x) => x.dnd).map((x) => x.user.id)));
     setConversations(c);
+    void api<UnreadCount[]>("/api/unread").then(
+      (list) => setUnread(new Map(list.map((u) => [u.conversationId, { count: u.count, mentions: u.mentions }]))),
+      () => {},
+    );
     void loadFamily().catch(() => {});
     loadActivities();
     loadChores();
@@ -277,6 +286,16 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             setOnline((s) => {
               const n = new Set(s);
               if (isOn) n.add(id);
+              else n.delete(id);
+              return n;
+            });
+          }
+          if (e.friend.dnd !== undefined) {
+            const { id } = e.friend.user;
+            const isDnd = e.friend.dnd;
+            setDnd((s) => {
+              const n = new Set(s);
+              if (isDnd) n.add(id);
               else n.delete(id);
               return n;
             });
@@ -324,6 +343,23 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             else n.delete(e.userId);
             return n;
           });
+          setDnd((s) => {
+            const n = new Set(s);
+            if (e.online && e.dnd) n.add(e.userId);
+            else n.delete(e.userId);
+            return n;
+          });
+          break;
+        case "unread":
+          setUnread((u) => {
+            const n = new Map(u);
+            if (e.unread.count > 0) n.set(e.unread.conversationId, { count: e.unread.count, mentions: e.unread.mentions });
+            else n.delete(e.unread.conversationId);
+            return n;
+          });
+          break;
+        case "me.updated":
+          setMe((m) => ({ ...m, ...e.user, publicKey: m.publicKey ?? e.user.publicKey }));
           break;
         case "conversation.created":
           setConversations((cs) => [e.conversation, ...cs.filter((c) => c.id !== e.conversation.id)]);
@@ -361,7 +397,12 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           // Muted conversations don't get an unread dot (unless you're pinged).
           if (e.muted && !e.mentioned) break;
           if ((m.authorId !== me.id || m.webhook) && !(viewConversation(v, serversRef.current) === m.conversationId && document.hasFocus())) {
-            setUnread((u) => new Set(u).add(m.conversationId));
+            setUnread((u) => {
+              const n = new Map(u);
+              const cur = n.get(m.conversationId) ?? { count: 0, mentions: 0 };
+              n.set(m.conversationId, { count: cur.count + 1, mentions: cur.mentions + (e.mentioned ? 1 : 0) });
+              return n;
+            });
           }
           break;
         }
@@ -536,7 +577,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     const cid = viewConversation(v, serversRef.current);
     if (cid !== null) {
       setUnread((u) => {
-        const n = new Set(u);
+        if (!u.has(cid)) return u;
+        const n = new Map(u);
         n.delete(cid);
         return n;
       });
@@ -711,6 +753,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   /** A server's events you can see: ones in channels you can't see any more are left out. */
   const eventsOf = (sv: ChatServer) => events.filter((x) => x.serverId === sv.id && (x.channelId === null || sv.channels.some((c) => c.id === x.channelId)));
   const serverUnread = (sv: ChatServer) => sv.channels.some((c) => unread.has(c.conversationId));
+  const serverMentions = (sv: ChatServer) => sv.channels.reduce((n, c) => n + (unread.get(c.conversationId)?.mentions ?? 0), 0);
   const dialogServer = serverDialog && "serverId" in serverDialog ? servers.find((x) => x.id === serverDialog.serverId) : undefined;
   const incoming = friends.filter((f) => f.state === "incoming").length;
 
@@ -844,6 +887,11 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           >
             <ServerIcon server={sv} size={48} />
             {serverUnread(sv) && <span className="rail-dot" aria-label="Unread" />}
+            {serverMentions(sv) > 0 && (
+              <span className="rail-badge" aria-label={`${serverMentions(sv)} mentions`}>
+                {serverMentions(sv) > 99 ? "99+" : serverMentions(sv)}
+              </span>
+            )}
           </button>
         ))}
         <button
@@ -909,14 +957,14 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
                 className={`nav-item ${view.kind === "conversation" && view.id === c.id ? "active" : ""} ${unread.has(c.id) ? "unread" : ""}`}
                 onClick={() => open({ kind: "conversation", id: c.id })}
               >
-                <Avatar name={solo ? solo.displayName : (c.name ?? "#")} src={solo ? solo.avatar : null} online={solo ? online.has(solo.id) : undefined} size={32} />
+                <Avatar name={solo ? solo.displayName : (c.name ?? "#")} src={solo ? solo.avatar : null} online={solo ? online.has(solo.id) : undefined} dnd={solo ? dnd.has(solo.id) : false} size={32} />
                 <span className="nav-text">
                   <span className="ellipsis">{conversationTitle(c, me.id)}</span>
                   {c.isGroup && <span className="muted small">{c.members.length} members</span>}
                   {solo && <StatusLine user={solo} filter={profileFilter} />}
                   {solo && <ActivityLine userId={solo.id} />}
                 </span>
-                {unread.has(c.id) && <span className="dot" aria-label="Unread" />}
+                <UnreadBadge u={unread.get(c.id)} />
               </button>
             );
           })}
@@ -925,13 +973,21 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         )}
         <footer className="me">
           <button className="ghost me-profile" onClick={() => setProfileTarget({ userId: me.id })} title="Your profile and status" aria-label="Your profile and status">
-            <Avatar name={me.displayName} src={me.avatar} online={connected} size={36} title={connected ? "Connected" : "Reconnecting…"} />
+            <Avatar
+              name={me.displayName}
+              src={me.avatar}
+              online={connected && me.presence !== "invisible"}
+              dnd={connected && me.presence === "dnd"}
+              size={36}
+              title={!connected ? "Reconnecting…" : me.presence === "dnd" ? "Do not disturb" : me.presence === "invisible" ? "Invisible" : "Online"}
+            />
             <span className="me-names">
               <strong className="ellipsis">{me.displayName}</strong>
               <StatusLine user={me} className="muted small ellipsis" />
               {!me.status && <span className="muted">@{me.username}</span>}
             </span>
           </button>
+          <PresencePicker me={me} onChange={(m) => setMe((cur) => ({ ...cur, ...m, publicKey: cur.publicKey ?? m.publicKey }))} />
           {(me.isKid || !!family?.kids.length) && (
           <button
             className="ghost family-button"
@@ -1084,7 +1140,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             {currentThread && threadChat(currentServer, currentChannel, currentThread)}
           </div>
         )}
-        {view.kind === "friends" && <Friends friends={friends} online={online} onMessage={messageFriend} onBack={() => setShowMain(false)} />}
+        {view.kind === "friends" && <Friends friends={friends} online={online} dnd={dnd} onMessage={messageFriend} onBack={() => setShowMain(false)} />}
         {view.kind === "conversation" && current && (
           <Chat
             key={current.id}

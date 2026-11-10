@@ -9,11 +9,13 @@ import { ProfileLink, StatusLine } from "./Profile.tsx";
 export function Friends({
   friends,
   online,
+  dnd,
   onMessage,
   onBack,
 }: {
   friends: Friend[];
   online: Set<number>;
+  dnd: Set<number>;
   onMessage: (u: PublicUser) => void;
   onBack: () => void;
 }) {
@@ -90,9 +92,9 @@ export function Friends({
         {accepted.map((f) => (
           <div className="person" key={f.user.id}>
             <ProfileLink userId={f.user.id}>
-              <Avatar name={f.user.displayName} src={f.user.avatar} online={online.has(f.user.id)} />
+              <Avatar name={f.user.displayName} src={f.user.avatar} online={online.has(f.user.id)} dnd={dnd.has(f.user.id)} />
             </ProfileLink>
-            <PersonName u={f.user} sub={online.has(f.user.id) ? "Online" : "Offline"} activity />
+            <PersonName u={f.user} sub={!online.has(f.user.id) ? "Offline" : dnd.has(f.user.id) ? "Do not disturb" : "Online"} activity />
             <button className="primary" onClick={() => onMessage(f.user)}>
               Message
             </button>

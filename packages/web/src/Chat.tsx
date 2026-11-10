@@ -246,7 +246,21 @@ export function Chat({
 
   // Tell the server how far this person has read, whenever new messages show while the window
   // is in front.
+  /** Marks the chat unread from this message on, for you only; it stays that way until you come back to it. */
+  const markUnread = async (m: ChatMessage) => {
+    try {
+      await api(`/api/conversations/${conversation.id}/unread`, { body: { messageId: m.id } });
+      lastMarked.current = Math.max(lastMarked.current, newest);
+      setNotice("Marked unread. It'll stay that way until you come back to this chat.");
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : "Couldn't mark that unread");
+    }
+  };
   const newest = history?.messages.at(-1)?.id ?? 0;
+  // Coming back to a chat (even one marked unread) reads it again.
+  useEffect(() => {
+    lastMarked.current = 0;
+  }, [conversation.id]);
   useEffect(() => {
     const mark = () => {
       if (!newest || newest <= lastMarked.current || document.visibilityState !== "visible" || !document.hasFocus()) return;
@@ -973,6 +987,11 @@ export function Chat({
                     {(mine || channel?.canModerate) && (
                       <button className="ghost danger" onClick={() => void remove(m)} title="Delete">
                         Delete
+                      </button>
+                    )}
+                    {!mine && (
+                      <button className="ghost" onClick={() => void markUnread(m)} title="Mark unread from here" aria-label="Mark unread from here">
+                        ◉
                       </button>
                     )}
                     {!mine && !m.webhook && !m.locked && (

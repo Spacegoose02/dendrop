@@ -897,6 +897,15 @@ export const MIGRATIONS: string[] = [
   UPDATE server_roles SET permissions = json_insert(permissions, '$[#]', 'banMembers')
     WHERE EXISTS (SELECT 1 FROM json_each(server_roles.permissions) WHERE value = 'kickMembers');
   `,
+  `
+  -- How someone shows up: 'online', 'dnd' (no message notifications) or 'invisible' (looks
+  -- offline). dnd_until ends Do Not Disturb by itself.
+  ALTER TABLE users ADD COLUMN presence TEXT NOT NULL DEFAULT 'online';
+  ALTER TABLE users ADD COLUMN dnd_until TEXT;
+  -- "Mark as unread": the first message to count as unread again, kept apart from
+  -- last_read_message_id so read receipts others saw don't go backwards.
+  ALTER TABLE conversation_members ADD COLUMN unread_from INTEGER;
+  `,
 ];
 
 export function now(): string {

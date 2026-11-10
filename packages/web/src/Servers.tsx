@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { UnreadBadge } from "./Unread.tsx";
 import {
   isVoiceKind,
   LIMITS,
@@ -130,7 +131,7 @@ export function ServerSidebar({
 }: {
   server: ChatServer;
   activeChannel: number | null;
-  unread: Set<number>;
+  unread: ReadonlyMap<number, { count: number; mentions: number }>;
   /** Who is in each voice channel, by channel id. */
   voice: Record<number, VoiceChannelState>;
   /** Who is talking in the voice channel you're in. */
@@ -200,7 +201,7 @@ export function ServerSidebar({
                           🔒
                         </span>
                       )}
-                      {unread.has(c.conversationId) && <span className="dot" aria-label="Unread" />}
+                      <UnreadBadge u={unread.get(c.conversationId)} />
                     </button>
                     {mod && (
                       <button className="ghost channel-edit" onClick={() => onChannel(c)} title={`Edit ${c.name}`} aria-label={`Edit ${c.name}`}>
