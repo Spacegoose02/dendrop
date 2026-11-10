@@ -232,7 +232,46 @@ export interface Message {
   mentions?: number[];
   /** Pinged @everyone, by someone allowed to. */
   mentionsEveryone?: boolean;
+  /** Set when it was forwarded from another chat: who wrote the original, and when. */
+  forwarded?: ForwardRef | null;
 }
+
+/** Where a forwarded message came from: its author (as named then) and when they sent it. */
+export interface ForwardRef {
+  authorId: number | null;
+  authorName: string;
+  createdAt: string;
+}
+
+/**
+ * Where a message lives, for lists that mix chats (saved messages, the mentions inbox): a DM,
+ * a group, a server channel or a thread in one.
+ */
+export interface MessagePlace {
+  conversationId: number;
+  kind: "dm" | "group" | "channel" | "thread";
+  /** The group's or channel's name, the thread's title, or the other person's display name. */
+  name: string;
+  serverId: number | null;
+  serverName: string | null;
+  channelId: number | null;
+  threadId: number | null;
+}
+
+/** A message with where it is (and when you saved it, in saved messages). */
+export interface MessageInPlace {
+  message: Message;
+  place: MessagePlace;
+  /** Who wrote it (null for a webhook, or an account that's gone). */
+  author: PublicUser | null;
+  savedAt?: string;
+}
+
+/**
+ * Your server list's layout: servers and folders in order. A folder holds servers and shows
+ * as one icon until opened. Servers you're in that aren't in it go at the end.
+ */
+export type RailItem = { type: "server"; id: number } | { type: "folder"; id: string; name: string; color: string | null; serverIds: number[] };
 
 /**
  * The message a reply answers, small enough to show above it. `body` is its text as stored:
@@ -1739,6 +1778,11 @@ export const INLINE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "imag
 /** Limits that the server and clients both check. */
 export const LIMITS = {
   messageLength: 4000,
+  /** Messages you can keep in saved messages. */
+  savedMessages: 500,
+  /** Folders in your server list, and the length of a folder's name. */
+  railFolders: 50,
+  folderName: 40,
   /** Videos waiting in a voice channel's watch-together queue. */
   watchQueue: 20,
   watchTitle: 120,
@@ -1845,6 +1889,10 @@ export type ServerEvent =
   | { type: "user.updated"; user: PublicUser }
   /** Your own settings changed on another device (presence, for now). */
   | { type: "me.updated"; user: Me }
+  /** You saved or unsaved a message on another device. */
+  | { type: "saved.updated"; messageId: number; saved: boolean }
+  /** Your server list's folders changed on another device. */
+  | { type: "rail.updated"; rail: RailItem[] }
   /** You and others in a server are playing the same game: a voice channel is open for it. */
   | { type: "play.together"; invite: PlayTogether }
   /** A kid's chores today changed (from Den Duty), to the kid and their parents (null: nothing to show). */

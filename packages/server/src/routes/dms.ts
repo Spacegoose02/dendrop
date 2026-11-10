@@ -236,12 +236,14 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
    */
   const readMessage = async (req: FastifyRequest): Promise<{ body: unknown; files: NewAttachment[]; keyVersion: number | null; extras: SendOptions }> => {
     if (!req.isMultipart()) {
-      const json = req.body as { body?: unknown; keyVersion?: unknown; replyToId?: unknown; replyPing?: unknown; mentions?: unknown; mentionsEveryone?: unknown } | undefined;
+      const json = req.body as
+        | { body?: unknown; keyVersion?: unknown; replyToId?: unknown; replyPing?: unknown; mentions?: unknown; mentionsEveryone?: unknown; forwardOf?: unknown }
+        | undefined;
       return {
         body: json?.body,
         files: [],
         keyVersion: keyVersion(json?.keyVersion),
-        extras: { replyToId: json?.replyToId, replyPing: json?.replyPing, mentions: json?.mentions, mentionsEveryone: json?.mentionsEveryone },
+        extras: { replyToId: json?.replyToId, replyPing: json?.replyPing, mentions: json?.mentions, mentionsEveryone: json?.mentionsEveryone, forwardOf: json?.forwardOf },
       };
     }
     const files: NewAttachment[] = [];
@@ -254,6 +256,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
           if (part.fieldname === "body") body = part.value;
           if (part.fieldname === "keyVersion") kv = keyVersion(part.value);
           if (part.fieldname === "replyToId") extras.replyToId = part.value;
+          if (part.fieldname === "forwardOf") extras.forwardOf = part.value;
           if (part.fieldname === "replyPing") extras.replyPing = part.value !== "false";
           if (part.fieldname === "mentionsEveryone") extras.mentionsEveryone = part.value === "true";
           if (part.fieldname === "mentions") {
