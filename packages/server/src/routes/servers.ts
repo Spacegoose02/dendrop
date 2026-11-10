@@ -91,7 +91,13 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     manageChannels: "Manage channels",
     manageRoles: "Manage roles",
     manageAutomod: "Manage automod",
-    kickMembers: "Remove and ban",
+    kickMembers: "Remove members",
+    banMembers: "Ban",
+    manageWebhooks: "Manage webhooks & bots",
+    manageNicknames: "Manage nicknames",
+    viewAuditLog: "View audit log",
+    muteMembers: "Mute in voice",
+    moveMembers: "Move and disconnect",
     timeoutMembers: "Time out",
     deleteMessages: "Delete messages",
     createInvites: "Make invites",
@@ -252,6 +258,19 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     return servers.view(sid, me.id);
   });
 
+  /** Sets someone else's nickname here: needs Manage nicknames, on people ranked below you. */
+  app.patch<{ Params: { id: string; userId: string }; Body: { nickname?: unknown } }>("/api/servers/:id/members/:userId/nickname", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    allowed(sid, me, "manageNicknames");
+    const target = id(req.params.userId);
+    if (!servers.role(sid, target)) throw new HttpError(404, "They aren't in this server");
+    if (target !== me.id && !servers.outranks(sid, me.id, target)) throw new HttpError(403, "You can only change nicknames of people ranked below you");
+    servers.setNickname(sid, target, req.body?.nickname ?? null);
+    push(sid);
+    return { ok: true };
+  });
+
   /** The owner makes someone an admin, or a member again. */
   app.patch<{ Params: { id: string; userId: string }; Body: { role?: unknown } }>("/api/servers/:id/members/:userId", async (req) => {
     const me = requireUser(req);
@@ -278,13 +297,14 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
   app.delete<{ Params: { id: string; userId: string }; Querystring: { ban?: string } }>("/api/servers/:id/members/:userId", async (req) => {
     const me = requireUser(req);
     const sid = id(req.params.id);
-    allowed(sid, me, "kickMembers");
+    const ban = req.query.ban === "true";
+    allowed(sid, me, ban ? "banMembers" : "kickMembers");
     const target = id(req.params.userId);
     const theirRole = servers.role(sid, target);
     if (!theirRole) throw new HttpError(404, "They aren't in this server");
     if (target === me.id) throw new HttpError(400, "Leave the server instead");
     if (!servers.outranks(sid, me.id, target)) throw new HttpError(403, theirRole === "admin" ? "Only the owner can remove an admin" : "You can only remove people ranked below you");
-    servers.removeMember(sid, target, req.query.ban === "true" ? { by: me.id } : null);
+    servers.removeMember(sid, target, ban ? { by: me.id } : null);
     gateway.send([target], { type: "server.removed", serverId: sid });
     push(sid);
     return { ok: true };
@@ -293,14 +313,14 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
   app.get<{ Params: { id: string } }>("/api/servers/:id/bans", async (req) => {
     const me = requireUser(req);
     const sid = id(req.params.id);
-    allowed(sid, me, "kickMembers");
+    allowed(sid, me, "banMembers");
     return servers.bans(sid);
   });
 
   app.delete<{ Params: { id: string; userId: string } }>("/api/servers/:id/bans/:userId", async (req) => {
     const me = requireUser(req);
     const sid = id(req.params.id);
-    allowed(sid, me, "kickMembers");
+    allowed(sid, me, "banMembers");
     if (!servers.unban(sid, id(req.params.userId))) throw new HttpError(404, "They aren't banned");
     return { ok: true };
   });
@@ -471,6 +491,45 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
     return { ok: true };
   });
 
+  // ---- Categories -----------------------------------------------------------------
+
+  app.post<{ Params: { id: string }; Body: { name?: unknown } }>("/api/servers/:id/categories", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    allowed(sid, me, "manageChannels");
+    const c = servers.createCategory(sid, req.body?.name);
+    push(sid);
+    return c;
+  });
+
+  app.put<{ Params: { id: string }; Body: { ids?: unknown } }>("/api/servers/:id/categories/order", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    allowed(sid, me, "manageChannels");
+    servers.reorderCategories(sid, req.body?.ids);
+    push(sid);
+    return servers.view(sid, me.id);
+  });
+
+  app.patch<{ Params: { id: string; categoryId: string }; Body: { name?: unknown } }>("/api/servers/:id/categories/:categoryId", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    allowed(sid, me, "manageChannels");
+    servers.renameCategory(sid, id(req.params.categoryId), req.body?.name);
+    push(sid);
+    return { ok: true };
+  });
+
+  /** Deletes a category; its channels stay, without one. */
+  app.delete<{ Params: { id: string; categoryId: string } }>("/api/servers/:id/categories/:categoryId", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    allowed(sid, me, "manageChannels");
+    servers.deleteCategory(sid, id(req.params.categoryId));
+    push(sid);
+    return { ok: true };
+  });
+
   // ---- Voice channels -------------------------------------------------------------
   // Drop-in rooms: no ringing. Media goes through LiveKit, one room per channel.
 
@@ -534,6 +593,57 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
       return voice.setSpeaker(c.id, target, speaker);
     },
   );
+
+  // ---- Voice moderation ----------------------------------------------------------
+
+  /** Someone in one of this server's voice channels, whom `me` may moderate there. */
+  const voiceTarget = (sid: number, me: UserRecord, userId: number) => {
+    const cid = voice.channelOf(userId);
+    if (cid === undefined || voice.state(cid)?.serverId !== sid) throw new HttpError(404, "They aren't in a voice channel here");
+    if (userId !== me.id && !servers.outranks(sid, me.id, userId)) throw new HttpError(403, "You can only do that to people ranked below you");
+    return cid;
+  };
+
+  /** Server mute or deafen: { serverMuted?, serverDeafened? }. Needs Mute in voice. */
+  app.put<{ Params: { id: string; userId: string }; Body: { serverMuted?: unknown; serverDeafened?: unknown } }>("/api/servers/:id/voice/:userId", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    allowed(sid, me, "muteMembers");
+    const target = id(req.params.userId);
+    voiceTarget(sid, me, target);
+    const b = req.body ?? {};
+    const bool = (v: unknown, name: string) => {
+      if (v !== undefined && typeof v !== "boolean") throw new HttpError(400, `${name} is true or false`);
+      return v as boolean | undefined;
+    };
+    return voice.moderate(target, { serverMuted: bool(b.serverMuted, "serverMuted"), serverDeafened: bool(b.serverDeafened, "serverDeafened") });
+  });
+
+  /** Takes someone out of voice. Needs Move and disconnect. */
+  app.post<{ Params: { id: string; userId: string } }>("/api/servers/:id/voice/:userId/disconnect", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    allowed(sid, me, "moveMembers");
+    const target = id(req.params.userId);
+    voiceTarget(sid, me, target);
+    voice.disconnect(target);
+    return { ok: true };
+  });
+
+  /** Moves someone to another voice channel here ({ channelId }) they can see. Their app joins it. */
+  app.post<{ Params: { id: string; userId: string }; Body: { channelId?: unknown } }>("/api/servers/:id/voice/:userId/move", async (req) => {
+    const me = requireUser(req);
+    const sid = id(req.params.id);
+    allowed(sid, me, "moveMembers");
+    const target = id(req.params.userId);
+    const from = voiceTarget(sid, me, target);
+    const to = servers.channelById(id(req.body?.channelId));
+    if (!to || to.serverId !== sid || !isVoiceKind(to.kind) || !convos.isMember(to.conversationId, me.id)) throw new HttpError(404, "No such voice channel");
+    if (!convos.isMember(to.conversationId, target)) throw new HttpError(403, "They can't see that channel");
+    if (to.id === from) return { ok: true };
+    gateway.send([target], { type: "voice.move", serverId: sid, channelId: to.id });
+    return { ok: true };
+  });
 
   /** Mute, deafen, camera and screen, so the others see it in the channel list. */
   app.post<{ Body: { muted?: unknown; deafened?: unknown; video?: unknown; screen?: unknown } }>("/api/voice/state", async (req) => {
@@ -872,6 +982,8 @@ export function guardChannelConversations(app: FastifyInstance, ctx: Context): v
       // Non-members get the usual 404 from the route.
       const blocked = req.user ? threads.postBlocked(Number(m[1]), req.user.id) : null;
       if (blocked) throw new HttpError(blocked.startsWith("This thread") ? 403 : 400, blocked);
+      const rule = req.user && ctx.db.prepare("SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?").get(Number(m[1]), req.user.id) ? servers.postRule(Number(m[1]), req.user.id) : null;
+      if (rule) throw new HttpError(rule.startsWith("Slowmode") ? 429 : 403, rule);
       return;
     }
     throw new HttpError(400, m[2] === "call" ? "Channels don't have calls yet" : "Channels aren't end-to-end encrypted yet");

@@ -98,6 +98,21 @@ export interface Me extends PublicUser {
    * it on for. Always false for kid accounts.
    */
   couplesKit?: boolean;
+  /** How you show up: online as usual, Do Not Disturb (no message notifications), or invisible (look offline). */
+  presence?: PresenceMode;
+  /** When Do Not Disturb ends by itself, or null for until you turn it off. */
+  dndUntil?: string | null;
+}
+
+export type PresenceMode = "online" | "dnd" | "invisible";
+
+/** Unread messages in one conversation (a DM, group, channel or thread), since you last read it. */
+export interface UnreadCount {
+  conversationId: number;
+  /** Messages from others you haven't read (capped at 100). */
+  count: number;
+  /** How many of them ping you. */
+  mentions: number;
 }
 
 /** "held": both said yes, but a kid's parent still has to approve it before they can chat. */
@@ -107,8 +122,10 @@ export interface Friend {
   user: PublicUser;
   state: FriendState;
   since: string;
-  /** Whether an accepted friend is connected right now. */
+  /** Whether an accepted friend is connected right now (people who appear offline aren't). */
   online?: boolean;
+  /** An online friend has Do Not Disturb on. */
+  dnd?: boolean;
 }
 
 export interface ReadState {
@@ -215,7 +232,46 @@ export interface Message {
   mentions?: number[];
   /** Pinged @everyone, by someone allowed to. */
   mentionsEveryone?: boolean;
+  /** Set when it was forwarded from another chat: who wrote the original, and when. */
+  forwarded?: ForwardRef | null;
 }
+
+/** Where a forwarded message came from: its author (as named then) and when they sent it. */
+export interface ForwardRef {
+  authorId: number | null;
+  authorName: string;
+  createdAt: string;
+}
+
+/**
+ * Where a message lives, for lists that mix chats (saved messages, the mentions inbox): a DM,
+ * a group, a server channel or a thread in one.
+ */
+export interface MessagePlace {
+  conversationId: number;
+  kind: "dm" | "group" | "channel" | "thread";
+  /** The group's or channel's name, the thread's title, or the other person's display name. */
+  name: string;
+  serverId: number | null;
+  serverName: string | null;
+  channelId: number | null;
+  threadId: number | null;
+}
+
+/** A message with where it is (and when you saved it, in saved messages). */
+export interface MessageInPlace {
+  message: Message;
+  place: MessagePlace;
+  /** Who wrote it (null for a webhook, or an account that's gone). */
+  author: PublicUser | null;
+  savedAt?: string;
+}
+
+/**
+ * Your server list's layout: servers and folders in order. A folder holds servers and shows
+ * as one icon until opened. Servers you're in that aren't in it go at the end.
+ */
+export type RailItem = { type: "server"; id: number } | { type: "folder"; id: string; name: string; color: string | null; serverIds: number[] };
 
 /**
  * The message a reply answers, small enough to show above it. `body` is its text as stored:
@@ -581,7 +637,13 @@ export type ServerPermission =
   | "manageExpressions"
   | "manageEvents"
   | "pinMessages"
-  | "mentionEveryone";
+  | "mentionEveryone"
+  | "banMembers"
+  | "manageWebhooks"
+  | "manageNicknames"
+  | "viewAuditLog"
+  | "muteMembers"
+  | "moveMembers";
 
 export const SERVER_PERMISSIONS: ServerPermission[] = [
   "manageServer",
@@ -589,8 +651,14 @@ export const SERVER_PERMISSIONS: ServerPermission[] = [
   "manageRoles",
   "manageAutomod",
   "kickMembers",
+  "banMembers",
   "timeoutMembers",
   "deleteMessages",
+  "manageNicknames",
+  "muteMembers",
+  "moveMembers",
+  "manageWebhooks",
+  "viewAuditLog",
   "createInvites",
   "manageExpressions",
   "manageEvents",
@@ -646,6 +714,8 @@ export interface ChatServer extends ChatServerSummary {
   /** Open a voice channel while two or more members play the same game (from LootDen). */
   playTogether: boolean;
   channels: Channel[];
+  /** Channel categories, in order. Channels whose categoryId is null show first, grouped by kind. */
+  categories: ChannelCategory[];
   members: ServerMember[];
   createdAt: string;
   /** Set while automod or a moderator has timed you out here: you can read but not post or talk. */
@@ -832,7 +902,32 @@ export interface Channel {
   roleIds: number[];
   /** Forum channels: the tags posts can carry, in order. Empty for other channels. */
   tags: string[];
+  /** The category it's listed under, or null for none. */
+  categoryId: number | null;
+  /** Seconds each person waits between messages here (0 is off). Moderators don't wait. */
+  slowmode: number;
+  /**
+   * Only some people can post: people who can manage channels, and members of postRoleIds.
+   * Everyone who can see the channel can still read it, react and use threads.
+   */
+  readOnly: boolean;
+  /** For read-only channels, roles whose members can post (people who can manage channels see this; others get []). */
+  postRoleIds: number[];
+  /** Whether you can post here. */
+  canPost: boolean;
 }
+
+/** A heading channels are grouped under in the sidebar, like "Games" or "Grown-ups". */
+export interface ChannelCategory {
+  id: number;
+  name: string;
+  position: number;
+}
+
+/** Longest slowmode, in seconds (6 hours). */
+export const MAX_SLOWMODE = 6 * 60 * 60;
+/** The slowmode choices the apps offer, in seconds. */
+export const SLOWMODE_CHOICES = [0, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600];
 
 /** What a message shows about the thread hanging off it. */
 export interface ThreadRef {
@@ -894,6 +989,10 @@ export interface VoiceMember {
   speaker: boolean;
   /** On a stage: a listener asking to speak. */
   handRaised: boolean;
+  /** A moderator muted them: they can't unmute until a moderator lets them. */
+  serverMuted?: boolean;
+  /** A moderator deafened them: they hear nobody and can't undeafen until a moderator lets them. */
+  serverDeafened?: boolean;
 }
 
 /** Who is in a voice channel right now. Lives in memory on the server; empty channels aren't listed. */
@@ -1679,6 +1778,11 @@ export const INLINE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "imag
 /** Limits that the server and clients both check. */
 export const LIMITS = {
   messageLength: 4000,
+  /** Messages you can keep in saved messages. */
+  savedMessages: 500,
+  /** Folders in your server list, and the length of a folder's name. */
+  railFolders: 50,
+  folderName: 40,
   /** Videos waiting in a voice channel's watch-together queue. */
   watchQueue: 20,
   watchTitle: 120,
@@ -1692,6 +1796,8 @@ export const LIMITS = {
   channelName: 32,
   channelTopic: 200,
   channelsPerServer: 100,
+  categoriesPerServer: 30,
+  categoryName: 40,
   threadTitle: 100,
   forumTags: 20,
   forumTagName: 24,
@@ -1732,6 +1838,8 @@ export type ServerEvent =
   | { type: "conversation.updated"; conversation: Conversation }
   | { type: "friend.updated"; friend: Friend }
   | { type: "friend.removed"; userId: number }
+  /** A moderator moved you to another voice channel: join it. */
+  | { type: "voice.move"; serverId: number; channelId: number }
   /** The people you blocked changed (on this or another device). */
   | { type: "blocks.updated"; blocked: PublicUser[] }
   /** Someone reported something you can review: a server's moderators, or super admins (serverId null). */
@@ -1740,7 +1848,9 @@ export type ServerEvent =
   | { type: "read"; conversationId: number; userId: number; messageId: number }
   | { type: "call.updated"; call: Call }
   | { type: "call.ended"; conversationId: number; missed: boolean }
-  | { type: "presence"; userId: number; online: boolean }
+  | { type: "presence"; userId: number; online: boolean; dnd?: boolean }
+  /** You marked a conversation unread on another device (or this one): its count now. */
+  | { type: "unread"; unread: UnreadCount }
   /** A server you're in changed, or you joined it. Each member gets their own view. */
   | { type: "server.updated"; server: ChatServer }
   /** You left or were removed, or the server was deleted. */
@@ -1777,6 +1887,12 @@ export type ServerEvent =
   | { type: "activity"; userId: number; activity: Activity | null }
   /** Someone's name, colors, picture or custom status changed: to them and everyone who can see them. */
   | { type: "user.updated"; user: PublicUser }
+  /** Your own settings changed on another device (presence, for now). */
+  | { type: "me.updated"; user: Me }
+  /** You saved or unsaved a message on another device. */
+  | { type: "saved.updated"; messageId: number; saved: boolean }
+  /** Your server list's folders changed on another device. */
+  | { type: "rail.updated"; rail: RailItem[] }
   /** You and others in a server are playing the same game: a voice channel is open for it. */
   | { type: "play.together"; invite: PlayTogether }
   /** A kid's chores today changed (from Den Duty), to the kid and their parents (null: nothing to show). */
@@ -1873,12 +1989,20 @@ export const AUDIT_ACTIONS: Record<string, string> = {
   "member.unban": "unbanned",
   "member.timeout": "timed out",
   "member.untimeout": "ended the timeout of",
+  "member.nickname": "changed the nickname of",
+  "voice.moderate": "changed the voice of",
+  "voice.disconnect": "took out of voice",
+  "voice.move": "moved in voice",
+  "category.create": "made a category",
+  "category.update": "renamed a category",
+  "category.delete": "deleted a category",
   "levels.reset": "reset levels",
   "welcome.update": "changed the welcome screen",
   "role.create": "made a role",
   "role.update": "changed a role",
   "role.delete": "deleted a role",
   "role.reorder": "reordered the roles",
+  "report.resolve": "handled a report about",
   "channel.create": "made a channel",
   "channel.update": "changed a channel",
   "channel.delete": "deleted a channel",

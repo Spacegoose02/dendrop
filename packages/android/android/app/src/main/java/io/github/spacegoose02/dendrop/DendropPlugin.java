@@ -2,9 +2,18 @@ package io.github.spacegoose02.dendrop;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Build;
+import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.app.Person;
+import androidx.core.content.pm.ShortcutInfoCompat;
+import androidx.core.content.pm.ShortcutManagerCompat;
+import androidx.core.graphics.drawable.IconCompat;
+import io.github.spacegoose02.dendrop.push.Notifier;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
@@ -152,6 +161,95 @@ public class DendropPlugin extends Plugin {
         UnifiedPush.unregister(getContext(), "default");
         PushRegistrar.clearEndpoint(getContext());
         call.resolve();
+    }
+
+    /**
+     * Opens a chat in a bubble that floats over other apps (Android 11 and up). The web client
+     * calls this when someone pops a chat out; the title comes from the page, never from a push.
+     * Resolves { ok: false, reason } when bubbles can't show: "unsupported" (older Android),
+     * "notifications-off", or "bubbles-off" (turned off for the app in Android's settings).
+     */
+    @PluginMethod
+    public void bubble(PluginCall call) {
+        Context ctx = getContext();
+        Long cidValue = call.getLong("conversationId");
+        String title = call.getString("title", "Dendrop");
+        JSObject result = new JSObject();
+        if (cidValue == null || cidValue <= 0) {
+            call.reject("conversationId is required");
+            return;
+        }
+        long cid = cidValue;
+        if (Build.VERSION.SDK_INT < 30) {
+            result.put("ok", false);
+            result.put("reason", "unsupported");
+            call.resolve(result);
+            return;
+        }
+        NotificationManagerCompat nmc = NotificationManagerCompat.from(ctx);
+        if (!nmc.areNotificationsEnabled()) {
+            result.put("ok", false);
+            result.put("reason", "notifications-off");
+            call.resolve(result);
+            return;
+        }
+        NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+        if (Build.VERSION.SDK_INT >= 31 && nm.getBubblePreference() == NotificationManager.BUBBLE_PREFERENCE_NONE) {
+            result.put("ok", false);
+            result.put("reason", "bubbles-off");
+            call.resolve(result);
+            return;
+        }
+        Notifier.createChannels(ctx);
+        String name = title == null || title.trim().isEmpty() ? "Dendrop" : title.trim();
+        if (name.length() > 60) name = name.substring(0, 60);
+        IconCompat icon = IconCompat.createWithResource(ctx, R.mipmap.ic_launcher_round);
+        Person chat = new Person.Builder().setName(name).setIcon(icon).setKey("chat-" + cid).build();
+        Person me = new Person.Builder().setName("You").build();
+        // Bubbles belong to a conversation shortcut.
+        String shortcutId = "chat-" + cid;
+        Intent openApp = new Intent(ctx, MainActivity.class).setAction(Intent.ACTION_VIEW);
+        ShortcutInfoCompat shortcut = new ShortcutInfoCompat.Builder(ctx, shortcutId)
+            .setLongLived(true)
+            .setShortLabel(name)
+            .setIcon(icon)
+            .setPerson(chat)
+            .setIntent(openApp)
+            .build();
+        ShortcutManagerCompat.pushDynamicShortcut(ctx, shortcut);
+
+        Intent target = new Intent(ctx, BubbleActivity.class)
+            .setAction(Intent.ACTION_VIEW)
+            .setData(android.net.Uri.parse("dendrop-chat://" + cid))
+            .putExtra(BubbleActivity.EXTRA_CONVERSATION, cid);
+        // Bubbles need a mutable intent.
+        PendingIntent bubbleIntent = PendingIntent.getActivity(ctx, (int) (cid % 100000), target, PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        NotificationCompat.BubbleMetadata bubble = new NotificationCompat.BubbleMetadata.Builder(bubbleIntent, icon)
+            .setDesiredHeight(600)
+            .setAutoExpandBubble(true)
+            .setSuppressNotification(true)
+            .build();
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, Notifier.CHANNEL_BUBBLES)
+            .setSmallIcon(R.drawable.ic_stat_dendrop)
+            .setColor(ctx.getColor(R.color.dd_accent))
+            .setContentTitle(name)
+            .setContentText(ctx.getString(R.string.bubble_text))
+            .setContentIntent(bubbleIntent)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setShortcutId(shortcutId)
+            .setBubbleMetadata(bubble)
+            .setStyle(new NotificationCompat.MessagingStyle(me).setConversationTitle(name).addMessage(ctx.getString(R.string.bubble_text), System.currentTimeMillis(), chat))
+            .setOnlyAlertOnce(true);
+        try {
+            nmc.notify(Notifier.ID_BUBBLE_BASE + (int) (cid % 1_000_000), builder.build());
+        } catch (SecurityException e) {
+            result.put("ok", false);
+            result.put("reason", "notifications-off");
+            call.resolve(result);
+            return;
+        }
+        result.put("ok", true);
+        call.resolve(result);
     }
 
     /** Returns null when a Dendrop server answers at url, or what went wrong. */

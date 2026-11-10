@@ -19,12 +19,18 @@ import type {
   Reminder,
   ServerEvent,
   ServerInfo,
+  RailItem,
   Thread,
+  UnreadCount,
   VoiceChannelState,
   VoiceJoin,
 } from "@dendrop/shared";
 import { isVoiceKind } from "@dendrop/shared";
 import { api, connectGateway, logout } from "./api.ts";
+import { PresencePicker, UnreadBadge } from "./Unread.tsx";
+import { ServerRail } from "./Rail.tsx";
+import { canPopOut, popOut, popout } from "./popout.ts";
+import { ForwardDialog, InboxPanel, setSaved, startForward, useForwarding, type InboxTab } from "./Inbox.tsx";
 import { startWebPush } from "./webpush.ts";
 import { channelTitle } from "./channels.ts";
 import { EventReminderCard, EventsDialog } from "./Events.tsx";
@@ -35,7 +41,7 @@ import { excerptOf, ReminderTray, type FiredReminder } from "./Fun.tsx";
 import { Friends } from "./Friends.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { IncomingCall } from "./IncomingCall.tsx";
-import { connectNativeCalls, reportCallState, type NativeAnswer } from "./native.ts";
+import { connectNativeCalls, inAndroidApp, openBubble, reportCallState, type NativeAnswer } from "./native.ts";
 import { PlayTogetherCard } from "./PlayTogether.tsx";
 import { feedOverlayMessage, useGameOverlay } from "./gameOverlay.ts";
 import { COUPLES_EVENT, LoveNotePopup, type CouplesEventDetail } from "./Couples.tsx";
@@ -74,7 +80,7 @@ export type View =
 type ServerDialog =
   | { kind: "create" }
   | { kind: "invite"; serverId: number }
-  | { kind: "channel"; serverId: number; channel: Channel | null; channelKind?: ChannelKind }
+  | { kind: "channel"; serverId: number; channel: Channel | null; channelKind?: ChannelKind; categoryId?: number | null }
   | { kind: "settings"; serverId: number; tab?: SettingsTab }
   | { kind: "welcome"; serverId: number }
   | { kind: "admin" }
@@ -124,9 +130,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const [inVoice, setInVoice] = useState<VoiceJoin | null>(null);
   const [speaking, setSpeaking] = useState<Set<number>>(new Set());
   const [connected, setConnected] = useState(false);
-  const [view, setView] = useState<View>({ kind: "friends" });
+  const [view, setView] = useState<View>(() => popout ?? { kind: "friends" });
   /** On phones only one column shows: the DM list, or what's open. */
-  const [showMain, setShowMain] = useState(false);
+  const [showMain, setShowMain] = useState(!!popout);
   const [friends, setFriends] = useState<Friend[]>([]);
   /** What people are playing, from LootDen. */
   const [activities, setActivities] = useState<Record<number, Activity>>({});
@@ -138,7 +144,18 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [histories, setHistories] = useState<Record<number, History>>({});
   const [typing, setTyping] = useState<Record<number, Record<number, number>>>({});
-  const [unread, setUnread] = useState<Set<number>>(new Set());
+  /** Unread messages and pings per conversation; a conversation that's caught up isn't in it. */
+  const [unread, setUnread] = useState<Map<number, { count: number; mentions: number }>>(new Map());
+  const [dnd, setDnd] = useState<Set<number>>(new Set());
+  const [inbox, setInbox] = useState<InboxTab | null>(null);
+  const [rail, setRail] = useState<RailItem[]>([]);
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
+  const forwarding = useForwarding();
   const [servers, setServers] = useState<ChatServer[]>([]);
   const [invites, setInvites] = useState<InvitePreview[]>([]);
   /** Automod alerts not looked at yet, per server (owners and admins only get them). */
@@ -199,7 +216,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       const state = identity ? "on" : initialMe.publicKey ? "locked" : "off";
       setKeyState(state);
       // Ask once per visit; "Not now" closes it until next time.
-      if (state === "off") setEncryptionDialog("setup");
+      // A pop-out leaves setting it up to the main window; unlocking is still needed to read.
+      if (state === "off" && !popout) setEncryptionDialog("setup");
       if (state === "locked") setEncryptionDialog("unlock");
     });
     return () => {
@@ -234,7 +252,13 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     setCalls(Object.fromEntries(live.map((x) => [x.conversationId, x])));
     setFriends(f);
     setOnline(new Set(f.filter((x) => x.online).map((x) => x.user.id)));
+    setDnd(new Set(f.filter((x) => x.dnd).map((x) => x.user.id)));
     setConversations(c);
+    void api<RailItem[]>("/api/me/rail").then(setRail, () => {});
+    void api<UnreadCount[]>("/api/unread").then(
+      (list) => setUnread(new Map(list.map((u) => [u.conversationId, { count: u.count, mentions: u.mentions }]))),
+      () => {},
+    );
     void loadFamily().catch(() => {});
     loadActivities();
     loadChores();
@@ -277,6 +301,16 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             setOnline((s) => {
               const n = new Set(s);
               if (isOn) n.add(id);
+              else n.delete(id);
+              return n;
+            });
+          }
+          if (e.friend.dnd !== undefined) {
+            const { id } = e.friend.user;
+            const isDnd = e.friend.dnd;
+            setDnd((s) => {
+              const n = new Set(s);
+              if (isDnd) n.add(id);
               else n.delete(id);
               return n;
             });
@@ -324,6 +358,29 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             else n.delete(e.userId);
             return n;
           });
+          setDnd((s) => {
+            const n = new Set(s);
+            if (e.online && e.dnd) n.add(e.userId);
+            else n.delete(e.userId);
+            return n;
+          });
+          break;
+        case "unread":
+          setUnread((u) => {
+            const n = new Map(u);
+            if (e.unread.count > 0) n.set(e.unread.conversationId, { count: e.unread.count, mentions: e.unread.mentions });
+            else n.delete(e.unread.conversationId);
+            return n;
+          });
+          break;
+        case "rail.updated":
+          setRail(e.rail);
+          break;
+        case "saved.updated":
+          setSaved(e.messageId, e.saved);
+          break;
+        case "me.updated":
+          setMe((m) => ({ ...m, ...e.user, publicKey: m.publicKey ?? e.user.publicKey }));
           break;
         case "conversation.created":
           setConversations((cs) => [e.conversation, ...cs.filter((c) => c.id !== e.conversation.id)]);
@@ -361,7 +418,12 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           // Muted conversations don't get an unread dot (unless you're pinged).
           if (e.muted && !e.mentioned) break;
           if ((m.authorId !== me.id || m.webhook) && !(viewConversation(v, serversRef.current) === m.conversationId && document.hasFocus())) {
-            setUnread((u) => new Set(u).add(m.conversationId));
+            setUnread((u) => {
+              const n = new Map(u);
+              const cur = n.get(m.conversationId) ?? { count: 0, mentions: 0 };
+              n.set(m.conversationId, { count: cur.count + 1, mentions: cur.mentions + (e.mentioned ? 1 : 0) });
+              return n;
+            });
           }
           break;
         }
@@ -418,6 +480,10 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           setInVoice((cur) => (cur && cur.voice.channelId === v.channelId && !v.members.some((m) => m.userId === me.id) ? null : cur));
           break;
         }
+        case "voice.move":
+          // A moderator moved you: the effect below joins the new channel.
+          window.dispatchEvent(new CustomEvent("dendrop:voice-move", { detail: { serverId: e.serverId, channelId: e.channelId } }));
+          break;
         case "voice.sound":
           // Only people in that voice channel get these.
           playSoundboard(e.play);
@@ -532,7 +598,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     const cid = viewConversation(v, serversRef.current);
     if (cid !== null) {
       setUnread((u) => {
-        const n = new Set(u);
+        if (!u.has(cid)) return u;
+        const n = new Map(u);
         n.delete(cid);
         return n;
       });
@@ -575,6 +642,18 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       setCallError((err as Error).message);
     }
   };
+
+  // Moved by a moderator: drop into the channel they picked.
+  useEffect(() => {
+    const onMove = (ev: Event) => {
+      const { serverId, channelId } = (ev as CustomEvent<{ serverId: number; channelId: number }>).detail;
+      const sv = servers.find((x) => x.id === serverId);
+      const ch = sv?.channels.find((c) => c.id === channelId);
+      if (sv && ch) void joinVoice(sv, ch);
+    };
+    window.addEventListener("dendrop:voice-move", onMove);
+    return () => window.removeEventListener("dendrop:voice-move", onMove);
+  });
 
   const startCall = async (conversationId: number, video: boolean) => {
     if (inVoice) {
@@ -668,6 +747,11 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const current = view.kind === "conversation" ? conversations.find((c) => c.id === view.id) : undefined;
   const currentServer = view.kind === "channel" ? servers.find((x) => x.id === view.serverId) : undefined;
   const currentChannel = view.kind === "channel" ? currentServer?.channels.find((c) => c.id === view.channelId) : undefined;
+  // A pop-out window is named after its chat, so it's easy to find among windows.
+  const popoutTitle = !popout ? null : current ? conversationTitle(current, me.id) : currentChannel && currentServer ? `#${currentChannel.name} · ${currentServer.name}` : null;
+  useEffect(() => {
+    if (popoutTitle) document.title = `${popoutTitle} · Dendrop`;
+  }, [popoutTitle]);
   // New members see the server's welcome screen when they first open it.
   const welcomeDue = !!currentServer && needsWelcome(currentServer) && !welcomeLater.current.has(currentServer.id);
   useEffect(() => {
@@ -695,6 +779,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   /** A server's events you can see: ones in channels you can't see any more are left out. */
   const eventsOf = (sv: ChatServer) => events.filter((x) => x.serverId === sv.id && (x.channelId === null || sv.channels.some((c) => c.id === x.channelId)));
   const serverUnread = (sv: ChatServer) => sv.channels.some((c) => unread.has(c.conversationId));
+  const serverMentions = (sv: ChatServer) => sv.channels.reduce((n, c) => n + (unread.get(c.conversationId)?.mentions ?? 0), 0);
   const dialogServer = serverDialog && "serverId" in serverDialog ? servers.find((x) => x.id === serverDialog.serverId) : undefined;
   const incoming = friends.filter((f) => f.state === "incoming").length;
 
@@ -732,6 +817,11 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       inThisCall={false}
       onCall={() => {}}
       onBack={onBack}
+      onPopOut={
+        canPopOut() && view.kind === "channel" && currentChannel?.conversationId === conversation.id
+          ? () => popOut({ kind: "channel", serverId: view.serverId, channelId: view.channelId })
+          : undefined
+      }
       keyState={keyState}
       onEncryption={() => {}}
       kid={kidRules}
@@ -808,7 +898,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   };
 
   const shell = (
-    <div className={`shell ${showMain ? "show-main" : ""}`}>
+    <div className={`shell ${showMain ? "show-main" : ""} ${popout ? "popout" : ""}`}>
       <nav className="rail" aria-label="Servers">
         <button
           className={`rail-item ${view.kind === "friends" || view.kind === "conversation" ? "active" : ""}`}
@@ -818,18 +908,33 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           <img src="/favicon.svg" alt="Direct messages" width={32} height={32} />
         </button>
         <div className="rail-sep" />
-        {servers.map((sv) => (
-          <button
-            key={sv.id}
-            className={`rail-server ${currentServer?.id === sv.id ? "active" : ""}`}
-            title={sv.name}
-            aria-label={sv.name}
-            onClick={() => openServer(sv)}
-          >
-            <ServerIcon server={sv} size={48} />
-            {serverUnread(sv) && <span className="rail-dot" aria-label="Unread" />}
-          </button>
-        ))}
+        <ServerRail
+          servers={servers}
+          rail={rail}
+          onRail={setRail}
+          folderAlert={(ids) => {
+            const in_ = servers.filter((x) => ids.includes(x.id));
+            return { unread: in_.some(serverUnread), mentions: in_.reduce((n, x) => n + serverMentions(x), 0) };
+          }}
+          renderServer={(sv, extra) => (
+            <button
+              key={sv.id}
+              className={`rail-server ${currentServer?.id === sv.id ? "active" : ""}`}
+              title={sv.name}
+              aria-label={sv.name}
+              onClick={() => openServer(sv)}
+              {...extra}
+            >
+              <ServerIcon server={sv} size={48} />
+              {serverUnread(sv) && <span className="rail-dot" aria-label="Unread" />}
+              {serverMentions(sv) > 0 && (
+                <span className="rail-badge" aria-label={`${serverMentions(sv)} mentions`}>
+                  {serverMentions(sv) > 99 ? "99+" : serverMentions(sv)}
+                </span>
+              )}
+            </button>
+          )}
+        />
         <button
           className={`rail-item rail-add ${view.kind === "directory" ? "active" : ""}`}
           title="Find or create a server"
@@ -864,7 +969,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             events={eventsOf(currentServer)}
             onEvents={() => setServerDialog({ kind: "events", serverId: currentServer.id })}
             onWelcome={() => setServerDialog({ kind: "welcome", serverId: currentServer.id })}
-            onChannel={(c, channelKind) => setServerDialog({ kind: "channel", serverId: currentServer.id, channel: c, channelKind })}
+            onChannel={(c, channelKind, categoryId) => setServerDialog({ kind: "channel", serverId: currentServer.id, channel: c, channelKind, categoryId })}
           />
         ) : (
         <>
@@ -876,6 +981,18 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             </span>
             Friends
             {incoming > 0 && <span className="badge">{incoming}</span>}
+          </button>
+          <button className="nav-item" onClick={() => setInbox("mentions")}>
+            <span className="nav-icon" aria-hidden>
+              @
+            </span>
+            Mentions
+          </button>
+          <button className="nav-item" onClick={() => setInbox("saved")}>
+            <span className="nav-icon" aria-hidden>
+              🔖
+            </span>
+            Saved messages
           </button>
           <div className="section-label with-action">
             Conversations
@@ -893,14 +1010,14 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
                 className={`nav-item ${view.kind === "conversation" && view.id === c.id ? "active" : ""} ${unread.has(c.id) ? "unread" : ""}`}
                 onClick={() => open({ kind: "conversation", id: c.id })}
               >
-                <Avatar name={solo ? solo.displayName : (c.name ?? "#")} src={solo ? solo.avatar : null} online={solo ? online.has(solo.id) : undefined} size={32} />
+                <Avatar name={solo ? solo.displayName : (c.name ?? "#")} src={solo ? solo.avatar : null} online={solo ? online.has(solo.id) : undefined} dnd={solo ? dnd.has(solo.id) : false} size={32} />
                 <span className="nav-text">
                   <span className="ellipsis">{conversationTitle(c, me.id)}</span>
                   {c.isGroup && <span className="muted small">{c.members.length} members</span>}
                   {solo && <StatusLine user={solo} filter={profileFilter} />}
                   {solo && <ActivityLine userId={solo.id} />}
                 </span>
-                {unread.has(c.id) && <span className="dot" aria-label="Unread" />}
+                <UnreadBadge u={unread.get(c.id)} />
               </button>
             );
           })}
@@ -909,13 +1026,21 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         )}
         <footer className="me">
           <button className="ghost me-profile" onClick={() => setProfileTarget({ userId: me.id })} title="Your profile and status" aria-label="Your profile and status">
-            <Avatar name={me.displayName} src={me.avatar} online={connected} size={36} title={connected ? "Connected" : "Reconnecting…"} />
+            <Avatar
+              name={me.displayName}
+              src={me.avatar}
+              online={connected && me.presence !== "invisible"}
+              dnd={connected && me.presence === "dnd"}
+              size={36}
+              title={!connected ? "Reconnecting…" : me.presence === "dnd" ? "Do not disturb" : me.presence === "invisible" ? "Invisible" : "Online"}
+            />
             <span className="me-names">
               <strong className="ellipsis">{me.displayName}</strong>
               <StatusLine user={me} className="muted small ellipsis" />
               {!me.status && <span className="muted">@{me.username}</span>}
             </span>
           </button>
+          <PresencePicker me={me} onChange={(m) => setMe((cur) => ({ ...cur, ...m, publicKey: cur.publicKey ?? m.publicKey }))} />
           {(me.isKid || !!family?.kids.length) && (
           <button
             className="ghost family-button"
@@ -1051,6 +1176,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
               canModerate: can(currentServer, "deleteMessages"),
               timedOutUntil: currentServer.timedOutUntil,
               canPin: canPinIn(currentServer, currentChannel),
+              readOnly: currentChannel.canPost === false ? "Only some people can post in this channel. You can still read it and react." : null,
+              slowmode: can(currentServer, "manageChannels") || can(currentServer, "deleteMessages") ? 0 : (currentChannel.slowmode ?? 0),
               onPins: () => setPinsOpen({ serverId: currentServer.id, channelId: currentChannel.id }),
               onThread: (m) => void startThread(currentServer.id, m.id, m.thread?.id),
               voice: isVoiceKind(currentChannel.kind)
@@ -1066,7 +1193,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             {currentThread && threadChat(currentServer, currentChannel, currentThread)}
           </div>
         )}
-        {view.kind === "friends" && <Friends friends={friends} online={online} onMessage={messageFriend} onBack={() => setShowMain(false)} />}
+        {view.kind === "friends" && <Friends friends={friends} online={online} dnd={dnd} onMessage={messageFriend} onBack={() => setShowMain(false)} />}
         {view.kind === "conversation" && current && (
           <Chat
             key={current.id}
@@ -1082,6 +1209,13 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             inThisCall={inCall?.call.conversationId === current.id}
             onCall={(video) => void startCall(current.id, video)}
             onBack={() => setShowMain(false)}
+            onPopOut={
+              canPopOut()
+                ? () => popOut({ kind: "conversation", id: current.id })
+                : inAndroidApp()
+                  ? () => void openBubble(current.id, conversationTitle(current, me.id)).then((why) => why && setToast(why))
+                  : undefined
+            }
             keyState={keyState}
             onEncryption={() => setEncryptionDialog(keyState === "off" ? "setup" : "unlock")}
             kid={kidRules}
@@ -1099,6 +1233,38 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           onClose={closeSearch}
         />
       )}
+      {inbox && (
+        <InboxPanel
+          me={me}
+          tab={inbox}
+          conversations={conversations}
+          servers={servers}
+          filter={kidRules?.rules.profanityFilter ? kidRules.rules.blockedWords : null}
+          onOpen={(t) => {
+            setInbox(null);
+            openHit(t);
+          }}
+          onClose={() => setInbox(null)}
+        />
+      )}
+      {forwarding && (
+        <ForwardDialog
+          me={me}
+          message={forwarding}
+          conversations={conversations}
+          servers={servers}
+          onDone={(where) => {
+            startForward(null);
+            setToast(`Forwarded to ${where}`);
+          }}
+          onClose={() => startForward(null)}
+        />
+      )}
+      {toast && (
+        <div className="toast" role="status">
+          {toast}
+        </div>
+      )}
       {showFamily && (
         <FamilyDialog
           me={me}
@@ -1114,7 +1280,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       {encryptionDialog && (
         <EncryptionDialog me={me} mode={encryptionDialog} setMode={setEncryptionDialog} onDone={onUnlocked} onClose={() => setEncryptionDialog(null)} />
       )}
-      {ringing && !dialog && !nativeRinging && (
+      {/* A pop-out window leaves ringing to the main window. */}
+      {ringing && !dialog && !nativeRinging && !popout && (
         <IncomingCall
           me={me}
           call={ringing}
@@ -1128,7 +1295,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           }}
         />
       )}
-      {playInvite && server?.calls && !ringing && !dialog && inVoice?.voice.channelId !== playInvite.channelId && (() => {
+      {playInvite && !popout && server?.calls && !ringing && !dialog && inVoice?.voice.channelId !== playInvite.channelId && (() => {
         const sv = servers.find((x) => x.id === playInvite.serverId);
         const ch = sv?.channels.find((c) => c.id === playInvite.channelId);
         if (!sv || !ch) return null;
@@ -1222,6 +1389,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           server={dialogServer}
           channel={serverDialog.channel}
           kind={serverDialog.channelKind}
+          categoryId={serverDialog.categoryId}
           onClose={() => setServerDialog(null)}
           onDone={(made) => {
             setServerDialog(null);

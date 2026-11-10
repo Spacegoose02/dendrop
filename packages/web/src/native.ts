@@ -64,3 +64,29 @@ export function reportCallState(conversationId: number | null, inCall: boolean):
   if (!inIosApp() || !c?.nativePromise) return;
   c.nativePromise("Dendrop", "callState", { conversationId: conversationId ?? undefined, inCall }).catch(() => {});
 }
+
+/** True inside the Android app (with its native Dendrop plugin, which can make chat bubbles). */
+export function inAndroidApp(): boolean {
+  const c = bridge();
+  return c?.getPlatform?.() === "android" && !!c.nativePromise && !!c.isPluginAvailable?.("Dendrop");
+}
+
+/**
+ * Opens a chat in an Android chat bubble. Resolves null when it showed, or why it couldn't:
+ * an older Android, notifications off, or bubbles turned off for the app.
+ */
+export async function openBubble(conversationId: number, title: string): Promise<string | null> {
+  const c = bridge();
+  if (!inAndroidApp() || !c?.nativePromise) return "Chat bubbles need the Android app.";
+  try {
+    const r = (await c.nativePromise("Dendrop", "bubble", { conversationId, title })) as { ok: boolean; reason?: string };
+    if (r.ok) return null;
+    if (r.reason === "unsupported") return "Chat bubbles need Android 11 or newer.";
+    if (r.reason === "notifications-off") return "Turn on notifications for Dendrop to use chat bubbles.";
+    if (r.reason === "bubbles-off") return "Bubbles are off for Dendrop. Turn them on in Android's settings for the app (Notifications, Bubbles).";
+    return "Couldn't open a bubble.";
+  } catch (err) {
+    // An older app without bubbles.
+    return (err as Error).message || "Update the Dendrop app to use chat bubbles.";
+  }
+}

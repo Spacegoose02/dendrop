@@ -11,7 +11,7 @@ import { HttpError } from "../errors.js";
 import { livekitUrl } from "../livekit.js";
 import { BlockRepo } from "../blocks.js";
 import { FriendRepo } from "../friends.js";
-import { toPublic } from "../users.js";
+import { presenceNow, toMe, toPublic } from "../users.js";
 
 const keyVersion = (v: unknown): number | null => {
   if (v === undefined || v === null || v === "") return null;
@@ -37,6 +37,19 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
   const friends = new FriendRepo(db, users);
   const convos = new ConversationRepo(db, users, friends);
   const blocks = new BlockRepo(db, users);
+  /** Whether friends see someone as online: connected, and not appearing offline. */
+  const looksOnline = (userId: number) => {
+    const u = users.byId(userId);
+    return !!u && gateway.isOnline(userId) && presenceNow(u) !== "invisible";
+  };
+  const isDnd = (userId: number) => {
+    const u = users.byId(userId);
+    return !!u && presenceNow(u) === "dnd";
+  };
+  const friendView = (f: NonNullable<ReturnType<typeof friends.view>>) => {
+    const on = f.state === "friends" && looksOnline(f.user.id);
+    return { ...f, online: on, ...(on && isDnd(f.user.id) ? { dnd: true } : {}) };
+  };
   /** A 403 when this is a 1:1 DM and either person blocked the other. */
   const notBlocked = (cid: number, me: number) => {
     const other = convos.dmPartner(cid, me);
@@ -52,7 +65,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
       const f = friends.view(me, other);
       gateway.send(
         [me],
-        f ? { type: "friend.updated", friend: { ...f, online: f.state === "friends" && gateway.isOnline(other) } } : { type: "friend.removed", userId: other },
+        f ? { type: "friend.updated", friend: friendView(f) } : { type: "friend.removed", userId: other },
       );
     }
   };
@@ -61,10 +74,16 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
   const calls = new CallService(config, gateway, ctx.callRingMs);
   app.addHook("onClose", async () => calls.closeAll());
 
+  /** Tells someone's friends how they show up now. Someone appearing offline never shows as online. */
+  const announcePresence = (userId: number, online: boolean) => {
+    const ids = friends.list(userId).filter((f) => f.state === "friends").map((f) => f.user.id);
+    const u = users.byId(userId);
+    const shown = online && !!u && presenceNow(u) !== "invisible";
+    gateway.send(ids, { type: "presence", userId, online: shown, ...(shown && isDnd(userId) ? { dnd: true } : {}) });
+  };
   ctx.onPresence.push((userId, online) => {
     if (!online) calls.leaveAll(userId);
-    const ids = friends.list(userId).filter((f) => f.state === "friends").map((f) => f.user.id);
-    gateway.send(ids, { type: "presence", userId, online });
+    announcePresence(userId, online);
   });
   ctx.onClientEvent.push((user, event) => {
     if (event.type !== "typing") return;
@@ -77,7 +96,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
 
   app.get("/api/friends", async (req) => {
     const me = requireUser(req);
-    return friends.list(me.id).map((f) => ({ ...f, online: f.state === "friends" && gateway.isOnline(f.user.id) }));
+    return friends.list(me.id).map(friendView);
   });
 
   /** Sends a friend request by username, or accepts theirs if they already asked. */
@@ -120,6 +139,28 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     if (!friends.remove(me.id, other)) throw new HttpError(404, "Not a friend or request");
     pushFriend(me.id, other);
     return { ok: true };
+  });
+
+  // ---- Presence -----------------------------------------------------------------
+
+  /**
+   * How you show up: { presence: "online" | "dnd" | "invisible", minutes? }. minutes ends Do Not
+   * Disturb by itself. Friends hear straight away; your other devices too.
+   */
+  app.put<{ Body: { presence?: unknown; minutes?: unknown } }>("/api/me/presence", async (req) => {
+    const me = requireUser(req);
+    const { presence, minutes } = req.body ?? {};
+    if (presence !== "online" && presence !== "dnd" && presence !== "invisible") throw new HttpError(400, "presence is online, dnd or invisible");
+    let until: string | null = null;
+    if (minutes !== undefined && minutes !== null) {
+      const n = Number(minutes);
+      if (!Number.isInteger(n) || n < 1 || n > 7 * 24 * 60) throw new HttpError(400, "minutes is 1 to a week");
+      until = new Date(Date.now() + n * 60_000).toISOString();
+    }
+    const updated = users.setPresence(me.id, presence, until);
+    announcePresence(me.id, gateway.isOnline(me.id));
+    gateway.send([me.id], { type: "me.updated", user: toMe(updated) });
+    return toMe(updated);
   });
 
   // ---- Blocking -----------------------------------------------------------------
@@ -195,12 +236,14 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
    */
   const readMessage = async (req: FastifyRequest): Promise<{ body: unknown; files: NewAttachment[]; keyVersion: number | null; extras: SendOptions }> => {
     if (!req.isMultipart()) {
-      const json = req.body as { body?: unknown; keyVersion?: unknown; replyToId?: unknown; replyPing?: unknown; mentions?: unknown; mentionsEveryone?: unknown } | undefined;
+      const json = req.body as
+        | { body?: unknown; keyVersion?: unknown; replyToId?: unknown; replyPing?: unknown; mentions?: unknown; mentionsEveryone?: unknown; forwardOf?: unknown }
+        | undefined;
       return {
         body: json?.body,
         files: [],
         keyVersion: keyVersion(json?.keyVersion),
-        extras: { replyToId: json?.replyToId, replyPing: json?.replyPing, mentions: json?.mentions, mentionsEveryone: json?.mentionsEveryone },
+        extras: { replyToId: json?.replyToId, replyPing: json?.replyPing, mentions: json?.mentions, mentionsEveryone: json?.mentionsEveryone, forwardOf: json?.forwardOf },
       };
     }
     const files: NewAttachment[] = [];
@@ -213,6 +256,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
           if (part.fieldname === "body") body = part.value;
           if (part.fieldname === "keyVersion") kv = keyVersion(part.value);
           if (part.fieldname === "replyToId") extras.replyToId = part.value;
+          if (part.fieldname === "forwardOf") extras.forwardOf = part.value;
           if (part.fieldname === "replyPing") extras.replyPing = part.value !== "false";
           if (part.fieldname === "mentionsEveryone") extras.mentionsEveryone = part.value === "true";
           if (part.fieldname === "mentions") {
@@ -335,6 +379,20 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
       gateway.send(others, { type: "read", conversationId: cid, userId: me.id, messageId: moved });
     }
     return { ok: true };
+  });
+
+  /** Unread counts for every conversation with unread messages: DMs, groups, channels and threads. */
+  app.get("/api/unread", async (req) => convos.unread(requireUser(req).id));
+
+  /** "Mark as unread" from a message on. Only for you: read receipts others saw stay. */
+  app.post<{ Params: { id: string }; Body: { messageId?: unknown } }>("/api/conversations/:id/unread", async (req) => {
+    const me = requireUser(req);
+    const cid = id(req.params.id);
+    member(cid, me.id);
+    convos.markUnread(cid, me.id, id(req.body?.messageId));
+    const unread = convos.unread(me.id, cid)[0]!;
+    gateway.send([me.id], { type: "unread", unread });
+    return unread;
   });
 
   app.patch<{ Params: { id: string }; Body: { body?: unknown; keyVersion?: unknown; mentions?: unknown; mentionsEveryone?: unknown } }>("/api/messages/:id", async (req) => {

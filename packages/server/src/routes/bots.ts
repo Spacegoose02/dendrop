@@ -106,7 +106,10 @@ export function botRoutes(app: FastifyInstance, ctx: Context): void {
 
   /** Clicks a button on a bot's message. Answers with the bot's reply, which only you see. */
   app.post<{ Params: { id: string; buttonId: string } }>("/api/messages/:id/buttons/:buttonId", async (req) => {
-    return bots.click(requireUser(req), id(req.params.id), req.params.buttonId);
+    const mid = id(req.params.id);
+    // Den Duty's own buttons (approve a chore) are handled by the Den Duty link, not a bot.
+    if (ctx.denduty.handles(mid, req.params.buttonId)) return ctx.denduty.click(requireUser(req), mid, req.params.buttonId);
+    return bots.click(requireUser(req), mid, req.params.buttonId);
   });
 
   // ---- For bots ---------------------------------------------------------------------

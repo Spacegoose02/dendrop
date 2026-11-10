@@ -127,6 +127,15 @@ const RULES: Record<string, Rule> = {
     action: (req.query as { ban?: string }).ban === "true" ? "member.ban" : "member.kick",
     targetUserId: num(p.userId),
   }),
+  "PATCH /api/servers/:id/members/:userId/nickname": (p, b) => ({ serverId: s(p), action: "member.nickname", targetUserId: num(p.userId), details: str(b.nickname) ? `to ${str(b.nickname)}` : "cleared" }),
+  "PUT /api/servers/:id/voice/:userId": (p, b) => ({
+    serverId: s(p),
+    action: "voice.moderate",
+    targetUserId: num(p.userId),
+    details: [b.serverMuted === true && "muted", b.serverMuted === false && "unmuted", b.serverDeafened === true && "deafened", b.serverDeafened === false && "undeafened"].filter(Boolean).join(", "),
+  }),
+  "POST /api/servers/:id/voice/:userId/disconnect": (p) => ({ serverId: s(p), action: "voice.disconnect", targetUserId: num(p.userId) }),
+  "POST /api/servers/:id/voice/:userId/move": (p, b, _r, db) => ({ serverId: s(p), action: "voice.move", targetUserId: num(p.userId), details: `to ${nameOf(db, "server_channels", b.channelId) ?? "?"}` }),
   "DELETE /api/servers/:id/bans/:userId": (p) => ({ serverId: s(p), action: "member.unban", targetUserId: num(p.userId) }),
   "PUT /api/servers/:id/timeouts/:userId": (p, b) => ({
     serverId: s(p),
@@ -146,6 +155,13 @@ const RULES: Record<string, Rule> = {
   "DELETE /api/servers/:id/roles/:roleId": (p, _b, _r, db) => ({ serverId: s(p), action: "role.delete", targetName: nameOf(db, "server_roles", p.roleId) }),
 
   // ---- Channels, messages, threads
+  "POST /api/reports/:id/resolve": (p, b, _r, db) => {
+    const r = get<{ server_id: number | null; reported_id: number | null }>(db, "SELECT server_id, reported_id FROM reports WHERE id = ?", num(p.id));
+    return r && r.server_id !== null ? { serverId: r.server_id, action: "report.resolve", targetUserId: r.reported_id, details: b.resolved === false ? "reopened" : "" } : null;
+  },
+  "POST /api/servers/:id/categories": (p, b) => ({ serverId: s(p), action: "category.create", targetName: str(b.name) }),
+  "PATCH /api/servers/:id/categories/:categoryId": (p, b, _r, db) => ({ serverId: s(p), action: "category.update", targetName: nameOf(db, "server_categories", p.categoryId), details: `to ${str(b.name)}` }),
+  "DELETE /api/servers/:id/categories/:categoryId": (p, _b, _r, db) => ({ serverId: s(p), action: "category.delete", targetName: nameOf(db, "server_categories", p.categoryId) }),
   "POST /api/servers/:id/channels": (p, b) => ({ serverId: s(p), action: "channel.create", targetName: `#${str(b.name)}` }),
   "PUT /api/servers/:id/channels/order": (p) => ({ serverId: s(p), action: "channel.reorder" }),
   "PATCH /api/servers/:id/channels/:channelId": (p, b, _r, db) => ({ serverId: s(p), action: "channel.update", targetName: `#${nameOf(db, "server_channels", p.channelId) ?? "?"}`, details: keys(b) }),

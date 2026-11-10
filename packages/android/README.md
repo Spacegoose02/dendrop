@@ -1,8 +1,8 @@
 # @dendrop/android
 
 Dendrop for Android: a [Capacitor](https://capacitorjs.com) app that opens the Dendrop web client
-from your own server, plus the native bits a phone needs (notifications now; the incoming call
-screen and chat bubbles later).
+from your own server, plus the native bits a phone needs: notifications, the incoming call screen and chat bubbles
+(see [POP-OUT-AND-AUDIO.md](../../docs/POP-OUT-AND-AUDIO.md)).
 
 ## How it works
 
@@ -43,7 +43,8 @@ have a new message", "Someone mentioned you" or "Incoming call". No text, no sen
 keys (RFC 8291) when the server supports it, so ntfy only ever sees ciphertext anyway. The message
 notification is skipped while the app is open, and cleared when it's opened.
 
-Channels: **Messages** and **Calls**, both changeable in Android's settings for the app.
+Channels: **Messages**, **Calls** (rings like a phone call and opens the full-screen call screen) and
+**Chat bubbles** (only chats you popped out yourself), all changeable in Android's settings for the app.
 
 ### What the server does
 
@@ -97,8 +98,9 @@ Android only installs an update over an app signed with the same key.
   ```
 
   Then add repository secrets `ANDROID_KEYSTORE_BASE64` (`base64 -w0 dendrop-release.keystore`),
-  `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`, and the workflow
-  also produces `dendrop-release-apk`. Locally, set `DENDROP_KEYSTORE_FILE`,
+  `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. Then the Android
+  workflow also produces `dendrop-release-apk`, and each tagged release attaches
+  `Dendrop-X-android.apk` next to the debug one, which phones on the release build update from. Locally, set `DENDROP_KEYSTORE_FILE`,
   `DENDROP_KEYSTORE_PASSWORD`, `DENDROP_KEY_ALIAS` and `DENDROP_KEY_PASSWORD` and run
   `npm run apk:release`.
 
@@ -123,22 +125,21 @@ The launcher icon, splash and notification icon are vectors drawn from the racco
 `packages/web/public/favicon.svg`; when the theme work replaces that mark, update
 `res/drawable/ic_launcher_*.xml` and `ic_stat_dendrop.xml` to match.
 
-## Next: incoming call screen and chat bubbles
+## Incoming call screen and chat bubbles
 
-Both wait on voice calls and DMs landing in the web client; the groundwork is here.
+Details for users are in [POP-OUT-AND-AUDIO.md](../../docs/POP-OUT-AND-AUDIO.md).
 
-- **Incoming call screen.** A `{"type":"call"}` push already rings on the **Calls** channel as a
-  heads-up notification. With calls built, it becomes a full-screen intent
-  (`USE_FULL_SCREEN_INTENT`, `NotificationCompat.CallStyle.forIncomingCall`) that wakes the
-  lock screen to a native Answer / Decline screen. Answering opens the app straight into the
-  call; the push will also need a call id (still no names or text). The call itself stays WebRTC
-  in the WebView, with a `phoneCall`/`microphone` foreground service so it keeps going with the
-  screen off.
-- **Chat bubbles for DMs.** Bubbles need a conversation shortcut per DM and a notification that
-  names the conversation (so bubbles will be an opt-in setting), which a content-free push can't
-  do on its own. Plan: on a push, the app
-  asks the server (with its session cookie) which DM it was for, then posts a
-  `MessagingStyle` notification with a `BubbleMetadata` whose bubble is an activity showing just
-  that DM in a WebView. The message text still never travels through the push service. A small
-  JS-to-native call from the web client ("open DM as bubble") is the only change `packages/web`
-  will need.
+- **Incoming call screen.** A `{"type":"call"}` push posts an insistent notification on the
+  `calls_ringing` channel (ringtone, vibration) with a full-screen intent
+  (`USE_FULL_SCREEN_INTENT`) to `MainActivity` (action `…CALL`). That activity shows over the lock
+  screen and turns the screen on while it's in front, and the web client's own ringer does
+  Answer / Decline. **Silence** (`push/CallActionReceiver`) only stops this phone. The push still
+  carries no call id, names or text.
+  Still to come: a native Answer / Decline screen (`CallStyle.forIncomingCall`), which needs the
+  call id in the push, and a `phoneCall` foreground service so a call keeps going with the screen
+  off.
+- **Chat bubbles.** The web client calls the plugin's `bubble({ conversationId, title })` when
+  someone pops a DM or group out. That pushes a long-lived conversation shortcut and a
+  `MessagingStyle` notification on the `bubbles` channel with `BubbleMetadata`, whose bubble is
+  `BubbleActivity`: a WebView on `<server>/?popout=c<id>`, sharing the app's cookies. Names
+  come from the page, never from a push, so bubbles don't appear for new messages by themselves.

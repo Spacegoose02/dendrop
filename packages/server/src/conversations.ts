@@ -1,4 +1,4 @@
-import { EVERYONE_RE, LIMITS, MENTION_RE, type Attachment, type ReplyRef, type MessageButton, type Conversation, type ConversationE2ee, type Message, type NudgeKind, type ReadState, type ThreadRef, type WrappedKey } from "@dendrop/shared";
+import { EVERYONE_RE, LIMITS, MENTION_RE, type Attachment, type ReplyRef, type MessageButton, type Conversation, type ForwardRef, type MessageInPlace, type MessagePlace, type ConversationE2ee, type Message, type NudgeKind, type ReadState, type ThreadRef, type UnreadCount, type WrappedKey } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { ExpressionRepo } from "./expressions.js";
@@ -31,6 +31,7 @@ interface MessageRow {
   nudge: string | null;
   reply_to_id: number | null;
   mentions_everyone: number;
+  forwarded: string | null;
 }
 
 /** Extras for a new message: what it replies to, and who it pings. */
@@ -44,6 +45,8 @@ export interface SendOptions {
   mentionsEveryone?: unknown;
   /** Whether the author may ping @everyone here (checked by the caller). */
   canMentionEveryone?: boolean;
+  /** Forwarding: the message being passed on (the author must be able to see it). */
+  forwardOf?: unknown;
 }
 
 interface AttachmentRow {
@@ -373,6 +376,7 @@ export class ConversationRepo {
       replyTo: r.deleted_at || !r.reply_to_id ? null : (replies.get(r.reply_to_id) ?? null),
       mentions: r.deleted_at ? [] : (mentions.get(r.id) ?? []),
       mentionsEveryone: !r.deleted_at && !!r.mentions_everyone,
+      forwarded: r.forwarded ? (JSON.parse(r.forwarded) as ForwardRef) : null,
     }));
   }
 
@@ -411,15 +415,31 @@ export class ConversationRepo {
     if (files.length > LIMITS.attachmentsPerMessage) throw new HttpError(400, `Up to ${LIMITS.attachmentsPerMessage} files per message`);
     const version = this.checkCrypto(conversationId, keyVersion, body);
     const text = version ? (body as string) : cleanBody(body, files.length > 0);
-    const reply = this.replyTarget(conversationId, opts.replyToId);
-    const pings = this.pings(conversationId, authorId, version ? null : text, opts, reply && opts.replyPing !== false && !reply.webhook_name ? reply.author_id : null);
+    const forwarded = this.forwardSource(authorId, opts.forwardOf);
+    // A forward passes words on; it isn't a reply and pings nobody.
+    const reply = forwarded ? null : this.replyTarget(conversationId, opts.replyToId);
+    const pings = forwarded
+      ? { ids: [], everyone: false }
+      : this.pings(conversationId, authorId, version ? null : text, opts, reply && opts.replyPing !== false && !reply.webhook_name ? reply.author_id : null);
     const id = tx(this.db, () => {
       const t = now();
       const res = this.db
         .prepare(
-          "INSERT INTO messages (conversation_id, author_id, body, created_at, key_version, webhook_id, webhook_name, buttons, reply_to_id, mentions_everyone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO messages (conversation_id, author_id, body, created_at, key_version, webhook_id, webhook_name, buttons, reply_to_id, mentions_everyone, forwarded) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
-        .run(conversationId, authorId, text, t, version, webhook?.id ?? null, webhook?.name ?? null, buttons?.length ? JSON.stringify(buttons) : null, reply?.id ?? null, pings.everyone ? 1 : 0);
+        .run(
+          conversationId,
+          authorId,
+          text,
+          t,
+          version,
+          webhook?.id ?? null,
+          webhook?.name ?? null,
+          buttons?.length ? JSON.stringify(buttons) : null,
+          reply?.id ?? null,
+          pings.everyone ? 1 : 0,
+          forwarded ? JSON.stringify(forwarded) : null,
+        );
       const mid = Number(res.lastInsertRowid);
       this.saveMentions(mid, pings.ids);
       const add = this.db.prepare(
@@ -459,6 +479,91 @@ export class ConversationRepo {
       return mid;
     });
     return this.message(id)!;
+  }
+
+  /** The original of a forward: a message the forwarder can see, that isn't deleted. */
+  private forwardSource(userId: number, forwardOf: unknown): ForwardRef | null {
+    if (forwardOf === undefined || forwardOf === null || forwardOf === "") return null;
+    const n = Number(forwardOf);
+    if (!Number.isInteger(n) || n <= 0) throw new HttpError(400, "Bad forwardOf");
+    const r = this.db.prepare("SELECT * FROM messages WHERE id = ?").get(n) as MessageRow | undefined;
+    if (!r || !this.isMember(r.conversation_id, userId)) throw new HttpError(404, "The message you're forwarding isn't there");
+    if (r.deleted_at) throw new HttpError(409, "The message you're forwarding was deleted");
+    // Forwarding a forward keeps the first author.
+    if (r.forwarded) return JSON.parse(r.forwarded) as ForwardRef;
+    const author = r.webhook_name ? null : this.users.byId(r.author_id);
+    return { authorId: author ? author.id : null, authorName: r.webhook_name ?? author?.displayName ?? "Someone", createdAt: r.created_at };
+  }
+
+  /** Where a message lives, named for this person (a DM is named after the other person). */
+  place(conversationId: number, viewerId: number): MessagePlace {
+    const base = { conversationId, serverId: null, serverName: null, channelId: null, threadId: null };
+    const th = this.db
+      .prepare(
+        `SELECT t.id AS thread_id, t.title, ch.id AS channel_id, ch.name AS channel_name, sv.id AS server_id, sv.name AS server_name
+         FROM channel_threads t JOIN server_channels ch ON ch.id = t.channel_id JOIN servers sv ON sv.id = ch.server_id WHERE t.conversation_id = ?`,
+      )
+      .get(conversationId) as { thread_id: number; title: string; channel_id: number; channel_name: string; server_id: number; server_name: string } | undefined;
+    if (th) return { ...base, kind: "thread", name: th.title, serverId: th.server_id, serverName: th.server_name, channelId: th.channel_id, threadId: th.thread_id };
+    const ch = this.db
+      .prepare("SELECT ch.id, ch.name, sv.id AS server_id, sv.name AS server_name FROM server_channels ch JOIN servers sv ON sv.id = ch.server_id WHERE ch.conversation_id = ?")
+      .get(conversationId) as { id: number; name: string; server_id: number; server_name: string } | undefined;
+    if (ch) return { ...base, kind: "channel", name: ch.name, serverId: ch.server_id, serverName: ch.server_name, channelId: ch.id };
+    const c = this.get(conversationId, viewerId);
+    if (c?.isGroup) return { ...base, kind: "group", name: c.name ?? c.members.filter((m) => m.id !== viewerId).map((m) => m.displayName).join(", ") };
+    const other = c?.members.find((m) => m.id !== viewerId);
+    return { ...base, kind: "dm", name: other?.displayName ?? "Direct message" };
+  }
+
+  private inPlace(rows: (MessageRow & { saved_at?: string })[], viewerId: number): MessageInPlace[] {
+    const messages = this.withAttachments(rows);
+    const places = new Map<number, MessagePlace>();
+    return messages.map((m, i) => {
+      if (!places.has(m.conversationId)) places.set(m.conversationId, this.place(m.conversationId, viewerId));
+      const savedAt = rows[i]!.saved_at;
+      const u = m.webhook ? undefined : this.users.byId(m.authorId);
+      return { message: m, place: places.get(m.conversationId)!, author: u ? toPublic(u) : null, ...(savedAt ? { savedAt } : {}) };
+    });
+  }
+
+  /** Your saved messages, newest saved first: only ones still there and in chats you're still in. */
+  saved(userId: number): MessageInPlace[] {
+    const rows = this.db
+      .prepare(
+        `SELECT m.*, s.created_at AS saved_at FROM saved_messages s JOIN messages m ON m.id = s.message_id
+         JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.user_id = s.user_id
+         WHERE s.user_id = ? AND m.deleted_at IS NULL ORDER BY s.created_at DESC, s.rowid DESC LIMIT ?`,
+      )
+      .all(userId, LIMITS.savedMessages) as unknown as (MessageRow & { saved_at: string })[];
+    return this.inPlace(rows, userId);
+  }
+
+  /** Saves or unsaves a message. Returns whether anything changed. */
+  setSaved(userId: number, messageId: number, saved: boolean): boolean {
+    if (!saved) return Number(this.db.prepare("DELETE FROM saved_messages WHERE user_id = ? AND message_id = ?").run(userId, messageId).changes) > 0;
+    const r = this.db.prepare("SELECT conversation_id, deleted_at FROM messages WHERE id = ?").get(messageId) as { conversation_id: number; deleted_at: string | null } | undefined;
+    if (!r || r.deleted_at || !this.isMember(r.conversation_id, userId)) throw new HttpError(404, "No such message");
+    const count = (this.db.prepare("SELECT COUNT(*) AS n FROM saved_messages WHERE user_id = ?").get(userId) as { n: number }).n;
+    if (count >= LIMITS.savedMessages) throw new HttpError(409, `You can keep up to ${LIMITS.savedMessages} saved messages. Unsave some first.`);
+    return Number(this.db.prepare("INSERT OR IGNORE INTO saved_messages (user_id, message_id, created_at) VALUES (?, ?, ?)").run(userId, messageId, now()).changes) > 0;
+  }
+
+  /**
+   * The mentions inbox: messages that pinged you (by name, as a reply, or @everyone) in chats
+   * you're in, newest first. `before` pages further back.
+   */
+  mentionsOf(userId: number, before?: number, limit = 30): MessageInPlace[] {
+    const n = Math.max(1, Math.min(limit, 50));
+    const rows = this.db
+      .prepare(
+        `SELECT m.* FROM messages m
+         JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.user_id = ?
+         WHERE m.deleted_at IS NULL AND m.author_id != ? AND m.id < ?
+           AND (m.mentions_everyone = 1 OR EXISTS (SELECT 1 FROM message_mentions x WHERE x.message_id = m.id AND x.user_id = ?))
+         ORDER BY m.id DESC LIMIT ?`,
+      )
+      .all(userId, userId, before ?? Number.MAX_SAFE_INTEGER, userId, n) as unknown as MessageRow[];
+    return this.inPlace(rows, userId);
   }
 
   /** The message a reply answers: in the same conversation, and not deleted. */
@@ -510,7 +615,40 @@ export class ConversationRepo {
          WHERE conversation_id = ? AND user_id = ? AND (last_read_message_id IS NULL OR last_read_message_id < ?)`,
       )
       .run(messageId, conversationId, userId, messageId);
+    // Reading up to (or past) where someone marked it unread clears the mark.
+    this.db.prepare("UPDATE conversation_members SET unread_from = NULL WHERE conversation_id = ? AND user_id = ? AND unread_from <= ?").run(conversationId, userId, messageId);
     return Number(res.changes) > 0 ? messageId : null;
+  }
+
+  /** Marks a conversation unread from a message on, for this person only (read receipts stay). */
+  markUnread(conversationId: number, userId: number, messageId: number): void {
+    const msg = this.db.prepare("SELECT id FROM messages WHERE id = ? AND conversation_id = ?").get(messageId, conversationId);
+    if (!msg) throw new HttpError(404, "No such message");
+    this.db.prepare("UPDATE conversation_members SET unread_from = ? WHERE conversation_id = ? AND user_id = ?").run(messageId, conversationId, userId);
+  }
+
+  /**
+   * Unread messages from others in each of someone's conversations (DMs, groups, channels and
+   * threads), counting from where they last read or marked unread. Only conversations with any.
+   */
+  unread(userId: number, conversationId?: number): UnreadCount[] {
+    const rows = this.db
+      .prepare(
+        `SELECT cm.conversation_id AS cid,
+           (SELECT COUNT(*) FROM (SELECT 1 FROM messages m
+              WHERE m.conversation_id = cm.conversation_id AND m.id > r.since AND m.deleted_at IS NULL
+                AND (m.author_id != cm.user_id OR m.webhook_id IS NOT NULL) LIMIT 100)) AS n,
+           (SELECT COUNT(*) FROM messages m
+              WHERE m.conversation_id = cm.conversation_id AND m.id > r.since AND m.deleted_at IS NULL AND m.author_id != cm.user_id
+                AND (m.mentions_everyone = 1 OR EXISTS (SELECT 1 FROM message_mentions x WHERE x.message_id = m.id AND x.user_id = cm.user_id))) AS pings
+         FROM conversation_members cm
+         JOIN (SELECT conversation_id, user_id,
+                 CASE WHEN unread_from IS NOT NULL THEN MIN(COALESCE(last_read_message_id, 0), unread_from - 1) ELSE COALESCE(last_read_message_id, 0) END AS since
+               FROM conversation_members) r ON r.conversation_id = cm.conversation_id AND r.user_id = cm.user_id
+         WHERE cm.user_id = ? ${conversationId ? "AND cm.conversation_id = ?" : ""}`,
+      )
+      .all(...(conversationId ? [userId, conversationId] : [userId])) as { cid: number; n: number; pings: number }[];
+    return rows.filter((r) => r.n > 0 || conversationId).map((r) => ({ conversationId: r.cid, count: Number(r.n), mentions: Number(r.pings) }));
   }
 
   private own(messageId: number, userId: number): MessageRow {

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { isExternalLink, onOrigin, permissionAllowed } from "../src/links.js";
+import { isExternalLink, isPopout, onOrigin, permissionAllowed } from "../src/links.js";
 import { normalizeServerUrl, originOf } from "../src/serverUrl.js";
 import { defaultSettings, SettingsStore } from "../src/settings.js";
 import { compareVersions, findUpdate, installKind, parseChecksums, pickUpdate } from "../src/updater.js";
@@ -102,4 +102,15 @@ test("updates come from the latest GitHub release", async () => {
   assert.equal(await findUpdate(fake, "0.7.0", "installer"), null);
   assert.equal(await findUpdate(async () => new Response("", { status: 404 }), "0.6.1", "portable"), null);
   await assert.rejects(findUpdate(async () => new Response("", { status: 500 }), "0.6.1", "portable"), /GitHub answered 500/);
+});
+
+test("only the app's own pop-out chat pages open app windows", () => {
+  const o = "https://chat.example.com";
+  assert.equal(isPopout("https://chat.example.com/?popout=c12", o), true);
+  assert.equal(isPopout("https://chat.example.com/?popout=s3.45", o), true);
+  assert.equal(isPopout("https://evil.example.net/?popout=c12", o), false);
+  assert.equal(isPopout("https://chat.example.com/admin?popout=c12", o), false);
+  assert.equal(isPopout("https://chat.example.com/?popout=c12&next=https://evil", o), false);
+  assert.equal(isPopout("https://chat.example.com/?popout=javascript", o), false);
+  assert.equal(isPopout("https://chat.example.com/", o), false);
 });

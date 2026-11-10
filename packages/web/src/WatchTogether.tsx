@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { parseWatchLink, watchPosition, type WatchItem, type WatchSession, type WatchVideo } from "@dendrop/shared";
 import { api } from "./api.ts";
+import { useDuckGain } from "./audio.ts";
 import { Modal } from "./Modal.tsx";
 
 /**
@@ -62,6 +63,30 @@ interface Driver {
   play(): Promise<void>;
   pause(): void;
   seek(seconds: number): void;
+  /** Volume from 0 to 1. */
+  volume(): number;
+  setVolume(v: number): void;
+}
+
+/**
+ * Ducking: while people talk in voice (as set in voice settings), the video plays quieter, then
+ * goes back to the volume it had.
+ */
+function useDucking(driver: Driver | null) {
+  const gain = useDuckGain();
+  const saved = useRef<number | null>(null);
+  useEffect(() => {
+    if (!driver) return;
+    if (gain < 1) {
+      saved.current ??= driver.volume();
+      driver.setVolume(saved.current * gain);
+    } else if (saved.current !== null) {
+      driver.setVolume(saved.current);
+      saved.current = null;
+    }
+  }, [driver, gain]);
+  // A new video starts from its own volume, not a ducked one.
+  useEffect(() => () => void (saved.current = null), [driver]);
 }
 
 /**
@@ -129,10 +154,15 @@ function VideoPlayer({ watch, canControl }: { watch: WatchSession; canControl: b
       seek: (s) => {
         v.currentTime = s;
       },
+      volume: () => v.volume,
+      setVolume: (x) => {
+        v.volume = Math.max(0, Math.min(1, x));
+      },
     });
   }, [item.id]);
 
   const blocked = useSync(driver, watch, applying);
+  useDucking(driver);
 
   // Someone using the video's own controls: tell everyone.
   const onPlay = () => {
@@ -174,6 +204,8 @@ interface YtPlayer {
   playVideo(): void;
   pauseVideo(): void;
   seekTo(seconds: number, allowSeekAhead: boolean): void;
+  getVolume(): number;
+  setVolume(volume: number): void;
   destroy(): void;
 }
 type YtNamespace = { Player: new (el: HTMLElement, opts: object) => YtPlayer };
@@ -231,6 +263,8 @@ function YouTubePlayer({ watch, canControl }: { watch: WatchSession; canControl:
                 play: async () => p.playVideo(),
                 pause: () => p.pauseVideo(),
                 seek: (s) => p.seekTo(s, true),
+                volume: () => p.getVolume() / 100,
+                setVolume: (x) => p.setVolume(Math.round(Math.max(0, Math.min(1, x)) * 100)),
               });
             },
             onStateChange: (e: { data: number }) => {
@@ -259,6 +293,7 @@ function YouTubePlayer({ watch, canControl }: { watch: WatchSession; canControl:
   }, [item.id]);
 
   useSync(driver, watch, applying);
+  useDucking(driver);
 
   return (
     <div className="watch-screen youtube" ref={box}>

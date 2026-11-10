@@ -873,6 +873,53 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX reports_server ON reports(server_id, resolved_at);
   `,
+  `
+  -- Channel categories: headings channels are grouped under in the sidebar.
+  CREATE TABLE server_categories (
+    id INTEGER PRIMARY KEY,
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX server_categories_server ON server_categories(server_id, position);
+  ALTER TABLE server_channels ADD COLUMN category_id INTEGER REFERENCES server_categories(id) ON DELETE SET NULL;
+  -- Seconds between each person's messages; 0 is off.
+  ALTER TABLE server_channels ADD COLUMN slowmode INTEGER NOT NULL DEFAULT 0;
+  -- Read-only channels: only people who manage channels, and these roles' members, post.
+  ALTER TABLE server_channels ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE channel_post_roles (
+    channel_id INTEGER NOT NULL REFERENCES server_channels(id) ON DELETE CASCADE,
+    role_id INTEGER NOT NULL REFERENCES server_roles(id) ON DELETE CASCADE,
+    PRIMARY KEY (channel_id, role_id)
+  );
+  -- "Remove and ban" became two permissions: roles that had it keep both.
+  UPDATE server_roles SET permissions = json_insert(permissions, '$[#]', 'banMembers')
+    WHERE EXISTS (SELECT 1 FROM json_each(server_roles.permissions) WHERE value = 'kickMembers');
+  `,
+  `
+  -- How someone shows up: 'online', 'dnd' (no message notifications) or 'invisible' (looks
+  -- offline). dnd_until ends Do Not Disturb by itself.
+  ALTER TABLE users ADD COLUMN presence TEXT NOT NULL DEFAULT 'online';
+  ALTER TABLE users ADD COLUMN dnd_until TEXT;
+  -- "Mark as unread": the first message to count as unread again, kept apart from
+  -- last_read_message_id so read receipts others saw don't go backwards.
+  ALTER TABLE conversation_members ADD COLUMN unread_from INTEGER;
+  `,
+  `
+  -- Forwarded messages: JSON {authorId, authorName, createdAt} of the original.
+  ALTER TABLE messages ADD COLUMN forwarded TEXT;
+  -- Messages someone saved to come back to (only they see the list).
+  CREATE TABLE saved_messages (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, message_id)
+  );
+  CREATE INDEX saved_messages_user ON saved_messages(user_id, created_at);
+  -- Your server list's folders and order (JSON list of RailItem).
+  ALTER TABLE users ADD COLUMN rail TEXT;
+  `,
 ];
 
 export function now(): string {

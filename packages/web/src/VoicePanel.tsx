@@ -193,8 +193,22 @@ export function VoicePanel({
     }
   }, [speaker, room]);
 
+  // A moderator's mute or deafen: turn the mic, camera and screen off here too (the call server
+  // already stops them being sent), and stop hearing the room while deafened.
+  const serverMuted = !!mine?.serverMuted || !!mine?.serverDeafened;
+  const serverDeafened = !!mine?.serverDeafened;
+  useEffect(() => {
+    if (!room || !serverMuted) return;
+    const p = room.localParticipant;
+    void Promise.all([p.setMicrophoneEnabled(false), p.setCameraEnabled(false), p.setScreenShareEnabled(false)]).catch(() => {}).then(bump);
+  }, [serverMuted, room]);
+  useEffect(() => {
+    setDeafened(serverDeafened);
+  }, [serverDeafened]);
+
   if (!room) return null;
   const local = room.localParticipant;
+  const heldBy = mine?.serverDeafened ? "A moderator deafened you" : mine?.serverMuted ? "A moderator muted you" : null;
   const micOn = local.isMicrophoneEnabled;
   const camOn = local.isCameraEnabled;
   const speakerIds = new Set(members.filter((m) => m.speaker).map((m) => String(m.userId)));
@@ -238,6 +252,10 @@ export function VoicePanel({
 
   const toggleMic = async () => {
     if (!speaker) return;
+    if (heldBy) {
+      setError(`${heldBy}. They can turn it back on.`);
+      return;
+    }
     if (deafened) {
       // Unmuting while deafened undeafens too: you can't talk without hearing.
       setDeafened(false);
@@ -253,6 +271,10 @@ export function VoicePanel({
   };
 
   const toggleDeafen = async () => {
+    if (serverDeafened) {
+      setError("A moderator deafened you. They can turn it back on.");
+      return;
+    }
     if (!deafened) {
       micBeforeDeafen.current = micOn;
       setDeafened(true);

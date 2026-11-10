@@ -6,8 +6,9 @@ feature board into a build order.
 
 **Top priority:** private direct messaging (text and calls) between people you trust, so Dendrop can replace Discord DMs first.
 
-**Current state:** Phase 0 is in place, and Phase 1 has sign-in, friends, live DMs and group chats, files, emoji, read receipts, and voice and video calls. Phase 3's chat servers are in: servers, locked channels, invites, the public directory, super admin approval and GIFs. Phase 4 has started with voice channels and screen sharing. The
-status column is updated as each piece lands.
+**Current state:** every phase has landed. What's left is listed under [Still to do](#still-to-do)
+at the end: mostly forward secrecy, encrypting server channels, and checks on real phones. The
+card status table is kept up to date as pieces land.
 
 ---
 
@@ -23,7 +24,7 @@ Compose stack on Unraid" and "one codebase for Windows, Linux, and Android".
 | Presence / typing | In memory in the server process | One server process per instance; Redis only if it ever needs several |
 | Voice, video, screen share | LiveKit (self-hosted SFU) | Handles WebRTC rooms, simulcast, screen share, game streaming |
 | File storage | Local volume, or MinIO (S3 API) | Uploads, avatars, custom emoji, banners |
-| Auth | TinyAuth as OIDC provider, app sessions in Postgres | SSO and MFA handled by TinyAuth |
+| Auth | TinyAuth as OIDC provider, app sessions in SQLite | SSO and MFA handled by TinyAuth |
 | Web client | React + Vite + TypeScript | Shared UI for every platform |
 | Desktop (Windows 11, Linux) | Electron (or Tauri) | Electron matches LootDen's desktop app, so tray, autostart, auto-update and packaging code can be reused; Tauri gives smaller binaries |
 | Android | Capacitor wrapping the same React app | APK builds, push notifications, native plugins for bubbles |
@@ -50,7 +51,7 @@ Dendrop exists to replace Discord and take privacy back, so these apply to every
 - **Self-hosted, no third-party dependencies by default.** Everything runs in your own Docker stack. Anything that talks to an outside service (GIF search, FCM push, link previews) is opt-in and off by default.
 - **End-to-end encryption for DMs.** Message content is encrypted on the device so the server only stores ciphertext. Shipped for DMs and group DMs (text and files), see [ENCRYPTION.md](ENCRYPTION.md). Calls in encrypted conversations use LiveKit's media E2EE. Still to come: forward secrecy (a Signal-style or MLS ratchet). Server channels can start unencrypted and adopt it later.
 - **Minimal data.** No analytics or tracking, no message scanning on the server for DM content; filtering for kid accounts runs on the client.
-- **Encrypted at rest and backups you control.** Postgres and file storage on encrypted volumes, with documented backup/restore.
+- **Encrypted at rest and backups you control.** The SQLite database and uploads live in the /data volume (put it on an encrypted disk), with documented backup and restore ([BACKUPS.md](BACKUPS.md)).
 - **Push notifications without content.** Notifications say "new message" and the app fetches the content, so ntfy/FCM never sees it.
 
 Note: E2EE and the kid-safe "parent sees deleted messages / ghost admin" features pull against each other. The plan is to scope oversight to kid accounts only, done on the kid's device with the family's consent, and never applied to adult DMs.
@@ -61,7 +62,7 @@ Each phase ends with something usable, so it can be self-hosted and tried before
 
 ### Phase 0: Foundation
 Goal: an empty but running stack.
-- Monorepo, linting, CI, Docker Compose with Postgres, Redis, LiveKit, and the server.
+- Monorepo, CI, Docker Compose with the server (SQLite inside it) and LiveKit.
 - **Systems → Server: docker / Unraid hosting** (initial compose file; Unraid template later).
 
 ### Phase 1: Accounts and direct messages (top priority)
@@ -130,7 +131,7 @@ Built on Phase 1 accounts, so it can start earlier if it becomes the priority. S
   - **Family wall:** Ctrl+Shift+S screenshots can be shared to a Dendrop channel, kid-safe filtering kept.
   - **Kid accounts:** LootDen's kid profiles and parent links can seed Dendrop's kid-safe accounts (Phase 5), so a parent sets things up once.
   - **Game links:** pasting a LootDen game link shows a card with cover art and a "Send to PC" button.
-- **Integrations → Den Duty integration.** [Den Duty](https://github.com/Spacegoose02/den-duty) is the family's chore tracker. Done: kids' chores today under their name for them and their parents, its events posted into a family channel and a grown-ups-only channel, and time-outs that pause chat or hold it until chores are done, plus a "chores first" rule ([DENDUTY.md](DENDUTY.md)). Next: approving chores from chat through the bot API ([BOTS.md](BOTS.md)).
+- **Integrations → Den Duty integration.** [Den Duty](https://github.com/Spacegoose02/den-duty) is the family's chore tracker. Done: kids' chores today under their name for them and their parents, its events posted into a family channel and a grown-ups-only channel, and time-outs that pause chat or hold it until chores are done, plus a "chores first" rule ([DENDUTY.md](DENDUTY.md)). Approving or sending back chores with buttons in the parents channel is done too.
 - A general bot / webhook API, which the LootDen integration and the kid-safe alert webhooks both use. Incoming webhooks are done (Server settings → Webhooks), and so are bots: accounts that post with buttons, hear clicks and answer ([BOTS.md](BOTS.md)).
 
 ---
@@ -150,53 +151,64 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Column | Card | Phase | Status |
 | --- | --- | --- | --- |
 | Systems | New Chat | 1 | Done (DMs and group chats) |
-| Systems | Windows 11 | 2 | Missing |
-| Systems | Android APK | 2 | Missing |
-| Systems | Linux | 2 | Missing |
+| Systems | Windows 11 | 2 | Done: Electron installer with tray, auto-update and background push to talk |
+| Systems | Linux | 2 | Done: AppImage and .deb |
+| Systems | Android APK | 2 | Done: debug APK on every release; a signed release APK too once the keystore secrets are added ([packages/android/README.md](../packages/android/README.md)) |
 | Systems | SSO with TinyAuth | 1 | Done |
-| Systems | MFA usable | 1 | Done (enforced in TinyAuth) |
+| Systems | MFA usable | 1 | Done (enforced in TinyAuth, plus Dendrop's own two-step sign-in) |
 | Systems | Automatically adjust input sensitivity | 4 | Done (automatic, manual threshold, or always on) |
 | Systems | Noise suppression with levels | 4 | Done: off, smart (RNNoise in an AudioWorklet, the same in every browser) and the browser's own (with voice isolation where it has it) |
-| Systems | Advanced audio switches | 4 | Partial: echo cancellation, automatic gain control, no-mic warnings; ducking and quality-of-service still to come |
-| Systems | Automatically open when PC starts | 2 | Missing |
+| Systems | Advanced audio switches | 4 | Done: echo cancellation, automatic gain control, no-mic warnings, quality of service and ducking ([POP-OUT-AND-AUDIO.md](POP-OUT-AND-AUDIO.md)) |
+| Systems | Automatically open when PC starts | 2 | Done (off by default) |
 | Systems | Keybinds | 2 | Done: push-to-talk, mute and deafen keys; in the PC app all three also work in the background (push to talk through a keyboard hook that only runs while you're in voice) |
-| Systems | Server: Docker / Unraid hosting | 0 | Done (Unraid template still to do) |
+| Systems | Server: Docker / Unraid hosting | 0 | Done, with an Unraid template ([deploy/unraid](../deploy/unraid)) |
+| Systems | In-game overlay (PC app) | 2, 8 | Done: who's in voice and talking, last messages, quick chat on Alt+\`; shows while LootDen says you're playing (or whenever in voice) ([WATCH-AND-OVERLAY.md](WATCH-AND-OVERLAY.md)) |
 | Backbone | Ability for chat servers | 3 | Done |
 | Backbone | Users / TinyAuth for SSO | 1 | Done |
-| Backbone | Super admin over whole server | 1 | Done: approves who can make servers, sees and deletes any server (never its messages) |
+| Backbone | Super admin over whole server | 1 | Done: approves who can make servers, sees and deletes any server (never its messages), handles reports |
 | Backbone | Joinable chat servers, can be private | 3 | Done |
-| Backbone | Private chat / direct message | 1 | Partial: DMs and group DMs live, end-to-end encrypted |
+| Backbone | Private chat / direct message | 1 | Done: DMs and group DMs, end-to-end encrypted (forward secrecy still to come) |
 | Backbone | Screen sharing | 4 | Done in voice channels (browser and PC app; the PC app has its own screen and window picker) |
 | Backbone | Game streaming | 4 | Done: "Game" quality (1080p 60 fps) with the game's sound (tab sound in browsers, PC sound in the Windows app) |
-| Backbone | Voice chat | 1 (DM calls), 4 (channels) | Done: calls in DMs and group chats, and drop-in voice channels in servers (mute, deafen, camera, who's talking) |
-| Backbone | Phone notifications | 2 | Partial: server sends content-free pushes; Android app in #7 |
+| Backbone | Voice chat | 1 (DM calls), 4 (channels) | Done: calls in DMs and group chats, and drop-in voice channels in servers (mute, deafen, camera, who's talking, server mute, move and disconnect) |
+| Backbone | Phone notifications | 2 | Done: content-free pushes to the Android app (UnifiedPush) and the iPhone app (APNs) |
 | Backbone | Speaker settings | 4 | Done (speaker picker where the browser allows, volume, test sound) |
 | Backbone | Microphone settings | 4 | Done (mic picker, mic check with level meter, hear yourself) |
 | Backbone | Friend invites | 1 | Done |
 | Backbone | Browse other chat servers | 3 | Done (public servers only; private ones are never listed) |
-| Backbone | Lock channels / owner chooses members | 3 | Done |
+| Backbone | Lock channels / owner chooses members | 3 | Done, plus roles with permissions, read-only channels and who-can-post ([MODERATION.md](MODERATION.md)) |
 | Backbone | Creator is owner of chat server | 3 | Done (owner and admin roles, ownership transfer) |
 | Backbone | Approval needed to create servers | 3 | Done |
+| Safety | Blocking, reporting, sign-in limits | 1 | Done: block people, report messages and people to server moderators or the super admin, sign-in attempts limited ([SAFETY.md](SAFETY.md)) |
+| Safety | Delete your account, download your data | 1 | Done ([SAFETY.md](SAFETY.md)) |
 | Features | Message read receipts | 1 | Done |
+| Features | Unread counts and mark as unread | 1 | Done ([UNREAD-AND-PRESENCE.md](UNREAD-AND-PRESENCE.md)) |
+| Features | Do Not Disturb and invisible | 1 | Done ([UNREAD-AND-PRESENCE.md](UNREAD-AND-PRESENCE.md)) |
 | Features | Message search | 3 | Done: full-text search of channels and plain DMs on the server; encrypted chats searched on the device ([MESSAGES.md](MESSAGES.md)) |
-| Features | Replies and @mentions | 3 | Done: replies with a ping switch, @name and @everyone (a server permission), per-chat and per-server notification settings ([MESSAGES.md](MESSAGES.md)) |
+| Features | Replies and @mentions | 3 | Done: replies with a ping switch, @name and @everyone (a server permission), per-chat and per-server notification settings, and a mentions inbox ([MESSAGES.md](MESSAGES.md), [INBOX-AND-FOLDERS.md](INBOX-AND-FOLDERS.md)) |
+| Features | Forwarding and saved messages | 3 | Done ([INBOX-AND-FOLDERS.md](INBOX-AND-FOLDERS.md)) |
 | Features | Markdown | 3 | Done: bold, italic, underline, strike, code and code blocks, spoilers, quotes, headings, lists ([MESSAGES.md](MESSAGES.md)) |
 | Features | Link previews | 3 | Done: off until a super admin turns them on; fetched by the server, never from the home network; off in encrypted chats unless opted in; kids need a parent's OK ([MESSAGES.md](MESSAGES.md)) |
 | Features | Emojis | 1 | Done: searchable picker, `:name:` suggestions, reactions ([EXPRESSIONS.md](EXPRESSIONS.md)) |
 | Features | GIFs | 3 | Done: GIPHY search, off until a super admin adds a key; searches and GIFs go through the server; kids need a parent's OK and get G only ([EXPRESSIONS.md](EXPRESSIONS.md)) |
-| Features | Custom app icons | 7 | Missing |
+| Features | Custom app icons | 7 | Done: alternate raccoon icons and a "Match theme" icon, per device |
 | Features | File uploading | 1 | Done (pictures inline, other files download) |
 | Features | Custom emoji upload, sections | 7 | Done: per-server still and animated emoji and stickers, sections per server in the picker, a Manage emoji & stickers permission ([EXPRESSIONS.md](EXPRESSIONS.md)) |
-| Features | Themes (dark, nuclear, gaming, laser) | 7 | Missing |
-| Features | Pop-out chats | 2 | Missing |
-| Features | Android chat bubbles for DMs | 2 | Missing |
-| Features | Activity privacy | 1 | Done: read receipts and showing what you're playing can each be turned off |
+| Features | Themes (dark, nuclear, gaming, laser) | 7 | Done: 42 themes in five packs (Den, Dark, Nuclear, Gaming, Laser) ([packages/theme](../packages/theme/README.md)) |
+| Features | Pop-out chats | 2 | Done: any chat or channel in its own window, in the PC app and browsers ([POP-OUT-AND-AUDIO.md](POP-OUT-AND-AUDIO.md)) |
+| Features | Android chat bubbles for DMs | 2 | Done: pop a DM out into a bubble, Android 11 and up; needs a check on a real phone ([POP-OUT-AND-AUDIO.md](POP-OUT-AND-AUDIO.md)) |
+| Features | Server folders | 3 | Done ([INBOX-AND-FOLDERS.md](INBOX-AND-FOLDERS.md)) |
+| Features | Activity privacy | 1 | Done: read receipts and showing what you're playing can each be turned off, and you can appear offline |
 | Features | Invite links | 3 | Done (links with expiry and use limits, and invites to friends) |
 | Features | Server chat profile / rename | 7 | Done (name, description, per-server nickname) |
 | Features | User profiles | 7 | Done: profile picture, banner, about me, pronouns and a custom status that clears itself, on a profile card with Playing now, roles and raccoon rank; kid profiles follow parents' rules ([PROFILES.md](PROFILES.md)) |
 | Features | Server chat banner | 7 | Done (icon and banner) |
+| Servers | Categories, slowmode, read-only channels | 3 | Done ([MODERATION.md](MODERATION.md)) |
+| Servers | Scheduled events and stage channels | 4 | Done: events with RSVPs, reminders and weekly repeats; stage channels with raised hands ([EVENTS.md](EVENTS.md)) |
+| Voice | Watch together | 4 | Done: synced videos in voice and stage channels from the channel's chat or a link, with a queue; YouTube when a super admin turns it on; kids get chat videos only ([WATCH-AND-OVERLAY.md](WATCH-AND-OVERLAY.md)) |
 | Integrations | LootDen integration | 8 | Done: playing now, alerts through webhooks, game-link cards with Send to PC, game nights with a voice channel, family wall screenshots (kid-safe) and kid accounts from LootDen's kid profiles, LootDen bedtime and game time in kids' time rules, and "Surprise us" picks shared through a webhook (with LootDen's Share to chat button) ([LOOTDEN.md](LOOTDEN.md)) |
-| Integrations | Den Duty integration | 8 | Partial: chores line, events in channels and chat pauses from time-outs and chores ([DENDUTY.md](DENDUTY.md)); a bot still to come |
+| Integrations | Den Duty integration | 8 | Done: chores line, events in channels, chat pauses from time-outs and chores, and approving chores from chat ([DENDUTY.md](DENDUTY.md)); help asks wait on Den Duty's API |
+| Integrations | Bots and webhooks | 8 | Done: incoming webhooks, and bots that post with buttons and answer clicks ([BOTS.md](BOTS.md)) |
 | Kid safe chat | Profanity filters | 5 | Done for kid accounts: hidden in what they read and blocked when they send (on their device, and on the server for plain messages), extra words per kid |
 | Kid safe chat | Kid's deleted messages sent to parent | 5 | Done: kept (still encrypted, files too) until a parent has looked and marks it done |
 | Kid safe chat | Time-based controls | 5 | Done: chat hours and daily minutes, enforced by the server; can follow LootDen's bedtime and share the daily time with games |
@@ -204,23 +216,23 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Kid safe chat | Link kid accounts with parents | 5 | Done: link codes (the kid sees what parents can see first) and super admin links; LootDen kid profiles in Phase 8 |
 | Kid safe chat | Webhook alert notifications | 5 | Done: in-app alerts and a content-free webhook per parent (ntfy, Apprise, Home Assistant) |
 | Kid safe chat | Parents as ghost admins when alerted | 5 | Done: read-only view of an alerted chat, end-to-end encrypted to parents, with an audit log the kid sees |
-| Sounds | Sounds for deafen/mute events | 4 | Missing |
-| Kid safe chat | Profanity filters | 5 | Missing |
-| Kid safe chat | Kid's deleted messages sent to parent | 5 | Missing |
-| Kid safe chat | Time-based controls | 5 | Missing |
-| Kid safe chat | Parental controls | 5 | Missing |
-| Kid safe chat | Link kid accounts with parents | 5 | Missing |
-| Kid safe chat | Webhook alert notifications | 5 | Missing |
-| Kid safe chat | Parents as ghost admins when alerted | 5 | Missing |
 | Sounds | Sounds for deafen/mute events | 4 | Done (mute, unmute, deafen, undeafen, join, leave; can be turned off) |
-| Sounds | Incoming call / message notifications | 2 | Missing |
+| Sounds | Incoming call / message notifications | 2 | Done: calls ring full screen on Android and on iOS's call screen; content-free message notifications on phones and the PC app |
 | Automod | Automod settings | 6 | Done (blocked words, spam and mentions, links, new accounts; block, alert, timeout; exempt roles and channels; mod log) |
-| Servers | Scheduled events and stage channels | 4 | Done: events with RSVPs, reminders and weekly repeats; stage channels with raised hands ([EVENTS.md](EVENTS.md)) |
-| Voice | Watch together | 4 | Done: synced videos in voice and stage channels from the channel's chat or a link, with a queue; YouTube when a super admin turns it on; kids get chat videos only ([WATCH-AND-OVERLAY.md](WATCH-AND-OVERLAY.md)) |
-| Systems | In-game overlay (PC app) | 2, 8 | Done: who's in voice and talking, last messages, quick chat on Alt+\`; shows while LootDen says you're playing (or whenever in voice) ([WATCH-AND-OVERLAY.md](WATCH-AND-OVERLAY.md)) |
-| Look alike | Layout reference 1 (settings) | 1, 7 | Missing |
-| Look alike | Layout reference 2 (main chat) | 1, 7 | Missing |
+| Look alike | Layout reference 1 (settings) | 1, 7 | Partial: settings is a dialog of sections, not yet a full page with a left nav |
+| Look alike | Layout reference 2 (main chat) | 1, 7 | Done: server rail, channel list with members, chat, and your controls bottom-left |
 
-## Open questions
-1. Should kid-safe chat move ahead of chat servers and voice channels (Phases 3 and 4)?
-2. Desktop shell: Electron to share code with LootDen's app, or Tauri for smaller installs? The plan assumes Electron unless you prefer otherwise.
+## Still to do
+
+- **Forward secrecy** for encrypted DMs (a Signal-style or MLS ratchet), see [ENCRYPTION.md](ENCRYPTION.md).
+- **End-to-end encryption for server channels and voice channels.** DM calls are encrypted today; server channels are not yet.
+- **Signed Android release:** the build is ready; it needs the keystore secrets added once.
+- **Checks on real devices:** Android bubbles, the lock-screen call screen, and the iPhone app.
+- **Android call screen with Answer and Decline buttons:** needs the call id in the push, and a foreground service so calls keep going with the screen off.
+- **Den Duty help asks** from chat, once Den Duty's API has them.
+- **Other languages.** Everything is English for now.
+
+## Decisions made
+
+1. Kid-safe chat came in after chat servers and voice, and is done.
+2. The desktop app is Electron, sharing tray, autostart and update code with LootDen's app.

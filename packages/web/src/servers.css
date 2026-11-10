@@ -1446,3 +1446,91 @@ select {
   flex-direction: column;
   gap: 4px;
 }
+
+/* Folders in the server list */
+.rail-slot {
+  display: contents;
+}
+.rail-folder {
+  --folder: var(--dd-accent);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--dd-radius-lg);
+}
+.rail-folder.open {
+  padding-bottom: 6px;
+  background: color-mix(in srgb, var(--folder) 18%, var(--dd-bg-rail));
+}
+.rail-folder-button {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--dd-radius-lg);
+  background: color-mix(in srgb, var(--folder) 30%, var(--dd-bg-raised));
+}
+.rail-folder.open .rail-folder-button {
+  background: none;
+  color: var(--folder);
+}
+.rail-folder-icon {
+  font-size: 22px;
+}
+.rail-folder-grid {
+  display: grid;
+  grid-template-columns: 20px 20px;
+  gap: 3px;
+}
+.rail-folder-grid .server-icon {
+  border-radius: 6px;
+  font-size: 8px;
+}
+.rail-menu {
+  position: fixed;
+  z-index: 60;
+  width: 220px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: var(--dd-radius);
+  border: 1px solid var(--dd-border);
+  background: var(--dd-bg-raised);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+}
+.rail-menu > strong {
+  padding: 4px 8px;
+}
+.rail-menu button[role="menuitem"] {
+  width: 100%;
+  padding: 6px 8px;
+  text-align: left;
+  background: none;
+}
+.rail-menu button[role="menuitem"]:hover {
+  background: var(--dd-bg-hover);
+}
+.rail-menu input {
+  width: 100%;
+}
+.rail-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+}
+.rail-colors .swatch {
+  width: 20px;
+  height: 20px;
+}
+.rail-error {
+  width: 60px;
+  font-size: 10px;
+  text-align: center;
+  color: var(--dd-danger);
+  cursor: pointer;
+}

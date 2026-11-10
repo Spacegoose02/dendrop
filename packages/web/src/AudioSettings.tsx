@@ -163,6 +163,41 @@ export function AudioSettings() {
           <span className="muted small">Evens out your volume when you lean in or move away.</span>
         </span>
       </label>
+      <label className="toggle">
+        <input type="checkbox" checked={prefs.qos} onChange={(e) => set({ qos: e.target.checked })} />
+        <span>
+          <strong>Put voice first on the network (quality of service)</strong>
+          <span className="muted small">Marks your voice as urgent so routers that respect it send it ahead of downloads. Turn off if your network acts up with it on.</span>
+        </span>
+      </label>
+
+      <h3>Ducking</h3>
+      <p className="muted small">Turns down watch-together videos while people talk, so voices come through.</p>
+      <label className="toggle">
+        <input type="checkbox" checked={prefs.duckOthers} onChange={(e) => set({ duckOthers: e.target.checked })} />
+        <span>
+          <strong>When others speak</strong>
+        </span>
+      </label>
+      <label className="toggle">
+        <input type="checkbox" checked={prefs.duckMe} onChange={(e) => set({ duckMe: e.target.checked })} />
+        <span>
+          <strong>When I speak</strong>
+        </span>
+      </label>
+      <label className="range-row">
+        <span>Volume while ducked</span>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={prefs.duckLevel}
+          disabled={!prefs.duckOthers && !prefs.duckMe}
+          onChange={(e) => set({ duckLevel: Number(e.target.value) })}
+        />
+        <span className="range-value">{prefs.duckLevel}%</span>
+      </label>
+
       <h3>Soundboard</h3>
       <label className="range-row">
         <span>Soundboard volume</span>

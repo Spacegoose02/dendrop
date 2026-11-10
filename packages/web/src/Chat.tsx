@@ -46,6 +46,8 @@ import { fromMentionTokens, mentionSuggestions, mentionsIn, toMentionTokens, typ
 import { NotifyMenu } from "./notify.tsx";
 import { ReportDialog, useBlockedIds } from "./Safety.tsx";
 import { LinkPreviews } from "./LinkPreview.tsx";
+import { postMessage } from "./send.ts";
+import { startForward, toggleSaved, useSavedIds } from "./Inbox.tsx";
 import { clearJump, openSearch, requestJump, useJumpTarget } from "./Search.tsx";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -74,8 +76,10 @@ export interface ChannelInfo {
   canPin?: boolean;
   /** Opens the pinned board. */
   onPins?: () => void;
-  /** Set when you can't post here (a closed thread): why. */
+  /** Set when you can't post here (a closed thread, a read-only channel): why. */
   readOnly?: string | null;
+  /** Seconds you wait between messages here (0 or unset: no wait). */
+  slowmode?: number;
   /** Extra buttons for the header (a thread's close and rename). */
   actions?: ReactNode;
   /** What the start of the history says instead of the channel's usual line. */
@@ -98,6 +102,7 @@ export function Chat({
   typingIds,
   sendTyping,
   onBack,
+  onPopOut,
   callsEnabled,
   call,
   inThisCall,
@@ -115,6 +120,8 @@ export function Chat({
   typingIds: number[];
   sendTyping: () => void;
   onBack: () => void;
+  /** Opens this chat in a window of its own (desktop and browsers only). */
+  onPopOut?: () => void;
   callsEnabled: boolean;
   call: Call | undefined;
   inThisCall: boolean;
@@ -133,6 +140,7 @@ export function Chat({
   const [replyPing, setReplyPing] = useState(true);
   /** A message being reported, and blocked people's messages someone chose to show anyway. */
   const [reporting, setReporting] = useState<ChatMessage | null>(null);
+  const savedIds = useSavedIds();
   const [shownBlocked, setShownBlocked] = useState<Set<number>>(() => new Set());
   const blockedIds = useBlockedIds();
   /** A message to scroll to (from search or a reply), and the one briefly highlighted. */
@@ -199,6 +207,15 @@ export function Chat({
   // A server timeout ends on its own: re-render when it does.
   const [, setTick] = useState(0);
   const timedOutUntil = channel?.timedOutUntil && Date.parse(channel.timedOutUntil) > Date.now() ? channel.timedOutUntil : null;
+  // Slowmode: when you can post again, counted down here (the server checks too).
+  const [slowUntil, setSlowUntil] = useState(0);
+  const [, setSlowTick] = useState(0);
+  const slowLeft = Math.max(0, Math.ceil((slowUntil - Date.now()) / 1000));
+  useEffect(() => {
+    if (slowLeft <= 0) return;
+    const t = setTimeout(() => setSlowTick((n) => n + 1), 1000);
+    return () => clearTimeout(t);
+  }, [slowLeft, slowUntil]);
   useEffect(() => {
     if (!timedOutUntil) return;
     const t = setTimeout(() => setTick((n) => n + 1), Math.min(Date.parse(timedOutUntil) - Date.now() + 500, 2 ** 31 - 1));
@@ -235,7 +252,21 @@ export function Chat({
 
   // Tell the server how far this person has read, whenever new messages show while the window
   // is in front.
+  /** Marks the chat unread from this message on, for you only; it stays that way until you come back to it. */
+  const markUnread = async (m: ChatMessage) => {
+    try {
+      await api(`/api/conversations/${conversation.id}/unread`, { body: { messageId: m.id } });
+      lastMarked.current = Math.max(lastMarked.current, newest);
+      setNotice("Marked unread. It'll stay that way until you come back to this chat.");
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : "Couldn't mark that unread");
+    }
+  };
   const newest = history?.messages.at(-1)?.id ?? 0;
+  // Coming back to a chat (even one marked unread) reads it again.
+  useEffect(() => {
+    lastMarked.current = 0;
+  }, [conversation.id]);
   useEffect(() => {
     const mark = () => {
       if (!newest || newest <= lastMarked.current || document.visibilityState !== "visible" || !document.hasFocus()) return;
@@ -352,7 +383,7 @@ export function Chat({
       return;
     }
     const body = toMentionTokens(toTokens(draft.trim(), emojis), conversation.members);
-    if ((!body && files.length === 0) || sending) return;
+    if ((!body && files.length === 0) || sending || slowLeft > 0) return;
     if (filter && findBlockedWords(body, filter).length) {
       setError("That message has a word your family filter blocks. Your parents get a heads-up (not the word).");
       void report("profanity");
@@ -378,6 +409,7 @@ export function Chat({
       }
       const shown = await reveal(m);
       setHistory((h) => (h ? { ...h, messages: upsert(h.messages, shown) } : { messages: [shown], hasMore: false }));
+      if (channel?.slowmode) setSlowUntil(Date.now() + channel.slowmode * 1000);
     } catch (err) {
       setDraft(fromMentionTokens(fromTokens(body, emojis), conversation.members));
       setReplyTo(answering);
@@ -471,34 +503,9 @@ export function Chat({
   };
 
   /** Sends a message: encrypted once the conversation has a key, plain until everyone has set up. */
-  const post = async (c: Conversation, body: string, sendingFiles: File[], reply?: { replyToId: number; replyPing: boolean }): Promise<Message> => {
-    const url = `/api/conversations/${c.id}/messages`;
-    // Server channels aren't end-to-end encrypted yet, so they never make keys.
-    const version = channel ? null : await keyring.forSending(c);
-    const extra: Record<string, string> = reply ? { replyToId: String(reply.replyToId), replyPing: String(reply.replyPing) } : {};
-    if (version) {
-      // The server can't read an encrypted message, so it's told who it pings (only that).
-      const pings = mentionsIn(body);
-      const meta = { ...(reply ?? {}), mentions: pings.ids, mentionsEveryone: pings.everyone };
-      const encrypted = await Promise.all(sendingFiles.map((f) => encryptFile(c.id, version, f)));
-      const cipher = await encryptMessage(c.id, me.id, version, body, encrypted.map((x) => x.meta));
-      if (encrypted.length === 0) return api<Message>(url, { body: { body: cipher, keyVersion: version, ...meta } });
-      const form = new FormData();
-      form.append("body", cipher);
-      form.append("keyVersion", String(version));
-      for (const [k, v] of Object.entries(extra)) form.append(k, v);
-      form.append("mentions", JSON.stringify(pings.ids));
-      form.append("mentionsEveryone", String(pings.everyone));
-      for (const x of encrypted) form.append("file", x.blob, "file");
-      return apiForm<Message>(url, form);
-    }
-    if (sendingFiles.length === 0) return api<Message>(url, { body: { body, ...(reply ?? {}) } });
-    const form = new FormData();
-    form.append("body", body);
-    for (const [k, v] of Object.entries(extra)) form.append(k, v);
-    for (const f of sendingFiles) form.append("file", f, f.name);
-    return apiForm<Message>(url, form);
-  };
+  // Server channels aren't end-to-end encrypted yet, so they never make keys.
+  const post = (c: Conversation, body: string, sendingFiles: File[], reply?: { replyToId: number; replyPing: boolean }): Promise<Message> =>
+    postMessage(c, me.id, !!channel, body, sendingFiles, { reply });
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (suggestions.length && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) {
@@ -669,6 +676,11 @@ export function Chat({
             🔍
           </button>
           <NotifyMenu conversationId={conversation.id} serverId={channel?.serverId} serverName={channel?.serverName} />
+          {onPopOut && (
+            <button className="ghost icon" onClick={onPopOut} title="Pop out into its own window" aria-label="Pop out into its own window">
+              ⧉
+            </button>
+          )}
         </span>
         {(channel?.onPins || channel?.actions) && (
           <span className="header-actions">
@@ -826,6 +838,11 @@ export function Chat({
                       📌
                     </span>
                   )}
+                  {m.forwarded && !m.deleted && (
+                    <div className="forwarded-line muted small">
+                      ↪ Forwarded · {m.forwarded.authorName}, {new Date(m.forwarded.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                    </div>
+                  )}
                   {editing?.id === m.id ? (
                     <div className="edit">
                       <textarea
@@ -953,7 +970,28 @@ export function Chat({
                         ⏰
                       </button>
                     )}
-                    {mine && !m.locked && !m.poll && !m.game && !m.nudge && (
+                    {!m.locked && !m.poll && !m.game && !m.nudge && (
+                      <button className="ghost" onClick={() => startForward(m)} title="Forward" aria-label="Forward">
+                        ↪
+                      </button>
+                    )}
+                    {!m.locked && (
+                      <button
+                        className={`ghost ${savedIds.has(m.id) ? "on" : ""}`}
+                        onClick={() =>
+                          void toggleSaved(m.id).then(
+                            (on) => setNotice(on ? "Saved. Find it in your inbox under Saved." : "Removed from saved."),
+                            (e: Error) => setNotice(e.message),
+                          )
+                        }
+                        title={savedIds.has(m.id) ? "Remove from saved" : "Save for later"}
+                        aria-label={savedIds.has(m.id) ? "Remove from saved" : "Save for later"}
+                        aria-pressed={savedIds.has(m.id)}
+                      >
+                        🔖
+                      </button>
+                    )}
+                    {mine && !m.locked && !m.poll && !m.game && !m.nudge && !m.forwarded && (
                       <button className="ghost" onClick={() => setEditing({ id: m.id, text: fromMentionTokens(fromTokens(m.text, emojis), conversation.members) })} title="Edit">
                         Edit
                       </button>
@@ -961,6 +999,11 @@ export function Chat({
                     {(mine || channel?.canModerate) && (
                       <button className="ghost danger" onClick={() => void remove(m)} title="Delete">
                         Delete
+                      </button>
+                    )}
+                    {!mine && (
+                      <button className="ghost" onClick={() => void markUnread(m)} title="Mark unread from here" aria-label="Mark unread from here">
+                        ◉
                       </button>
                     )}
                     {!mine && !m.webhook && !m.locked && (
@@ -1016,6 +1059,11 @@ export function Chat({
         )}
         {timeUp && <p className="family-banner small">⏰ {timeUp} You can still read messages.</p>}
         {channel?.readOnly && <p className="family-banner small">🔒 {channel.readOnly}</p>}
+        {!!channel?.slowmode && !channel.readOnly && (
+          <p className="muted small slowmode-note" role="status">
+            🐢 Slowmode is on{slowLeft > 0 ? `: you can post again in ${slowLeft}s` : `: one message every ${channel.slowmode >= 60 ? `${Math.round(channel.slowmode / 60)} min` : `${channel.slowmode}s`}`}.
+          </p>
+        )}
         {timedOutUntil && (
           <p className="family-banner small timeout-banner">
             ⏳ You're timed out in this server until{" "}
@@ -1173,7 +1221,7 @@ export function Chat({
               🎤
             </button>
           )}
-          <button className="primary send" onClick={() => void send()} disabled={sending || !!timeUp || !!timedOutUntil || !!channel?.readOnly || (!draft.trim() && files.length === 0)} aria-label="Send">
+          <button className="primary send" onClick={() => void send()} disabled={sending || !!timeUp || !!timedOutUntil || !!channel?.readOnly || slowLeft > 0 || (!draft.trim() && files.length === 0)} aria-label="Send">
             {sending ? (
               "…"
             ) : (
