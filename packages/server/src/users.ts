@@ -1,4 +1,4 @@
-import { liveStatus, type CustomStatus, type Me, type PublicUser } from "@dendrop/shared";
+import { liveStatus, type CustomStatus, type Me, type PresenceMode, type PublicUser } from "@dendrop/shared";
 import { now, type Db } from "./db.js";
 
 export interface UserRecord {
@@ -15,6 +15,8 @@ export interface UserRecord {
   isSuperAdmin: boolean;
   readReceipts: boolean;
   shareActivity: boolean;
+  presence: PresenceMode;
+  dndUntil: string | null;
   publicKey: string | null;
   keyBackup: string | null;
   canCreateServers: boolean;
@@ -51,6 +53,8 @@ interface Row {
   is_super_admin: number;
   read_receipts: number;
   share_activity: number;
+  presence: string;
+  dnd_until: string | null;
   public_key: string | null;
   key_backup: string | null;
   can_create_servers: number;
@@ -85,6 +89,8 @@ const fromRow = (r: Row): UserRecord => ({
   isSuperAdmin: !!r.is_super_admin,
   readReceipts: !!r.read_receipts,
   shareActivity: !!r.share_activity,
+  presence: r.presence === "dnd" || r.presence === "invisible" ? r.presence : "online",
+  dndUntil: r.dnd_until,
   publicKey: r.public_key,
   keyBackup: r.key_backup,
   canCreateServers: !!r.can_create_servers,
@@ -135,7 +141,13 @@ export const toMe = (u: UserRecord): Me => ({
   isKid: u.isKid,
   managedBy: u.isKid ? u.managedBy : null,
   couplesKit: couplesAllowed(u),
+  presence: presenceNow(u),
+  dndUntil: presenceNow(u) === "dnd" ? u.dndUntil : null,
 });
+
+/** Someone's presence right now: Do Not Disturb that ran out counts as online. */
+export const presenceNow = (u: Pick<UserRecord, "presence" | "dndUntil">, at = Date.now()): PresenceMode =>
+  u.presence === "dnd" && u.dndUntil && Date.parse(u.dndUntil) <= at ? "online" : u.presence;
 
 /** Every user column, plus whether they're a kid account. */
 const SELECT = "SELECT users.*, EXISTS (SELECT 1 FROM family_links f WHERE f.kid_id = users.id) AS is_kid FROM users";
@@ -265,6 +277,11 @@ export class UserRepo {
     if (patch.oidcSubject !== undefined) this.db.prepare("UPDATE users SET oidc_subject = ? WHERE id = ?").run(patch.oidcSubject, id);
     if (patch.isSuperAdmin !== undefined) this.db.prepare("UPDATE users SET is_super_admin = ? WHERE id = ?").run(patch.isSuperAdmin ? 1 : 0, id);
     if (patch.passwordHash !== undefined) this.db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(patch.passwordHash, id);
+    return this.byId(id)!;
+  }
+
+  setPresence(id: number, presence: PresenceMode, dndUntil: string | null): UserRecord {
+    this.db.prepare("UPDATE users SET presence = ?, dnd_until = ? WHERE id = ?").run(presence, presence === "dnd" ? dndUntil : null, id);
     return this.byId(id)!;
   }
 }

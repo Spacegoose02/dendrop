@@ -16,6 +16,12 @@ export class NotificationService {
     private readonly push: PushService,
   ) {}
 
+  /** Whether someone has Do Not Disturb on right now. */
+  dnd(userId: number, at = Date.now()): boolean {
+    const r = this.db.prepare("SELECT presence, dnd_until FROM users WHERE id = ?").get(userId) as { presence: string; dnd_until: string | null } | undefined;
+    return r?.presence === "dnd" && (!r.dnd_until || Date.parse(r.dnd_until) > at);
+  }
+
   settings(userId: number): NotificationSettings {
     const out: NotificationSettings = { conversations: {}, servers: {} };
     const rows = this.db.prepare("SELECT scope, target_id, level FROM notification_settings WHERE user_id = ?").all(userId) as {
@@ -75,7 +81,8 @@ export class NotificationService {
       const own = uid === senderId;
       const mentioned = !own && (!!m.mentionsEveryone || !!m.mentions?.includes(uid));
       const level = this.levelFor(uid, m.conversationId);
-      const notify = !own && (level === "all" || (level === "mentions" && mentioned));
+      // Do Not Disturb: the message still arrives, just without a notification or a push.
+      const notify = !own && (level === "all" || (level === "mentions" && mentioned)) && !this.dnd(uid);
       const muted = level === "nothing";
       const key = `${notify}|${mentioned}|${muted}`;
       groups.set(key, [...(groups.get(key) ?? []), uid]);

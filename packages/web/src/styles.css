@@ -2254,3 +2254,110 @@ h5.md-h {
 .slowmode-note {
   margin: 0 0 4px;
 }
+
+/* ---- Unread counts and your presence ---------------------------------------------------------- */
+.status.dnd {
+  background: var(--dd-danger);
+}
+.unread-badge {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  background: var(--dd-bg-hover);
+  color: var(--dd-text);
+}
+.unread-badge.mention {
+  background: var(--dd-danger);
+  color: #fff;
+}
+.rail-badge {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  background: var(--dd-danger);
+  color: #fff;
+  border: 3px solid var(--dd-bg-rail);
+  box-sizing: content-box;
+}
+/* Sits right over the status dot on your avatar in the bottom-left corner. */
+.me {
+  position: relative;
+}
+.presence-picker {
+  position: absolute;
+  left: 39px;
+  bottom: 9px;
+}
+.presence-button {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+.presence-button:hover,
+.presence-button[aria-expanded="true"] {
+  background: transparent;
+  box-shadow: 0 0 0 2px var(--dd-accent);
+}
+.presence-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--dd-online);
+}
+.presence-dot.dnd {
+  background: var(--dd-danger);
+}
+.presence-dot.invisible {
+  background: transparent;
+  border: 3px solid var(--dd-text-faint);
+  box-sizing: border-box;
+}
+.presence-menu {
+  position: absolute;
+  left: -30px;
+  bottom: calc(100% + 6px);
+  z-index: 40;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  padding: 6px;
+  border-radius: var(--dd-radius);
+  border: 1px solid var(--dd-border);
+  background: var(--dd-bg-raised);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.3);
+}
+.presence-menu .menu-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 7px 8px;
+  text-align: left;
+}
+.presence-menu .menu-item .presence-dot {
+  margin-top: 3px;
+}
+.presence-menu .menu-item > span:last-child {
+  display: flex;
+  flex-direction: column;
+}
+.presence-menu .menu-item.active {
+  background: var(--dd-bg-hover);
+  box-shadow: inset 3px 0 0 var(--dd-accent);
+}

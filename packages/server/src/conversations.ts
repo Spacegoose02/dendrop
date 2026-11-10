@@ -1,4 +1,4 @@
-import { EVERYONE_RE, LIMITS, MENTION_RE, type Attachment, type ReplyRef, type MessageButton, type Conversation, type ConversationE2ee, type Message, type NudgeKind, type ReadState, type ThreadRef, type WrappedKey } from "@dendrop/shared";
+import { EVERYONE_RE, LIMITS, MENTION_RE, type Attachment, type ReplyRef, type MessageButton, type Conversation, type ConversationE2ee, type Message, type NudgeKind, type ReadState, type ThreadRef, type UnreadCount, type WrappedKey } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { ExpressionRepo } from "./expressions.js";
@@ -510,7 +510,40 @@ export class ConversationRepo {
          WHERE conversation_id = ? AND user_id = ? AND (last_read_message_id IS NULL OR last_read_message_id < ?)`,
       )
       .run(messageId, conversationId, userId, messageId);
+    // Reading up to (or past) where someone marked it unread clears the mark.
+    this.db.prepare("UPDATE conversation_members SET unread_from = NULL WHERE conversation_id = ? AND user_id = ? AND unread_from <= ?").run(conversationId, userId, messageId);
     return Number(res.changes) > 0 ? messageId : null;
+  }
+
+  /** Marks a conversation unread from a message on, for this person only (read receipts stay). */
+  markUnread(conversationId: number, userId: number, messageId: number): void {
+    const msg = this.db.prepare("SELECT id FROM messages WHERE id = ? AND conversation_id = ?").get(messageId, conversationId);
+    if (!msg) throw new HttpError(404, "No such message");
+    this.db.prepare("UPDATE conversation_members SET unread_from = ? WHERE conversation_id = ? AND user_id = ?").run(messageId, conversationId, userId);
+  }
+
+  /**
+   * Unread messages from others in each of someone's conversations (DMs, groups, channels and
+   * threads), counting from where they last read or marked unread. Only conversations with any.
+   */
+  unread(userId: number, conversationId?: number): UnreadCount[] {
+    const rows = this.db
+      .prepare(
+        `SELECT cm.conversation_id AS cid,
+           (SELECT COUNT(*) FROM (SELECT 1 FROM messages m
+              WHERE m.conversation_id = cm.conversation_id AND m.id > r.since AND m.deleted_at IS NULL
+                AND (m.author_id != cm.user_id OR m.webhook_id IS NOT NULL) LIMIT 100)) AS n,
+           (SELECT COUNT(*) FROM messages m
+              WHERE m.conversation_id = cm.conversation_id AND m.id > r.since AND m.deleted_at IS NULL AND m.author_id != cm.user_id
+                AND (m.mentions_everyone = 1 OR EXISTS (SELECT 1 FROM message_mentions x WHERE x.message_id = m.id AND x.user_id = cm.user_id))) AS pings
+         FROM conversation_members cm
+         JOIN (SELECT conversation_id, user_id,
+                 CASE WHEN unread_from IS NOT NULL THEN MIN(COALESCE(last_read_message_id, 0), unread_from - 1) ELSE COALESCE(last_read_message_id, 0) END AS since
+               FROM conversation_members) r ON r.conversation_id = cm.conversation_id AND r.user_id = cm.user_id
+         WHERE cm.user_id = ? ${conversationId ? "AND cm.conversation_id = ?" : ""}`,
+      )
+      .all(...(conversationId ? [userId, conversationId] : [userId])) as { cid: number; n: number; pings: number }[];
+    return rows.filter((r) => r.n > 0 || conversationId).map((r) => ({ conversationId: r.cid, count: Number(r.n), mentions: Number(r.pings) }));
   }
 
   private own(messageId: number, userId: number): MessageRow {
