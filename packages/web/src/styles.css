@@ -2434,3 +2434,22 @@ h5.md-h {
   border: 1px solid var(--dd-border);
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
 }
+
+/* ---- Pop-out chat windows: just the chat --------------------------------------------------------- */
+.shell.popout {
+  grid-template-columns: 1fr;
+}
+.shell.popout > .rail,
+.shell.popout > .sidebar {
+  display: none;
+}
+.shell.popout .main {
+  display: flex;
+}
+.shell.popout .back {
+  display: none;
+}
+/* A thread opened in a pop-out takes the window, like on a phone. */
+.shell.popout .channel-split {
+  grid-template-columns: 1fr;
+}

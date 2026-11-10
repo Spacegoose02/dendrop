@@ -62,8 +62,13 @@ describe("Den Duty link", () => {
   let events: DendutyEvent[] = [];
   let answer = 200;
   const asked: { url: string; auth: string }[] = [];
+  const posted: { url: string; body: unknown }[] = [];
 
   const fetchImpl: DendutyFetch = async (url, init) => {
+    if (init.method === "POST") {
+      posted.push({ url, body: JSON.parse(init.body ?? "null") });
+      return { ok: answer < 300, status: answer, json: async () => ({}), arrayBuffer: async () => new ArrayBuffer(0), headers: new Headers() };
+    }
     asked.push({ url, auth: init.headers.authorization! });
     const u = new URL(url);
     const body = u.pathname.endsWith("/gaming")
@@ -178,6 +183,40 @@ describe("Den Duty link", () => {
     assert.equal((await messages(parents.conversationId)).length, 1);
   });
 
+  it("lets grown-ups approve or send back a chore from the parents channel", async () => {
+    events.push(
+      { id: 14, event: "chore_submitted", kid: "Ava", kid_id: "k1", chore: "Bed", instance_id: "inst-1", at: "2026-11-07T12:05:00Z" },
+      { id: 15, event: "chore_submitted", kid: "Ava", kid_id: "k1", chore: "Bins", instance_id: "inst-2", at: "2026-11-07T12:06:00Z" },
+    );
+    await call(admin, "POST", "/api/admin/denduty/check");
+    const [, bed, bins] = await messages(parents.conversationId);
+    assert.deepEqual(bed!.buttons, [
+      { id: "dd.approve.inst-1", label: "Approve", style: "success" },
+      { id: "dd.reject.inst-1", label: "Send back", style: "danger" },
+    ]);
+    // Not in the channel: nothing to click.
+    assert.equal((await call(ava, "POST", `/api/messages/${bed!.id}/buttons/dd.approve.inst-1`, {})).status, 404);
+    // A read-only token says so.
+    answer = 403;
+    const ro = await call(mom, "POST", `/api/messages/${bed!.id}/buttons/dd.approve.inst-1`, {});
+    assert.equal(ro.status, 403);
+    assert.match(ro.body.error, /control token/);
+    answer = 200;
+    const gw = await listen(s, mom);
+    assert.deepEqual((await call(mom, "POST", `/api/messages/${bed!.id}/buttons/dd.approve.inst-1`, {})).body, { reply: null });
+    assert.deepEqual(posted.at(-1), { url: "https://chores.example.net/api/v1/homes/h1/instances/inst-1/approve", body: {} });
+    const { message } = await gw.waitFor("message.updated");
+    gw.ws.close();
+    assert.deepEqual(message.buttons, [{ id: "dd.done", label: "Approved by mom", style: "success", disabled: true }]);
+    assert.equal((await call(mom, "POST", `/api/messages/${bed!.id}/buttons/dd.done`, {})).status, 409);
+    // Sending back carries a note; someone beating you to it in Den Duty just clears the buttons.
+    answer = 409;
+    assert.deepEqual((await call(mom, "POST", `/api/messages/${bins!.id}/buttons/dd.reject.inst-2`, {})).body, { reply: "Someone already checked that chore in Den Duty." });
+    assert.deepEqual(posted.at(-1), { url: "https://chores.example.net/api/v1/homes/h1/instances/inst-2/reject", body: { note: "Sent back by mom from Dendrop" } });
+    assert.equal((await messages(parents.conversationId)).at(-1)!.buttons![0]!.label, "Already checked in Den Duty");
+    answer = 200;
+  });
+
   it("stops posting grown-up things once a kid can read the parents channel", async () => {
     const PATCH = (await s.app.inject({
       method: "PATCH",
@@ -186,9 +225,9 @@ describe("Den Duty link", () => {
       payload: { memberIds: [s.ctx.users.byUsername("mom")!.id, avaId] },
     })).statusCode;
     assert.equal(PATCH, 200);
-    events.push({ id: 14, event: "helpdesk_requested", kid: "Ava", kid_id: "k1", request: "A ride", at: "2026-11-07T12:03:00Z" });
+    events.push({ id: 16, event: "helpdesk_requested", kid: "Ava", kid_id: "k1", request: "A ride", at: "2026-11-07T12:03:00Z" });
     await call(admin, "POST", "/api/admin/denduty/check");
-    assert.equal((await messages(parents.conversationId)).length, 1);
+    assert.equal((await messages(parents.conversationId)).length, 3);
   });
 
   it("pauses a kid's chat for a time-out or chores first, and opens it again", async () => {

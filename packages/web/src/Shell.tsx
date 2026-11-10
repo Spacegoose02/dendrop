@@ -29,6 +29,7 @@ import { isVoiceKind } from "@dendrop/shared";
 import { api, connectGateway, logout } from "./api.ts";
 import { PresencePicker, UnreadBadge } from "./Unread.tsx";
 import { ServerRail } from "./Rail.tsx";
+import { canPopOut, popOut, popout } from "./popout.ts";
 import { ForwardDialog, InboxPanel, setSaved, startForward, useForwarding, type InboxTab } from "./Inbox.tsx";
 import { startWebPush } from "./webpush.ts";
 import { channelTitle } from "./channels.ts";
@@ -40,7 +41,7 @@ import { excerptOf, ReminderTray, type FiredReminder } from "./Fun.tsx";
 import { Friends } from "./Friends.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { IncomingCall } from "./IncomingCall.tsx";
-import { connectNativeCalls, reportCallState, type NativeAnswer } from "./native.ts";
+import { connectNativeCalls, inAndroidApp, openBubble, reportCallState, type NativeAnswer } from "./native.ts";
 import { PlayTogetherCard } from "./PlayTogether.tsx";
 import { feedOverlayMessage, useGameOverlay } from "./gameOverlay.ts";
 import { COUPLES_EVENT, LoveNotePopup, type CouplesEventDetail } from "./Couples.tsx";
@@ -129,9 +130,9 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const [inVoice, setInVoice] = useState<VoiceJoin | null>(null);
   const [speaking, setSpeaking] = useState<Set<number>>(new Set());
   const [connected, setConnected] = useState(false);
-  const [view, setView] = useState<View>({ kind: "friends" });
+  const [view, setView] = useState<View>(() => popout ?? { kind: "friends" });
   /** On phones only one column shows: the DM list, or what's open. */
-  const [showMain, setShowMain] = useState(false);
+  const [showMain, setShowMain] = useState(!!popout);
   const [friends, setFriends] = useState<Friend[]>([]);
   /** What people are playing, from LootDen. */
   const [activities, setActivities] = useState<Record<number, Activity>>({});
@@ -215,7 +216,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       const state = identity ? "on" : initialMe.publicKey ? "locked" : "off";
       setKeyState(state);
       // Ask once per visit; "Not now" closes it until next time.
-      if (state === "off") setEncryptionDialog("setup");
+      // A pop-out leaves setting it up to the main window; unlocking is still needed to read.
+      if (state === "off" && !popout) setEncryptionDialog("setup");
       if (state === "locked") setEncryptionDialog("unlock");
     });
     return () => {
@@ -745,6 +747,11 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const current = view.kind === "conversation" ? conversations.find((c) => c.id === view.id) : undefined;
   const currentServer = view.kind === "channel" ? servers.find((x) => x.id === view.serverId) : undefined;
   const currentChannel = view.kind === "channel" ? currentServer?.channels.find((c) => c.id === view.channelId) : undefined;
+  // A pop-out window is named after its chat, so it's easy to find among windows.
+  const popoutTitle = !popout ? null : current ? conversationTitle(current, me.id) : currentChannel && currentServer ? `#${currentChannel.name} · ${currentServer.name}` : null;
+  useEffect(() => {
+    if (popoutTitle) document.title = `${popoutTitle} · Dendrop`;
+  }, [popoutTitle]);
   // New members see the server's welcome screen when they first open it.
   const welcomeDue = !!currentServer && needsWelcome(currentServer) && !welcomeLater.current.has(currentServer.id);
   useEffect(() => {
@@ -810,6 +817,11 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       inThisCall={false}
       onCall={() => {}}
       onBack={onBack}
+      onPopOut={
+        canPopOut() && view.kind === "channel" && currentChannel?.conversationId === conversation.id
+          ? () => popOut({ kind: "channel", serverId: view.serverId, channelId: view.channelId })
+          : undefined
+      }
       keyState={keyState}
       onEncryption={() => {}}
       kid={kidRules}
@@ -886,7 +898,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   };
 
   const shell = (
-    <div className={`shell ${showMain ? "show-main" : ""}`}>
+    <div className={`shell ${showMain ? "show-main" : ""} ${popout ? "popout" : ""}`}>
       <nav className="rail" aria-label="Servers">
         <button
           className={`rail-item ${view.kind === "friends" || view.kind === "conversation" ? "active" : ""}`}
@@ -1197,6 +1209,13 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             inThisCall={inCall?.call.conversationId === current.id}
             onCall={(video) => void startCall(current.id, video)}
             onBack={() => setShowMain(false)}
+            onPopOut={
+              canPopOut()
+                ? () => popOut({ kind: "conversation", id: current.id })
+                : inAndroidApp()
+                  ? () => void openBubble(current.id, conversationTitle(current, me.id)).then((why) => why && setToast(why))
+                  : undefined
+            }
             keyState={keyState}
             onEncryption={() => setEncryptionDialog(keyState === "off" ? "setup" : "unlock")}
             kid={kidRules}
@@ -1261,7 +1280,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       {encryptionDialog && (
         <EncryptionDialog me={me} mode={encryptionDialog} setMode={setEncryptionDialog} onDone={onUnlocked} onClose={() => setEncryptionDialog(null)} />
       )}
-      {ringing && !dialog && !nativeRinging && (
+      {/* A pop-out window leaves ringing to the main window. */}
+      {ringing && !dialog && !nativeRinging && !popout && (
         <IncomingCall
           me={me}
           call={ringing}
@@ -1275,7 +1295,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           }}
         />
       )}
-      {playInvite && server?.calls && !ringing && !dialog && inVoice?.voice.channelId !== playInvite.channelId && (() => {
+      {playInvite && !popout && server?.calls && !ringing && !dialog && inVoice?.voice.channelId !== playInvite.channelId && (() => {
         const sv = servers.find((x) => x.id === playInvite.serverId);
         const ch = sv?.channels.find((c) => c.id === playInvite.channelId);
         if (!sv || !ch) return null;

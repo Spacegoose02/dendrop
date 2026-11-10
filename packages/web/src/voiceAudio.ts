@@ -1,7 +1,7 @@
 /** Applies this device's audio settings to a LiveKit room: mic choice and cleanup, and input sensitivity. */
 import { useEffect, useRef } from "react";
-import { RoomEvent, Track, type LocalAudioTrack, type Room, type RoomOptions } from "livekit-client";
-import { micConstraints, VoiceGate, type AudioPrefs } from "./audio.ts";
+import { RoomEvent, Track, type LocalAudioTrack, type Participant, type Room, type RoomOptions } from "livekit-client";
+import { micConstraints, setTalking, VoiceGate, type AudioPrefs } from "./audio.ts";
 import { loadKeybinds, pttHeld, setVoiceActive, voiceControls } from "./keybinds.ts";
 import { canProcessMic, MicProcessor, micContext } from "./micProcessor.ts";
 
@@ -60,6 +60,42 @@ export function useRoomAudio(room: Room | null, prefs: AudioPrefs, onGate?: (ope
     if (track) void track.restartTrack(constraintsFor(prefs)).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room, prefs]);
+
+  // Ducking hears who's talking here; nobody is once this room is gone.
+  useEffect(() => {
+    if (!room) return;
+    const onActive = (speakers: Participant[]) =>
+      setTalking(
+        speakers.some((p) => p.isLocal),
+        speakers.some((p) => !p.isLocal),
+      );
+    room.on(RoomEvent.ActiveSpeakersChanged, onActive);
+    return () => {
+      room.off(RoomEvent.ActiveSpeakersChanged, onActive);
+      setTalking(false, false);
+    };
+  }, [room]);
+
+  // Quality of service: ask the network to carry voice first. Browsers mark the packets (DSCP) and
+  // routers and Windows may honor that; it never hurts where they don't.
+  useEffect(() => {
+    if (!room) return;
+    const mark = () => {
+      const sender = micTrack(room)?.sender;
+      if (!sender) return;
+      const params = sender.getParameters();
+      if (!params.encodings?.length) return;
+      const level: RTCPriorityType = prefsRef.current.qos ? "high" : "low";
+      if (params.encodings.every((e) => e.priority === level && e.networkPriority === level)) return;
+      for (const e of params.encodings) Object.assign(e, { priority: level, networkPriority: level });
+      void sender.setParameters(params).catch(() => {});
+    };
+    mark();
+    room.on(RoomEvent.LocalTrackPublished, mark);
+    return () => {
+      room.off(RoomEvent.LocalTrackPublished, mark);
+    };
+  }, [room, prefs.qos]);
 
   // While a call or voice channel is open, the PC app may watch for push to talk in the background.
   useEffect(() => {

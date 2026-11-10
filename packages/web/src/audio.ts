@@ -28,6 +28,13 @@ export interface AudioPrefs {
   sounds: boolean;
   /** How loud soundboard sounds play for you, 0 (off) to 100. */
   soundboardVolume: number;
+  /** Ducking: turn down watch-together videos while others talk, or while you do. */
+  duckOthers: boolean;
+  duckMe: boolean;
+  /** How loud those play while ducked, as a share of their usual volume (0 to 100). */
+  duckLevel: number;
+  /** Ask the network to put voice first (DSCP marking, where the system honors it). */
+  qos: boolean;
 }
 
 export const DEFAULT_AUDIO: AudioPrefs = {
@@ -40,6 +47,10 @@ export const DEFAULT_AUDIO: AudioPrefs = {
   sensitivity: "auto",
   sounds: true,
   soundboardVolume: 60,
+  duckOthers: true,
+  duckMe: false,
+  duckLevel: 35,
+  qos: true,
 };
 
 const KEY = "dendrop.audio";
@@ -65,6 +76,38 @@ export function saveAudio(patch: Partial<AudioPrefs>): AudioPrefs {
   }
   dispatchEvent(new CustomEvent(EVENT, { detail: next }));
   return next;
+}
+
+// ---- Ducking: other sounds make way for voices ---------------------------------------------------
+
+let talking = { me: false, others: false };
+const duckListeners = new Set<() => void>();
+
+/** Who's talking in the call or voice channel this device is in (false, false when it's in none). */
+export function setTalking(me: boolean, others: boolean): void {
+  if (talking.me === me && talking.others === others) return;
+  talking = { me, others };
+  duckListeners.forEach((fn) => fn());
+}
+
+/** The volume factor for ducked sounds right now: 1, or the duck level while someone talks. */
+export function duckGain(p: AudioPrefs = loadAudio()): number {
+  const ducked = (p.duckOthers && talking.others) || (p.duckMe && talking.me);
+  return ducked ? Math.max(0, Math.min(100, p.duckLevel)) / 100 : 1;
+}
+
+/** duckGain, kept up to date as people start and stop talking. */
+export function useDuckGain(): number {
+  const prefs = useAudioPrefs();
+  const [, bump] = useState(0);
+  useEffect(() => {
+    const fn = () => bump((n) => n + 1);
+    duckListeners.add(fn);
+    return () => {
+      duckListeners.delete(fn);
+    };
+  }, []);
+  return duckGain(prefs);
 }
 
 /** The current settings, kept up to date when they change (from the settings dialog or another tab). */

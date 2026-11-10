@@ -16,6 +16,11 @@
     <string name="notify_event_text">An event you\'re going to is starting soon</string>
     <string name="notify_call_title">Incoming call</string>
     <string name="notify_call_text">Someone is calling you on Dendrop</string>
+    <string name="notify_call_answer">Open</string>
+    <string name="notify_call_silence">Silence</string>
+    <string name="channel_bubbles">Chat bubbles</string>
+    <string name="channel_bubbles_description">Chats you popped out into a bubble. Only shows what you opened yourself.</string>
+    <string name="bubble_text">Tap to open this chat</string>
 
     <string name="shortcut_settings_short">Server settings</string>
     <string name="shortcut_settings_long">Dendrop server and notifications</string>

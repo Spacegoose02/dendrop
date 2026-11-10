@@ -70,7 +70,21 @@ Chat opens again by itself when the time-out ends, is ended early or bought back
 the last chore is done (within half a minute, at the next check). If Den Duty can't be reached
 for 10 minutes, chat isn't held back on old news. The admin's Kids list shows "⏸️ chat paused".
 
+## Approving chores from chat
+
+Each "⏳ Ava finished Dishes, waiting for a grown-up to check" post in the parents channel comes
+with **Approve** and **Send back** buttons. A grown-up who can read the parents channel clicks
+one, and Dendrop tells Den Duty (`POST /api/v1/homes/:homeId/instances/:id/approve` or
+`/reject`, with a note saying who sent it back). The buttons are then replaced by "Approved by
+Mom" or "Sent back by Mom", for everyone in the channel.
+
+- This needs a **control** token. With a read token, clicking says so and nothing changes.
+- If someone already checked the chore in Den Duty, the buttons go away with "Already checked in
+  Den Duty".
+- Kids never see these buttons, since the parents channel is one no kid can read; Dendrop checks
+  that again on every click.
+
 ## Still to come
 
-- A Den Duty bot to approve chores and answer help asks with buttons in chat, once Dendrop has
-  bots that read and answer.
+- Answering help asks from chat, once Den Duty's API has them (Helpdesk is outside its API for
+  now).
