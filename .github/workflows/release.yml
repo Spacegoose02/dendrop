@@ -71,10 +71,13 @@ jobs:
             packages/desktop/release/*.AppImage
             packages/desktop/release/*.deb
 
-  # Same steps as android.yml's debug build. A signed release APK can join once the keystore
-  # secrets exist.
+  # Same steps as android.yml's debug build, plus the release APK signed with your own key once the
+  # ANDROID_KEYSTORE_* secrets exist (packages/android/README.md). Phones on the release build
+  # update from Dendrop-X-android.apk; debug builds from Dendrop-X-android-debug.apk.
   android:
     runs-on: ubuntu-latest
+    env:
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
     defaults:
       run:
         working-directory: packages/android
@@ -101,6 +104,19 @@ jobs:
           DENDROP_VERSION: ${{ github.ref_name }}
       - run: mv app/build/outputs/apk/debug/*.apk "app/build/outputs/apk/debug/Dendrop-${GITHUB_REF_NAME#v}-android-debug.apk"
         working-directory: packages/android/android
+      - name: Build the signed release APK
+        if: ${{ env.KEYSTORE_B64 != '' }}
+        env:
+          DENDROP_VERSION: ${{ github.ref_name }}
+          DENDROP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          DENDROP_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          DENDROP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        working-directory: packages/android/android
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          DENDROP_KEYSTORE_FILE="$RUNNER_TEMP/release.keystore" ./gradlew --no-daemon assembleRelease
+          rm -f "$RUNNER_TEMP/release.keystore"
+          mv app/build/outputs/apk/release/*.apk "app/build/outputs/apk/debug/Dendrop-${GITHUB_REF_NAME#v}-android.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: android
