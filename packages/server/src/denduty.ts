@@ -1,4 +1,4 @@
-import type { ChannelRef, ChoresToday, DendutySettings, DendutyStatus } from "@dendrop/shared";
+import type { ChannelRef, ChoresToday, DendutySettings, DendutyStatus, Message, MessageButton } from "@dendrop/shared";
 import type { Db } from "./db.js";
 import { ConversationRepo } from "./conversations.js";
 import { HttpError } from "./errors.js";
@@ -165,6 +165,22 @@ export function chatPauseText(locks: ChatLock[], chores: ChoresToday | null, cho
     return `Chat opens once today's chores are done: ${chores.left} to go in Den Duty. You can do it! 🧹`;
   }
   return null;
+}
+
+/** Den Duty instance ids are short words; anything else gets no buttons. */
+const INSTANCE_RE = /^[\w-]{1,64}$/;
+
+/**
+ * Buttons under a "waiting for a grown-up" post in the parents channel: approve it, or send it
+ * back to try again, straight from chat. Their ids carry the Den Duty chore (instance) id.
+ */
+export function choreButtons(e: DendutyEvent): MessageButton[] | null {
+  const instance = str(e.instance_id, 64);
+  if (e.event !== "chore_submitted" || !INSTANCE_RE.test(instance)) return null;
+  return [
+    { id: `dd.approve.${instance}`, label: "Approve", style: "success" },
+    { id: `dd.reject.${instance}`, label: "Send back", style: "danger" },
+  ];
 }
 
 /**
@@ -412,7 +428,7 @@ export class DendutyLink {
         const said = eventText(e, words);
         if (!said) continue;
         const ref = said.to === "family" ? s.family : s.parents;
-        this.post(ref, said.text, said.to === "parents");
+        this.post(ref, said.text, said.to === "parents", said.to === "parents" ? choreButtons(e) : null);
       }
     }
     this.write({ ...this.stored(), lastEvent: newest });
@@ -425,20 +441,77 @@ export class DendutyLink {
   }
 
   /** Posts as "Den Duty" (with the server's owner on record as the author). Grown-up things never go where a kid can read them. */
-  private post(ref: ChannelRef | null, text: string, grownUps: boolean): void {
+  private post(ref: ChannelRef | null, text: string, grownUps: boolean, buttons: MessageButton[] | null = null): void {
     if (!ref) return;
     const c = this.servers.channelById(ref.channelId);
     if (!c || c.serverId !== ref.serverId || c.kind !== "text") return;
     if (grownUps && this.kidsCanRead(ref)) return;
     const owner = (this.db.prepare("SELECT owner_id FROM servers WHERE id = ?").get(ref.serverId) as { owner_id: number } | undefined)?.owner_id;
     if (!owner) return;
-    const m = this.convos.send(c.conversationId, owner, text, [], null, { id: null, name: "Den Duty" });
+    const m = this.convos.send(c.conversationId, owner, text, [], null, { id: null, name: "Den Duty" }, buttons);
     const members = this.convos.memberIds(c.conversationId);
     this.gateway.send(members, { type: "message.created", message: m });
     void this.push.notify(
       members.filter((u) => !this.gateway.isActive(u)),
       "message",
     );
+  }
+
+  /** Whether a button click is one of Den Duty's own (handled here rather than by a bot). */
+  handles(messageId: number, buttonId: string): boolean {
+    if (!buttonId.startsWith("dd.")) return false;
+    const r = this.db.prepare("SELECT webhook_id, webhook_name FROM messages WHERE id = ?").get(messageId) as { webhook_id: number | null; webhook_name: string | null } | undefined;
+    return !!r && r.webhook_id === null && r.webhook_name === "Den Duty";
+  }
+
+  /**
+   * A grown-up approved a chore, or sent it back, from the parents channel. Den Duty is told
+   * (which needs a control token), and the post's buttons are swapped for who did what.
+   */
+  async click(user: UserRecord, messageId: number, buttonId: string): Promise<{ reply: string | null }> {
+    const m = this.convos.message(messageId);
+    if (!m || m.deleted || !this.convos.isMember(m.conversationId, user.id)) throw new HttpError(404, "No such message");
+    const button = m.buttons?.find((b) => b.id === buttonId);
+    if (!button) throw new HttpError(404, "No such button");
+    if (button.disabled) throw new HttpError(409, "That's already done");
+    const s = this.stored();
+    const parents = s.parents ? this.servers.channelById(s.parents.channelId) : undefined;
+    // Only in the parents channel as it's linked now, and only for grown-ups.
+    if (!parents || parents.conversationId !== m.conversationId || user.isKid || this.kidsCanRead(s.parents!)) throw new HttpError(403, "Only grown-ups can do that, in Den Duty's parents channel");
+    if (!s.url || !s.token || !s.homeId) throw new HttpError(409, "Den Duty isn't linked any more");
+    const [, action, instance] = buttonId.split(".");
+    if ((action !== "approve" && action !== "reject") || !instance || !INSTANCE_RE.test(instance)) throw new HttpError(404, "No such button");
+    const path = `/api/v1/homes/${encodeURIComponent(s.homeId)}/instances/${encodeURIComponent(instance)}/${action}`;
+    let res;
+    try {
+      res = await this.fetchImpl(`${s.url}${path}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${s.token}`, accept: "application/json", "content-type": "application/json" },
+        body: JSON.stringify(action === "reject" ? { note: `Sent back by ${user.displayName} from Dendrop` } : {}),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      throw new HttpError(502, `Couldn't reach Den Duty: ${(err as Error).message}`);
+    }
+    if (res.status === 401) throw new HttpError(502, "Den Duty didn't accept the API token");
+    if (res.status === 403) throw new HttpError(403, "Den Duty's token can only read. To approve from chat, link Den Duty with a control token (Instance admin, Den Duty).");
+    let label: string;
+    let style: MessageButton["style"];
+    let reply: string | null = null;
+    if (res.ok) {
+      label = action === "approve" ? `Approved by ${user.displayName}` : `Sent back by ${user.displayName}`;
+      style = action === "approve" ? "success" : "secondary";
+    } else if (res.status === 404 || res.status === 409 || res.status === 400) {
+      // Someone got to it first in Den Duty (or it's gone): the buttons go either way.
+      label = "Already checked in Den Duty";
+      style = "secondary";
+      reply = "Someone already checked that chore in Den Duty.";
+    } else {
+      throw new HttpError(502, `Den Duty answered ${res.status}`);
+    }
+    const updated: Message = this.convos.setButtons(m.id, [{ id: "dd.done", label: label.slice(0, 40), style, disabled: true }]);
+    this.gateway.send(this.convos.memberIds(m.conversationId), { type: "message.updated", message: updated });
+    return { reply };
   }
 
   /** Who sees a kid's chores line: the kid and their parents. */

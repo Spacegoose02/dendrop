@@ -5,7 +5,7 @@ import path from "node:path";
 import { app, BrowserWindow, desktopCapturer, globalShortcut, ipcMain, Menu, nativeImage, net, Notification, screen, session, shell, Tray, type IpcMainInvokeEvent } from "electron";
 import WebSocket from "ws";
 import type { Conversation, ServerEvent } from "@dendrop/shared";
-import { isExternalLink, isFile, onOrigin, permissionAllowed } from "./links.js";
+import { isExternalLink, isFile, isPopout, onOrigin, permissionAllowed } from "./links.js";
 import { GatewayWatcher, notificationFor, Throttle, type SocketLike } from "./notify.js";
 import {
   cleanOverlayState,
@@ -149,10 +149,39 @@ async function createWindow(): Promise<void> {
   if (b?.maximized) win.maximize();
   Menu.setApplicationMenu(null);
 
-  // Links in messages open in the system browser, never in a new app window.
+  // Links in messages open in the system browser, never in a new app window. The one exception
+  // is a pop-out chat: the app's own page with ?popout=, in a small window of its own.
   win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isPopout(url, origin())) {
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: {
+          width: 460,
+          height: 720,
+          minWidth: 320,
+          minHeight: 400,
+          backgroundColor: BACKGROUND,
+          autoHideMenuBar: true,
+          title: "Dendrop",
+          icon: asset("icon.png"),
+          webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
+        },
+      };
+    }
     openExternal(url);
     return { action: "deny" };
+  });
+  win.webContents.on("did-create-window", (child) => {
+    // A pop-out follows the same rules as the main window: links go to the browser.
+    child.webContents.setWindowOpenHandler(({ url }) => {
+      openExternal(url);
+      return { action: "deny" };
+    });
+    child.webContents.on("will-navigate", (event, url) => {
+      if (onOrigin(url, origin())) return;
+      event.preventDefault();
+      openExternal(url);
+    });
   });
   win.webContents.on("will-navigate", (event, url) => {
     if (isFile(url, SETUP_PAGE) || isFile(url, OFFLINE_PAGE) || onOrigin(url, origin())) return;

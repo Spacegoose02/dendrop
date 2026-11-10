@@ -102,6 +102,7 @@ export function Chat({
   typingIds,
   sendTyping,
   onBack,
+  onPopOut,
   callsEnabled,
   call,
   inThisCall,
@@ -119,6 +120,8 @@ export function Chat({
   typingIds: number[];
   sendTyping: () => void;
   onBack: () => void;
+  /** Opens this chat in a window of its own (desktop and browsers only). */
+  onPopOut?: () => void;
   callsEnabled: boolean;
   call: Call | undefined;
   inThisCall: boolean;
@@ -673,6 +676,11 @@ export function Chat({
             🔍
           </button>
           <NotifyMenu conversationId={conversation.id} serverId={channel?.serverId} serverName={channel?.serverName} />
+          {onPopOut && (
+            <button className="ghost icon" onClick={onPopOut} title="Pop out into its own window" aria-label="Pop out into its own window">
+              ⧉
+            </button>
+          )}
         </span>
         {(channel?.onPins || channel?.actions) && (
           <span className="header-actions">

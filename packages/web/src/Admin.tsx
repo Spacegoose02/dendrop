@@ -544,7 +544,7 @@ function DendutySection() {
       <div className="section-label">Den Duty</div>
       <p className="muted small">
         Link Den Duty, the family's chore tracker. Kids' chores today show under their name (“🧹 2 of 5 chores left”) for them and their parents, and what happens in
-        Den Duty is posted into the channels you pick. Time-outs set to pause Dendrop chat (and a kid's “chores first” rule) keep that kid from chatting until they're over. Make a read token in Den Duty: Settings, Home Assistant and the API. The home id is on the same page.
+        Den Duty is posted into the channels you pick. Time-outs set to pause Dendrop chat (and a kid's “chores first” rule) keep that kid from chatting until they're over. Make a token in Den Duty: Settings, Home Assistant and the API. A read token is enough; a control token also lets grown-ups approve chores or send them back with buttons in the parents channel. The home id is on the same page.
       </p>
       <form className="lootden-form" onSubmit={save}>
         <label>

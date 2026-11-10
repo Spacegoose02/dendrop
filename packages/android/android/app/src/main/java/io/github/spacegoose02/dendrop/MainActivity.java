@@ -3,6 +3,7 @@ package io.github.spacegoose02.dendrop;
 import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -85,12 +86,24 @@ public class MainActivity extends BridgeActivity {
             }
         });
         if (ACTION_SETTINGS.equals(getIntent().getAction())) showSettings();
+        if (Notifier.ACTION_CALL.equals(getIntent().getAction())) showOverLockScreen(true);
+    }
+
+    /**
+     * For an incoming call: show over the lock screen and wake the screen, so the call can be
+     * answered without unlocking first. Turned off again when the app goes to the background.
+     */
+    private void showOverLockScreen(boolean on) {
+        if (Build.VERSION.SDK_INT < 27) return;
+        setShowWhenLocked(on);
+        setTurnScreenOn(on);
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         if (bridge != null && ACTION_SETTINGS.equals(intent.getAction())) showSettings();
+        if (Notifier.ACTION_CALL.equals(intent.getAction())) showOverLockScreen(true);
     }
 
     @Override
@@ -98,6 +111,8 @@ public class MainActivity extends BridgeActivity {
         super.onResume();
         inForeground = true;
         Notifier.clear(this);
+        // The app's own ringer takes over from the notification once it's open.
+        Notifier.clearCall(this);
         handler.removeCallbacks(pushSync);
         handler.post(pushSync);
         if (bridge != null) UpdateChecker.maybeCheck(this);
@@ -108,6 +123,7 @@ public class MainActivity extends BridgeActivity {
         super.onPause();
         inForeground = false;
         handler.removeCallbacks(pushSync);
+        showOverLockScreen(false);
     }
 
     private CapConfig buildConfig() {

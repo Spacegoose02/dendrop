@@ -24,6 +24,16 @@ export function onOrigin(url: string, origin: string): boolean {
   }
 }
 
+/**
+ * Whether url is a pop-out chat window: the server's own page at / with ?popout=c<id> or
+ * ?popout=s<server>.<channel>, and nothing else, so no other page can open an app window.
+ */
+export function isPopout(url: string, origin: string): boolean {
+  if (!onOrigin(url, origin)) return false;
+  const u = new URL(url);
+  return u.pathname === "/" && [...u.searchParams.keys()].join() === "popout" && /^(c\d+|s\d+\.\d+)$/.test(u.searchParams.get("popout") ?? "");
+}
+
 /** Whether url is the given local file (ignoring ?query and #hash), such as the bundled setup page. */
 export function isFile(url: string, file: string): boolean {
   try {
