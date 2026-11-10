@@ -98,8 +98,9 @@ Android only installs an update over an app signed with the same key.
   ```
 
   Then add repository secrets `ANDROID_KEYSTORE_BASE64` (`base64 -w0 dendrop-release.keystore`),
-  `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`, and the workflow
-  also produces `dendrop-release-apk`. Locally, set `DENDROP_KEYSTORE_FILE`,
+  `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. Then the Android
+  workflow also produces `dendrop-release-apk`, and each tagged release attaches
+  `Dendrop-X-android.apk` next to the debug one, which phones on the release build update from. Locally, set `DENDROP_KEYSTORE_FILE`,
   `DENDROP_KEYSTORE_PASSWORD`, `DENDROP_KEY_ALIAS` and `DENDROP_KEY_PASSWORD` and run
   `npm run apk:release`.
 
