@@ -37,7 +37,7 @@ Roles now have these permissions on top of the old ones:
 | Manage webhooks & bots | Webhooks and bots, which used to be owner and admins only. |
 | View audit log | Read the audit log without any other moderator permission. |
 
-Kid accounts can't hold any of them except the ones they could before.
+Kid accounts can't hold any of these, like the other moderator permissions.
 
 ## Voice moderation
 
