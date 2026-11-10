@@ -20,6 +20,8 @@ import {
   type ServerWelcome,
   type WelcomeRole,
   WELCOME_LIMITS,
+  MAX_SLOWMODE,
+  type ChannelCategory,
 } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
@@ -52,6 +54,9 @@ interface ChannelRow {
   position: number;
   locked: number;
   tags: string;
+  category_id: number | null;
+  slowmode: number;
+  read_only: number;
   created_at: string;
 }
 
@@ -98,6 +103,12 @@ function cleanText(v: unknown, max: number, what: string, allowEmpty: boolean): 
 }
 
 /** Channel names are lowercase words joined with dashes, like "game-night". */
+/** "30 seconds", "2 minutes", "1 hour". */
+export function slowText(seconds: number): string {
+  const [n, unit] = seconds >= 3600 && seconds % 3600 === 0 ? [seconds / 3600, "hour"] : seconds >= 60 && seconds % 60 === 0 ? [seconds / 60, "minute"] : [seconds, "second"];
+  return `${n} ${unit}${n === 1 ? "" : "s"}`;
+}
+
 export function cleanChannelName(v: unknown): string {
   if (typeof v !== "string") throw new HttpError(400, "A channel needs a name");
   const s = v
@@ -237,7 +248,41 @@ export class ServerRepo {
       .get(c.id, userId, c.server_id);
   }
 
-  private toChannel(c: ChannelRow, showAccess: boolean): Channel {
+  private postRoles(channelId: number): number[] {
+    return (
+      this.db
+        .prepare("SELECT a.role_id FROM channel_post_roles a JOIN server_roles r ON r.id = a.role_id WHERE a.channel_id = ? ORDER BY r.position, r.id")
+        .all(channelId) as { role_id: number }[]
+    ).map((r) => r.role_id);
+  }
+
+  /** Whether someone may post in a channel: anyone unless it's read-only. */
+  private canPostIn(c: ChannelRow, userId: number): boolean {
+    if (!c.read_only || this.can(c.server_id, userId, "manageChannels")) return true;
+    return !!this.db
+      .prepare("SELECT 1 FROM channel_post_roles a JOIN server_member_roles m ON m.role_id = a.role_id WHERE a.channel_id = ? AND m.user_id = ? AND m.server_id = ?")
+      .get(c.id, userId, c.server_id);
+  }
+
+  /**
+   * Why someone can't post in a channel's conversation right now (read-only, or slowmode), or
+   * null. Threads in a channel follow neither: they're for replies.
+   */
+  postRule(conversationId: number, userId: number, at = Date.now()): string | null {
+    const c = this.db.prepare("SELECT * FROM server_channels WHERE conversation_id = ?").get(conversationId) as ChannelRow | undefined;
+    if (!c) return null;
+    if (!this.canPostIn(c, userId)) return "Only some people can post in this channel";
+    if (c.slowmode > 0 && !this.can(c.server_id, userId, "manageChannels") && !this.can(c.server_id, userId, "deleteMessages")) {
+      const last = this.db.prepare("SELECT created_at FROM messages WHERE conversation_id = ? AND author_id = ? ORDER BY id DESC LIMIT 1").get(conversationId, userId) as
+        | { created_at: string }
+        | undefined;
+      const wait = last ? Date.parse(last.created_at) + c.slowmode * 1000 - at : 0;
+      if (wait > 0) return `Slowmode is on: you can post again in ${slowText(Math.ceil(wait / 1000))}`;
+    }
+    return null;
+  }
+
+  private toChannel(c: ChannelRow, showAccess: boolean, viewerId?: number): Channel {
     return {
       id: c.id,
       serverId: c.server_id,
@@ -250,6 +295,11 @@ export class ServerRepo {
       memberIds: c.locked && showAccess ? this.access(c.id) : [],
       roleIds: c.locked && showAccess ? this.roleAccess(c.id) : [],
       tags: c.kind === "forum" ? (JSON.parse(c.tags) as string[]) : [],
+      categoryId: c.category_id,
+      slowmode: c.slowmode,
+      readOnly: !!c.read_only,
+      postRoleIds: c.read_only && showAccess ? this.postRoles(c.id) : [],
+      canPost: viewerId === undefined ? !c.read_only : this.canPostIn(c, viewerId),
     };
   }
 
@@ -319,7 +369,8 @@ export class ServerRepo {
       playTogether: !!r.play_together,
       channels: this.channelRows(serverId)
         .filter((c) => this.canSee(c, viewerId, role))
-        .map((c) => this.toChannel(c, mod)),
+        .map((c) => this.toChannel(c, mod, viewerId)),
+      categories: this.categories(serverId),
       members: this.members(serverId),
       createdAt: r.created_at,
       timedOutUntil: this.timedOutUntil(serverId, viewerId),
@@ -586,7 +637,10 @@ export class ServerRepo {
     return id;
   }
 
-  createChannel(serverId: number, input: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown; roleIds?: unknown; kind?: unknown; tags?: unknown }): Channel {
+  createChannel(
+    serverId: number,
+    input: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown; roleIds?: unknown; kind?: unknown; tags?: unknown; categoryId?: unknown; slowmode?: unknown; readOnly?: unknown; postRoleIds?: unknown },
+  ): Channel {
     if (this.channelRows(serverId).length >= LIMITS.channelsPerServer) {
       throw new HttpError(400, `A server can have up to ${LIMITS.channelsPerServer} channels`);
     }
@@ -597,7 +651,12 @@ export class ServerRepo {
     const tags = kind === "forum" && input.tags !== undefined ? cleanTags(input.tags) : [];
     const access = this.cleanAccess(serverId, input.memberIds);
     const roleAccess = this.cleanRoleAccess(serverId, input.roleIds);
-    const id = this.atomic(() => this.insertChannel(serverId, name, topic, input.locked === true, access, kind, roleAccess, tags));
+    const extras = this.cleanChannelExtras(serverId, input);
+    const id = this.atomic(() => {
+      const cid = this.insertChannel(serverId, name, topic, input.locked === true, access, kind, roleAccess, tags);
+      this.applyChannelExtras(cid, extras);
+      return cid;
+    });
     return this.toChannel(this.channelRow(id)!, true);
   }
 
@@ -608,8 +667,13 @@ export class ServerRepo {
     return c;
   }
 
-  updateChannel(serverId: number, channelId: number, patch: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown; roleIds?: unknown; tags?: unknown }): void {
+  updateChannel(
+    serverId: number,
+    channelId: number,
+    patch: { name?: unknown; topic?: unknown; locked?: unknown; memberIds?: unknown; roleIds?: unknown; tags?: unknown; categoryId?: unknown; slowmode?: unknown; readOnly?: unknown; postRoleIds?: unknown },
+  ): void {
     const c = this.channel(serverId, channelId);
+    const extras = this.cleanChannelExtras(serverId, patch);
     const name = patch.name === undefined ? c.name : cleanChannelName(patch.name);
     const topic = patch.topic === undefined ? c.topic : cleanText(patch.topic, LIMITS.channelTopic, "The topic", true);
     const locked = typeof patch.locked === "boolean" ? patch.locked : !!c.locked;
@@ -626,7 +690,96 @@ export class ServerRepo {
         for (const u of access) add.run(channelId, u);
       }
       if (roleAccess) this.setRoleAccess(channelId, roleAccess);
+      this.applyChannelExtras(channelId, extras);
       this.syncChannel(channelId);
+    });
+  }
+
+  /** Category, slowmode and who can post, from a create or update; undefined fields stay as they are. */
+  private cleanChannelExtras(
+    serverId: number,
+    input: { categoryId?: unknown; slowmode?: unknown; readOnly?: unknown; postRoleIds?: unknown },
+  ): { categoryId?: number | null; slowmode?: number; readOnly?: boolean; postRoleIds?: number[] } {
+    const out: { categoryId?: number | null; slowmode?: number; readOnly?: boolean; postRoleIds?: number[] } = {};
+    if (input.categoryId !== undefined) {
+      if (input.categoryId === null) out.categoryId = null;
+      else {
+        const cat = Number(input.categoryId);
+        if (!this.db.prepare("SELECT 1 FROM server_categories WHERE id = ? AND server_id = ?").get(cat, serverId)) throw new HttpError(400, "No such category");
+        out.categoryId = cat;
+      }
+    }
+    if (input.slowmode !== undefined) {
+      const n = Number(input.slowmode);
+      if (!Number.isInteger(n) || n < 0 || n > MAX_SLOWMODE) throw new HttpError(400, `Slowmode is 0 to ${MAX_SLOWMODE} seconds`);
+      out.slowmode = n;
+    }
+    if (input.readOnly !== undefined) {
+      if (typeof input.readOnly !== "boolean") throw new HttpError(400, "readOnly is true or false");
+      out.readOnly = input.readOnly;
+    }
+    if (input.postRoleIds !== undefined) out.postRoleIds = this.cleanRoleAccess(serverId, input.postRoleIds);
+    return out;
+  }
+
+  private applyChannelExtras(channelId: number, x: { categoryId?: number | null; slowmode?: number; readOnly?: boolean; postRoleIds?: number[] }): void {
+    if (x.categoryId !== undefined) this.db.prepare("UPDATE server_channels SET category_id = ? WHERE id = ?").run(x.categoryId, channelId);
+    if (x.slowmode !== undefined) this.db.prepare("UPDATE server_channels SET slowmode = ? WHERE id = ?").run(x.slowmode, channelId);
+    if (x.readOnly !== undefined) this.db.prepare("UPDATE server_channels SET read_only = ? WHERE id = ?").run(x.readOnly ? 1 : 0, channelId);
+    if (x.postRoleIds !== undefined) {
+      this.db.prepare("DELETE FROM channel_post_roles WHERE channel_id = ?").run(channelId);
+      const add = this.db.prepare("INSERT INTO channel_post_roles (channel_id, role_id) VALUES (?, ?)");
+      for (const r of x.postRoleIds) add.run(channelId, r);
+    }
+  }
+
+  // ---- Categories ------------------------------------------------------------------
+
+  categories(serverId: number): ChannelCategory[] {
+    return (this.db.prepare("SELECT id, name, position FROM server_categories WHERE server_id = ? ORDER BY position, id").all(serverId) as unknown as ChannelCategory[]).map((r) => ({
+      id: r.id,
+      name: r.name,
+      position: r.position,
+    }));
+  }
+
+  private cleanCategoryName(v: unknown): string {
+    const name = cleanText(v, LIMITS.categoryName, "The category name", false);
+    if (findBlockedWords(name, [], { builtin: true }).length) throw new HttpError(400, "Pick a category name without rude words");
+    return name;
+  }
+
+  createCategory(serverId: number, name: unknown): ChannelCategory {
+    const n = this.cleanCategoryName(name);
+    if (this.categories(serverId).length >= LIMITS.categoriesPerServer) throw new HttpError(400, `A server can have up to ${LIMITS.categoriesPerServer} categories`);
+    const pos = this.db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM server_categories WHERE server_id = ?").get(serverId) as { p: number };
+    const res = this.db.prepare("INSERT INTO server_categories (server_id, name, position, created_at) VALUES (?, ?, ?, ?)").run(serverId, n, pos.p, now());
+    return { id: Number(res.lastInsertRowid), name: n, position: pos.p };
+  }
+
+  private category(serverId: number, categoryId: number): void {
+    if (!this.db.prepare("SELECT 1 FROM server_categories WHERE id = ? AND server_id = ?").get(categoryId, serverId)) throw new HttpError(404, "No such category");
+  }
+
+  renameCategory(serverId: number, categoryId: number, name: unknown): void {
+    this.category(serverId, categoryId);
+    this.db.prepare("UPDATE server_categories SET name = ? WHERE id = ?").run(this.cleanCategoryName(name), categoryId);
+  }
+
+  /** Deletes a category. Its channels stay, without a category. */
+  deleteCategory(serverId: number, categoryId: number): void {
+    this.category(serverId, categoryId);
+    this.db.prepare("DELETE FROM server_categories WHERE id = ?").run(categoryId);
+  }
+
+  reorderCategories(serverId: number, ids: unknown): void {
+    const current = this.categories(serverId).map((c) => c.id);
+    if (!Array.isArray(ids) || ids.length !== current.length || new Set(ids.map(Number)).size !== current.length || !ids.every((i) => current.includes(Number(i)))) {
+      throw new HttpError(400, "List every category once, in the new order");
+    }
+    this.atomic(() => {
+      const set = this.db.prepare("UPDATE server_categories SET position = ? WHERE id = ?");
+      ids.forEach((id, i) => set.run(i, Number(id)));
     });
   }
 

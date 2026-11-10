@@ -6,7 +6,7 @@ import { HttpError } from "../errors.js";
 import { ServerRepo } from "../servers.js";
 
 /** Permissions that make someone a moderator, who can read the server's audit log. */
-const MOD_PERMISSIONS: ServerPermission[] = ["manageServer", "manageChannels", "manageRoles", "manageAutomod", "kickMembers", "timeoutMembers", "deleteMessages"];
+const MOD_PERMISSIONS: ServerPermission[] = ["viewAuditLog", "manageServer", "manageChannels", "manageRoles", "manageAutomod", "kickMembers", "banMembers", "timeoutMembers", "deleteMessages"];
 
 const optionalId = (v: unknown): number | undefined => {
   if (v === undefined || v === "") return undefined;

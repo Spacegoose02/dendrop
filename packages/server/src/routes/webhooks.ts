@@ -6,7 +6,7 @@ import { ConversationRepo } from "../conversations.js";
 import { now } from "../db.js";
 import { HttpError } from "../errors.js";
 import { FriendRepo } from "../friends.js";
-import { isModerator, ServerRepo } from "../servers.js";
+import { ServerRepo } from "../servers.js";
 import { toPublic, type UserRecord } from "../users.js";
 
 interface WebhookRow {
@@ -97,7 +97,7 @@ export function webhookRoutes(app: FastifyInstance, ctx: Context): void {
   const moderator = (serverId: number, user: UserRecord) => {
     const role = servers.role(serverId, user.id);
     if (!role) throw new HttpError(404, "No such server");
-    if (!isModerator(role)) throw new HttpError(403, "Only the owner and admins can do that");
+    if (!servers.can(serverId, user.id, "manageWebhooks", role)) throw new HttpError(403, "You need Manage webhooks & bots to do that");
   };
   const base = (req: FastifyRequest) => config.publicUrl || `${req.protocol}://${req.headers.host}`;
   /** A new secret for a webhook, and its full address. */

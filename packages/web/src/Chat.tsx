@@ -74,8 +74,10 @@ export interface ChannelInfo {
   canPin?: boolean;
   /** Opens the pinned board. */
   onPins?: () => void;
-  /** Set when you can't post here (a closed thread): why. */
+  /** Set when you can't post here (a closed thread, a read-only channel): why. */
   readOnly?: string | null;
+  /** Seconds you wait between messages here (0 or unset: no wait). */
+  slowmode?: number;
   /** Extra buttons for the header (a thread's close and rename). */
   actions?: ReactNode;
   /** What the start of the history says instead of the channel's usual line. */
@@ -199,6 +201,15 @@ export function Chat({
   // A server timeout ends on its own: re-render when it does.
   const [, setTick] = useState(0);
   const timedOutUntil = channel?.timedOutUntil && Date.parse(channel.timedOutUntil) > Date.now() ? channel.timedOutUntil : null;
+  // Slowmode: when you can post again, counted down here (the server checks too).
+  const [slowUntil, setSlowUntil] = useState(0);
+  const [, setSlowTick] = useState(0);
+  const slowLeft = Math.max(0, Math.ceil((slowUntil - Date.now()) / 1000));
+  useEffect(() => {
+    if (slowLeft <= 0) return;
+    const t = setTimeout(() => setSlowTick((n) => n + 1), 1000);
+    return () => clearTimeout(t);
+  }, [slowLeft, slowUntil]);
   useEffect(() => {
     if (!timedOutUntil) return;
     const t = setTimeout(() => setTick((n) => n + 1), Math.min(Date.parse(timedOutUntil) - Date.now() + 500, 2 ** 31 - 1));
@@ -352,7 +363,7 @@ export function Chat({
       return;
     }
     const body = toMentionTokens(toTokens(draft.trim(), emojis), conversation.members);
-    if ((!body && files.length === 0) || sending) return;
+    if ((!body && files.length === 0) || sending || slowLeft > 0) return;
     if (filter && findBlockedWords(body, filter).length) {
       setError("That message has a word your family filter blocks. Your parents get a heads-up (not the word).");
       void report("profanity");
@@ -378,6 +389,7 @@ export function Chat({
       }
       const shown = await reveal(m);
       setHistory((h) => (h ? { ...h, messages: upsert(h.messages, shown) } : { messages: [shown], hasMore: false }));
+      if (channel?.slowmode) setSlowUntil(Date.now() + channel.slowmode * 1000);
     } catch (err) {
       setDraft(fromMentionTokens(fromTokens(body, emojis), conversation.members));
       setReplyTo(answering);
@@ -1016,6 +1028,11 @@ export function Chat({
         )}
         {timeUp && <p className="family-banner small">⏰ {timeUp} You can still read messages.</p>}
         {channel?.readOnly && <p className="family-banner small">🔒 {channel.readOnly}</p>}
+        {!!channel?.slowmode && !channel.readOnly && (
+          <p className="muted small slowmode-note" role="status">
+            🐢 Slowmode is on{slowLeft > 0 ? `: you can post again in ${slowLeft}s` : `: one message every ${channel.slowmode >= 60 ? `${Math.round(channel.slowmode / 60)} min` : `${channel.slowmode}s`}`}.
+          </p>
+        )}
         {timedOutUntil && (
           <p className="family-banner small timeout-banner">
             ⏳ You're timed out in this server until{" "}
@@ -1173,7 +1190,7 @@ export function Chat({
               🎤
             </button>
           )}
-          <button className="primary send" onClick={() => void send()} disabled={sending || !!timeUp || !!timedOutUntil || !!channel?.readOnly || (!draft.trim() && files.length === 0)} aria-label="Send">
+          <button className="primary send" onClick={() => void send()} disabled={sending || !!timeUp || !!timedOutUntil || !!channel?.readOnly || slowLeft > 0 || (!draft.trim() && files.length === 0)} aria-label="Send">
             {sending ? (
               "…"
             ) : (

@@ -581,7 +581,13 @@ export type ServerPermission =
   | "manageExpressions"
   | "manageEvents"
   | "pinMessages"
-  | "mentionEveryone";
+  | "mentionEveryone"
+  | "banMembers"
+  | "manageWebhooks"
+  | "manageNicknames"
+  | "viewAuditLog"
+  | "muteMembers"
+  | "moveMembers";
 
 export const SERVER_PERMISSIONS: ServerPermission[] = [
   "manageServer",
@@ -589,8 +595,14 @@ export const SERVER_PERMISSIONS: ServerPermission[] = [
   "manageRoles",
   "manageAutomod",
   "kickMembers",
+  "banMembers",
   "timeoutMembers",
   "deleteMessages",
+  "manageNicknames",
+  "muteMembers",
+  "moveMembers",
+  "manageWebhooks",
+  "viewAuditLog",
   "createInvites",
   "manageExpressions",
   "manageEvents",
@@ -646,6 +658,8 @@ export interface ChatServer extends ChatServerSummary {
   /** Open a voice channel while two or more members play the same game (from LootDen). */
   playTogether: boolean;
   channels: Channel[];
+  /** Channel categories, in order. Channels whose categoryId is null show first, grouped by kind. */
+  categories: ChannelCategory[];
   members: ServerMember[];
   createdAt: string;
   /** Set while automod or a moderator has timed you out here: you can read but not post or talk. */
@@ -832,7 +846,32 @@ export interface Channel {
   roleIds: number[];
   /** Forum channels: the tags posts can carry, in order. Empty for other channels. */
   tags: string[];
+  /** The category it's listed under, or null for none. */
+  categoryId: number | null;
+  /** Seconds each person waits between messages here (0 is off). Moderators don't wait. */
+  slowmode: number;
+  /**
+   * Only some people can post: people who can manage channels, and members of postRoleIds.
+   * Everyone who can see the channel can still read it, react and use threads.
+   */
+  readOnly: boolean;
+  /** For read-only channels, roles whose members can post (people who can manage channels see this; others get []). */
+  postRoleIds: number[];
+  /** Whether you can post here. */
+  canPost: boolean;
 }
+
+/** A heading channels are grouped under in the sidebar, like "Games" or "Grown-ups". */
+export interface ChannelCategory {
+  id: number;
+  name: string;
+  position: number;
+}
+
+/** Longest slowmode, in seconds (6 hours). */
+export const MAX_SLOWMODE = 6 * 60 * 60;
+/** The slowmode choices the apps offer, in seconds. */
+export const SLOWMODE_CHOICES = [0, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600];
 
 /** What a message shows about the thread hanging off it. */
 export interface ThreadRef {
@@ -894,6 +933,10 @@ export interface VoiceMember {
   speaker: boolean;
   /** On a stage: a listener asking to speak. */
   handRaised: boolean;
+  /** A moderator muted them: they can't unmute until a moderator lets them. */
+  serverMuted?: boolean;
+  /** A moderator deafened them: they hear nobody and can't undeafen until a moderator lets them. */
+  serverDeafened?: boolean;
 }
 
 /** Who is in a voice channel right now. Lives in memory on the server; empty channels aren't listed. */
@@ -1692,6 +1735,8 @@ export const LIMITS = {
   channelName: 32,
   channelTopic: 200,
   channelsPerServer: 100,
+  categoriesPerServer: 30,
+  categoryName: 40,
   threadTitle: 100,
   forumTags: 20,
   forumTagName: 24,
@@ -1732,6 +1777,8 @@ export type ServerEvent =
   | { type: "conversation.updated"; conversation: Conversation }
   | { type: "friend.updated"; friend: Friend }
   | { type: "friend.removed"; userId: number }
+  /** A moderator moved you to another voice channel: join it. */
+  | { type: "voice.move"; serverId: number; channelId: number }
   /** The people you blocked changed (on this or another device). */
   | { type: "blocks.updated"; blocked: PublicUser[] }
   /** Someone reported something you can review: a server's moderators, or super admins (serverId null). */
@@ -1873,12 +1920,20 @@ export const AUDIT_ACTIONS: Record<string, string> = {
   "member.unban": "unbanned",
   "member.timeout": "timed out",
   "member.untimeout": "ended the timeout of",
+  "member.nickname": "changed the nickname of",
+  "voice.moderate": "changed the voice of",
+  "voice.disconnect": "took out of voice",
+  "voice.move": "moved in voice",
+  "category.create": "made a category",
+  "category.update": "renamed a category",
+  "category.delete": "deleted a category",
   "levels.reset": "reset levels",
   "welcome.update": "changed the welcome screen",
   "role.create": "made a role",
   "role.update": "changed a role",
   "role.delete": "deleted a role",
   "role.reorder": "reordered the roles",
+  "report.resolve": "handled a report about",
   "channel.create": "made a channel",
   "channel.update": "changed a channel",
   "channel.delete": "deleted a channel",
