@@ -9,7 +9,9 @@ import { CallService } from "../calls.js";
 import { ConversationRepo, type NewAttachment, type SendOptions } from "../conversations.js";
 import { HttpError } from "../errors.js";
 import { livekitUrl } from "../livekit.js";
+import { BlockRepo } from "../blocks.js";
 import { FriendRepo } from "../friends.js";
+import { toPublic } from "../users.js";
 
 const keyVersion = (v: unknown): number | null => {
   if (v === undefined || v === null || v === "") return null;
@@ -34,6 +36,12 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
   };
   const friends = new FriendRepo(db, users);
   const convos = new ConversationRepo(db, users, friends);
+  const blocks = new BlockRepo(db, users);
+  /** A 403 when this is a 1:1 DM and either person blocked the other. */
+  const notBlocked = (cid: number, me: number) => {
+    const other = convos.dmPartner(cid, me);
+    if (other !== undefined && blocks.between(me, other)) throw new HttpError(403, "You can't message this person");
+  };
 
   /** Tells both sides how their friendship looks now. */
   const pushFriend = (a: number, b: number) => {
@@ -81,6 +89,9 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     if (other.id === me.id) throw new HttpError(400, "You can't add yourself");
     // Bots live in server channels only, so they're never in DMs or encrypted chats.
     if (other.isBot) throw new HttpError(400, "Bots can't be friends; add them to a server instead");
+    if (blocks.has(me.id, other.id)) throw new HttpError(409, "You blocked them. Unblock them first.");
+    // The same answer as a missing username, so a blocked person can't tell.
+    if (blocks.has(other.id, me.id)) throw new HttpError(404, "No one has that username");
     const f = friends.request(me.id, other.id);
     pushFriend(me.id, other.id);
     ctx.family.friendsChanged(me.id, other.id);
@@ -92,6 +103,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     const other = id(req.params.id);
     let f;
     try {
+      if (blocks.between(me.id, other)) throw new Error("There's no friend request from them");
       f = friends.accept(me.id, other);
     } catch (err) {
       throw new HttpError(404, (err as Error).message);
@@ -107,6 +119,37 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     const other = id(req.params.id);
     if (!friends.remove(me.id, other)) throw new HttpError(404, "Not a friend or request");
     pushFriend(me.id, other);
+    return { ok: true };
+  });
+
+  // ---- Blocking -----------------------------------------------------------------
+
+  const pushBlocks = (me: number) => gateway.send([me], { type: "blocks.updated", blocked: blocks.list(me) });
+
+  app.get("/api/blocks", async (req) => blocks.list(requireUser(req).id));
+
+  /** Blocks someone: ends any friendship or request, and stops their 1:1 DM both ways. */
+  app.post<{ Body: { userId?: unknown } }>("/api/blocks", async (req) => {
+    const me = requireUser(req);
+    const other = users.byId(id(req.body?.userId));
+    if (!other) throw new HttpError(404, "No such person");
+    if (other.id === me.id) throw new HttpError(400, "You can't block yourself");
+    blocks.block(me.id, other.id);
+    if (friends.remove(me.id, other.id)) pushFriend(me.id, other.id);
+    // A call in progress between the two ends now.
+    const dm = convos.openDmIfExists(me.id, other.id);
+    if (dm !== undefined) {
+      calls.leave(dm, me.id);
+      calls.leave(dm, other.id);
+    }
+    pushBlocks(me.id);
+    return toPublic(other);
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/blocks/:id", async (req) => {
+    const me = requireUser(req);
+    if (!blocks.unblock(me.id, id(req.params.id))) throw new HttpError(404, "You haven't blocked them");
+    pushBlocks(me.id);
     return { ok: true };
   });
 
@@ -208,6 +251,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     const me = requireUser(req);
     const cid = id(req.params.id);
     member(cid, me.id);
+    notBlocked(cid, me.id);
     const msg = await readMessage(req);
     const { body, files } = msg;
     let m;
@@ -256,6 +300,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     const me = requireUser(req);
     const cid = id(req.params.id);
     member(cid, me.id);
+    notBlocked(cid, me.id);
     const isNew = !calls.get(cid);
     const join = await calls.join(cid, convos.memberIds(cid), me, req.body?.video === true, livekitUrl(config, req));
     // A new call rings everyone's phones too, even if a PC is already ringing.

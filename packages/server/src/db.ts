@@ -842,6 +842,37 @@ export const MIGRATIONS: string[] = [
     PRIMARY KEY (conversation_id, user_id)
   );
   `,
+  `
+  -- People someone blocked: no friend requests either way, no messages in their 1:1 DM, and
+  -- their messages are hidden for the blocker in groups and channels.
+  CREATE TABLE user_blocks (
+    blocker_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    blocked_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (blocker_id, blocked_id)
+  );
+  CREATE INDEX user_blocks_blocked ON user_blocks(blocked_id);
+
+  -- Reports of messages and people. server_id is set for messages in a server's channels (its
+  -- moderators review them); the rest go to super admins. quote is the message text as it was
+  -- reported (for encrypted chats, only what the reporter chose to share).
+  CREATE TABLE reports (
+    id INTEGER PRIMARY KEY,
+    reporter_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    reported_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    server_id INTEGER REFERENCES servers(id) ON DELETE CASCADE,
+    conversation_id INTEGER REFERENCES conversations(id) ON DELETE SET NULL,
+    message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+    reason TEXT NOT NULL,
+    details TEXT NOT NULL DEFAULT '',
+    quote TEXT,
+    place TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    resolved_at TEXT,
+    resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+  );
+  CREATE INDEX reports_server ON reports(server_id, resolved_at);
+  `,
 ];
 
 export function now(): string {

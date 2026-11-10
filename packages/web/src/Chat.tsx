@@ -44,6 +44,7 @@ import { conversationTitle, upsert, type History } from "./util.ts";
 import { Markdown, plainText } from "./markdown.tsx";
 import { fromMentionTokens, mentionSuggestions, mentionsIn, toMentionTokens, typedMention } from "./mentions.ts";
 import { NotifyMenu } from "./notify.tsx";
+import { ReportDialog, useBlockedIds } from "./Safety.tsx";
 import { LinkPreviews } from "./LinkPreview.tsx";
 import { clearJump, openSearch, requestJump, useJumpTarget } from "./Search.tsx";
 
@@ -130,6 +131,10 @@ export function Chat({
   /** The message being answered, and whether its author gets pinged. */
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [replyPing, setReplyPing] = useState(true);
+  /** A message being reported, and blocked people's messages someone chose to show anyway. */
+  const [reporting, setReporting] = useState<ChatMessage | null>(null);
+  const [shownBlocked, setShownBlocked] = useState<Set<number>>(() => new Set());
+  const blockedIds = useBlockedIds();
   /** A message to scroll to (from search or a reply), and the one briefly highlighted. */
   const jumpTarget = useJumpTarget(conversation.id);
   const [flash, setFlash] = useState<number | null>(null);
@@ -767,6 +772,19 @@ export function Chat({
             reported.current.add(m.id);
             void report("profanity");
           }
+          if (!mine && !m.webhook && blockedIds.has(m.authorId) && !shownBlocked.has(m.id)) {
+            return (
+              <div key={m.id} id={`msg-${m.id}`}>
+                {newDay && <div className="day-sep">{day(m.createdAt)}</div>}
+                <div className="msg blocked-msg muted small">
+                  A message from someone you blocked.{" "}
+                  <button className="link" onClick={() => setShownBlocked((set) => new Set(set).add(m.id))}>
+                    Show
+                  </button>
+                </div>
+              </div>
+            );
+          }
           return (
             <div key={m.id} id={`msg-${m.id}`}>
               {newDay && <div className="day-sep">{day(m.createdAt)}</div>}
@@ -945,6 +963,11 @@ export function Chat({
                         Delete
                       </button>
                     )}
+                    {!mine && !m.webhook && !m.locked && (
+                      <button className="ghost" onClick={() => setReporting(m)} title="Report this message" aria-label="Report this message">
+                        ⚑
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -953,6 +976,19 @@ export function Chat({
         })}
       </div>
 
+      {reporting && (
+        <ReportDialog
+          target={{
+            kind: "message",
+            messageId: reporting.id,
+            authorName: members.get(reporting.authorId)?.displayName ?? "Someone",
+            text: reporting.text ?? "",
+            encrypted: reporting.keyVersion !== null,
+            inServer: !!channel,
+          }}
+          onClose={() => setReporting(null)}
+        />
+      )}
       <footer className="composer">
         {!channel && <EncryptionBanner me={me} conversation={conversation} keyState={keyState} onEncryption={onEncryption} />}
         {conversation.guardians.length > 0 && (

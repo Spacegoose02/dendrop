@@ -48,6 +48,7 @@ import { useVoiceKeybinds } from "./keybinds.ts";
 import { keyring, loadIdentity, reveal, type Identity } from "./e2ee.ts";
 import { conversationTitle, upsert, type History } from "./util.ts";
 import { AdminDialog } from "./Admin.tsx";
+import { loadBlocked, setBlocked } from "./Safety.tsx";
 import { ActivityContext, ActivityLine, ChoresContext } from "./activity.tsx";
 import { LootdenUrlContext } from "./GameLink.tsx";
 import { FamilyDialog } from "./Family.tsx";
@@ -247,6 +248,13 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         case "ready":
           setMe((m) => ({ ...m, ...e.user, publicKey: m.publicKey ?? e.user.publicKey }));
           void refresh();
+          loadBlocked();
+          break;
+        case "blocks.updated":
+          setBlocked(e.blocked);
+          break;
+        case "report.created":
+          setAdminVersion((n) => n + 1);
           break;
         case "family.updated":
           setFamily(e.family);
@@ -924,6 +932,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             keyState={keyState}
             onEncryption={(mode) => setEncryptionDialog(mode)}
             onFamily={() => setShowFamily(true)}
+            onDeleted={onSignedOut}
             onSaved={(m) => {
               setMe(m);
               // Turning receipts on or off changes whose reads this person can see.

@@ -26,6 +26,7 @@ import { GifService, type GifFetch } from "./gifs.js";
 import { LinkPreviewService, type PreviewFetch } from "./link-previews.js";
 import { NotificationService } from "./notifications.js";
 import { searchRoutes } from "./routes/search.js";
+import { safetyRoutes } from "./routes/safety.js";
 import { DendutyLink, type DendutyFetch } from "./denduty.js";
 import { EventService } from "./events.js";
 import type { LevelService } from "./levels.js";
@@ -241,6 +242,7 @@ export async function buildApp(
   await app.register(async (api) => couplesRoutes(api, ctx));
   await app.register(async (api) => profileRoutes(api, ctx));
   await app.register(async (api) => searchRoutes(api, ctx));
+  await app.register(async (api) => safetyRoutes(api, ctx));
   await app.register(async (api) => gatewayRoute(api, ctx));
   builtinLivekit(app, config);
   ctx.events.start();

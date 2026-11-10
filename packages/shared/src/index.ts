@@ -1732,6 +1732,10 @@ export type ServerEvent =
   | { type: "conversation.updated"; conversation: Conversation }
   | { type: "friend.updated"; friend: Friend }
   | { type: "friend.removed"; userId: number }
+  /** The people you blocked changed (on this or another device). */
+  | { type: "blocks.updated"; blocked: PublicUser[] }
+  /** Someone reported something you can review: a server's moderators, or super admins (serverId null). */
+  | { type: "report.created"; serverId: number | null }
   | { type: "typing"; conversationId: number; userId: number }
   | { type: "read"; conversationId: number; userId: number; messageId: number }
   | { type: "call.updated"; call: Call }
@@ -1944,4 +1948,48 @@ export interface BackupStatus {
   backups: BackupFile[];
   lastError: string | null;
   running: boolean;
+}
+
+// ---- Safety: blocking, reports, deleting your account ------------------------------------
+
+/** Why someone reported a message or person. */
+export type ReportReason = "spam" | "harassment" | "hate" | "sexual" | "violence" | "self_harm" | "underage" | "other";
+
+export const REPORT_REASONS: Record<ReportReason, string> = {
+  spam: "Spam or scams",
+  harassment: "Bullying or harassment",
+  hate: "Hate",
+  sexual: "Sexual content",
+  violence: "Violence or threats",
+  self_harm: "Self-harm",
+  underage: "A child at risk",
+  other: "Something else",
+};
+
+/**
+ * A report. Reports of messages in a server's channels go to that server's moderators (anyone
+ * who can delete messages); reports of people and of messages in DMs go to super admins.
+ */
+export interface Report {
+  id: number;
+  serverId: number | null;
+  reporter: PublicUser | null;
+  /** Who it's about (the message's author for a message). Null once they deleted their account. */
+  reported: PublicUser | null;
+  reason: ReportReason;
+  /** The reporter's own words. */
+  details: string;
+  /** The reported message, if it still exists. */
+  messageId: number | null;
+  conversationId: number | null;
+  /**
+   * The message's text when it was reported: copied from a server channel, or, from an encrypted
+   * chat, only what the reporter chose to share (the server can't read those messages).
+   */
+  quote: string | null;
+  /** Where it was said, for showing ("#general", "a DM"). */
+  place: string;
+  createdAt: string;
+  resolvedAt: string | null;
+  resolvedBy: PublicUser | null;
 }

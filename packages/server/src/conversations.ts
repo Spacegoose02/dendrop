@@ -253,6 +253,20 @@ export class ConversationRepo {
     return ids.map((r) => this.get(r.id, userId)!).filter(Boolean);
   }
 
+  /** In a 1:1 DM, the other person; undefined for groups, channels and threads. */
+  dmPartner(conversationId: number, me: number): number | undefined {
+    const r = this.db.prepare("SELECT dm_key FROM conversations WHERE id = ?").get(conversationId) as { dm_key: string | null } | undefined;
+    if (!r?.dm_key) return undefined;
+    const [a, b] = r.dm_key.split(":").map(Number);
+    return a === me ? b : b === me ? a : undefined;
+  }
+
+  /** The id of the 1:1 DM between two people, if they have one. */
+  openDmIfExists(a: number, b: number): number | undefined {
+    const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+    return (this.db.prepare("SELECT id FROM conversations WHERE dm_key = ?").get(key) as { id: number } | undefined)?.id;
+  }
+
   /** The 1:1 conversation between two friends, made the first time it's needed. */
   openDm(me: number, other: number): { conversation: Conversation; created: boolean } {
     if (me === other) throw new HttpError(400, "You can't message yourself");

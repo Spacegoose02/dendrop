@@ -1,3 +1,4 @@
+import { BlockedSection, YourDataSection } from "./Safety.tsx";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { previewsInEncrypted, setPreviewsInEncrypted } from "./LinkPreview.tsx";
 import {
@@ -36,6 +37,7 @@ export function SettingsButton({
   keyState,
   onEncryption,
   onFamily,
+  onDeleted,
   picturesAllowed = true,
 }: {
   me: Me;
@@ -43,6 +45,8 @@ export function SettingsButton({
   keyState: KeyState;
   onEncryption: (mode: EncryptionMode) => void;
   onFamily: () => void;
+  /** After the account is deleted: back to the sign-in page. */
+  onDeleted: () => void;
   /** Kids need a parent's OK for a profile picture and banner. */
   picturesAllowed?: boolean;
 }) {
@@ -87,6 +91,7 @@ export function SettingsButton({
               setOpen(false);
               onFamily();
             }}
+            onDeleted={onDeleted}
           />
         )}
       </dialog>
@@ -101,10 +106,12 @@ function SettingsPane({
   keyState,
   onEncryption,
   onFamily,
+  onDeleted,
   picturesAllowed,
 }: {
   me: Me;
   onSaved: (me: Me) => void;
+  onDeleted: () => void;
   picturesAllowed: boolean;
   onDone: () => void;
   keyState: KeyState;
@@ -188,6 +195,8 @@ function SettingsPane({
           ))}
         </div>
       </section>
+      <BlockedSection />
+      <YourDataSection me={me} onDeleted={onDeleted} />
     </div>
   );
 }

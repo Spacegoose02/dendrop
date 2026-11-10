@@ -17,6 +17,7 @@ import { useColors } from "./colors.ts";
 import { LevelBadge, LevelBar } from "./Levels.tsx";
 import { Modal } from "./Modal.tsx";
 import { RoleChip } from "./Roles.tsx";
+import { block, ReportDialog, unblock, useBlockedIds } from "./Safety.tsx";
 import { memberColors, rolesOf } from "./roles.ts";
 import "./profile.css";
 
@@ -144,6 +145,8 @@ export function ProfileCard({
 }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reporting, setReporting] = useState(false);
+  const blockedIds = useBlockedIds();
   const colorsOf = useColors();
   useEffect(() => {
     let cancelled = false;
@@ -250,9 +253,27 @@ export function ProfileCard({
             {isMe ? (
               <button onClick={onEdit}>Edit profile</button>
             ) : (
-              user && profile?.friendsSince && !user.isBot && <button onClick={() => onMessage(user)}>Message</button>
+              user &&
+              !user.isBot && (
+                <>
+                  {profile?.friendsSince && !blockedIds.has(user.id) && <button onClick={() => onMessage(user)}>Message</button>}
+                  {blockedIds.has(user.id) ? (
+                    <button className="ghost" onClick={() => void unblock(user.id).catch((err: Error) => setError(err.message))}>
+                      Unblock
+                    </button>
+                  ) : (
+                    <button className="ghost" onClick={() => void block(user).catch((err: Error) => setError(err.message))}>
+                      Block
+                    </button>
+                  )}
+                  <button className="ghost danger" onClick={() => setReporting(true)}>
+                    Report
+                  </button>
+                </>
+              )
             )}
           </div>
+          {reporting && user && <ReportDialog target={{ kind: "user", user }} onClose={() => setReporting(false)} />}
         </div>
       </div>
     </Modal>

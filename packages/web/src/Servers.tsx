@@ -18,6 +18,7 @@ import {
 } from "@dendrop/shared";
 import { api, ApiError } from "./api.ts";
 import { AuditLogTab } from "./Audit.tsx";
+import { ReportsList } from "./Safety.tsx";
 import { AutomodTab, ModLogTab } from "./Automod.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { ProfileLink, StatusLine } from "./Profile.tsx";
@@ -802,7 +803,7 @@ export function ChannelDialog({
   );
 }
 
-export type SettingsTab = "profile" | "members" | "levels" | "welcome" | "roles" | "emoji" | "stickers" | "sounds" | "invites" | "bans" | "automod" | "modlog" | "audit" | "webhooks" | "bots";
+export type SettingsTab = "profile" | "members" | "levels" | "welcome" | "roles" | "emoji" | "stickers" | "sounds" | "invites" | "bans" | "automod" | "modlog" | "audit" | "webhooks" | "bots" | "reports";
 
 /** Server settings: profile and pictures, members and roles, invites, bans, automod, and leaving. */
 export function ServerSettings({
@@ -828,6 +829,7 @@ export function ServerSettings({
     ...(can(server, "manageExpressions") || server.stickers.length ? [{ id: "stickers" as const, label: "Stickers" }] : []),
     ...(can(server, "manageExpressions") || server.sounds.length ? [{ id: "sounds" as const, label: "Sounds" }] : []),
     ...(canInvite(server) ? [{ id: "invites" as const, label: "Invites" }] : []),
+    ...(can(server, "deleteMessages") ? [{ id: "reports" as const, label: "Reports" }] : []),
     ...(can(server, "kickMembers") ? [{ id: "bans" as const, label: "Bans" }] : []),
     ...(can(server, "manageAutomod")
       ? [
@@ -857,6 +859,7 @@ export function ServerSettings({
       {tab === "stickers" && <StickersTab server={server} />}
       {tab === "sounds" && <SoundsTab server={server} />}
       {tab === "invites" && <InvitesTab server={server} />}
+      {tab === "reports" && <ReportsList serverId={server.id} onDeleteMessage={(id) => api(`/api/servers/${server.id}/messages/${id}`, { method: "DELETE" }).then(() => undefined)} />}
       {tab === "bans" && <BansTab server={server} />}
       {tab === "automod" && <AutomodTab server={server} />}
       {tab === "modlog" && <ModLogTab server={server} />}
