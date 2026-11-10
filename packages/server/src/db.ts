@@ -906,6 +906,20 @@ export const MIGRATIONS: string[] = [
   -- last_read_message_id so read receipts others saw don't go backwards.
   ALTER TABLE conversation_members ADD COLUMN unread_from INTEGER;
   `,
+  `
+  -- Forwarded messages: JSON {authorId, authorName, createdAt} of the original.
+  ALTER TABLE messages ADD COLUMN forwarded TEXT;
+  -- Messages someone saved to come back to (only they see the list).
+  CREATE TABLE saved_messages (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, message_id)
+  );
+  CREATE INDEX saved_messages_user ON saved_messages(user_id, created_at);
+  -- Your server list's folders and order (JSON list of RailItem).
+  ALTER TABLE users ADD COLUMN rail TEXT;
+  `,
 ];
 
 export function now(): string {

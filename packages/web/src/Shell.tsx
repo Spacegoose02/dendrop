@@ -19,6 +19,7 @@ import type {
   Reminder,
   ServerEvent,
   ServerInfo,
+  RailItem,
   Thread,
   UnreadCount,
   VoiceChannelState,
@@ -27,6 +28,8 @@ import type {
 import { isVoiceKind } from "@dendrop/shared";
 import { api, connectGateway, logout } from "./api.ts";
 import { PresencePicker, UnreadBadge } from "./Unread.tsx";
+import { ServerRail } from "./Rail.tsx";
+import { ForwardDialog, InboxPanel, setSaved, startForward, useForwarding, type InboxTab } from "./Inbox.tsx";
 import { startWebPush } from "./webpush.ts";
 import { channelTitle } from "./channels.ts";
 import { EventReminderCard, EventsDialog } from "./Events.tsx";
@@ -143,6 +146,15 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   /** Unread messages and pings per conversation; a conversation that's caught up isn't in it. */
   const [unread, setUnread] = useState<Map<number, { count: number; mentions: number }>>(new Map());
   const [dnd, setDnd] = useState<Set<number>>(new Set());
+  const [inbox, setInbox] = useState<InboxTab | null>(null);
+  const [rail, setRail] = useState<RailItem[]>([]);
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
+  const forwarding = useForwarding();
   const [servers, setServers] = useState<ChatServer[]>([]);
   const [invites, setInvites] = useState<InvitePreview[]>([]);
   /** Automod alerts not looked at yet, per server (owners and admins only get them). */
@@ -240,6 +252,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     setOnline(new Set(f.filter((x) => x.online).map((x) => x.user.id)));
     setDnd(new Set(f.filter((x) => x.dnd).map((x) => x.user.id)));
     setConversations(c);
+    void api<RailItem[]>("/api/me/rail").then(setRail, () => {});
     void api<UnreadCount[]>("/api/unread").then(
       (list) => setUnread(new Map(list.map((u) => [u.conversationId, { count: u.count, mentions: u.mentions }]))),
       () => {},
@@ -357,6 +370,12 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             else n.delete(e.unread.conversationId);
             return n;
           });
+          break;
+        case "rail.updated":
+          setRail(e.rail);
+          break;
+        case "saved.updated":
+          setSaved(e.messageId, e.saved);
           break;
         case "me.updated":
           setMe((m) => ({ ...m, ...e.user, publicKey: m.publicKey ?? e.user.publicKey }));
@@ -877,23 +896,33 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           <img src="/favicon.svg" alt="Direct messages" width={32} height={32} />
         </button>
         <div className="rail-sep" />
-        {servers.map((sv) => (
-          <button
-            key={sv.id}
-            className={`rail-server ${currentServer?.id === sv.id ? "active" : ""}`}
-            title={sv.name}
-            aria-label={sv.name}
-            onClick={() => openServer(sv)}
-          >
-            <ServerIcon server={sv} size={48} />
-            {serverUnread(sv) && <span className="rail-dot" aria-label="Unread" />}
-            {serverMentions(sv) > 0 && (
-              <span className="rail-badge" aria-label={`${serverMentions(sv)} mentions`}>
-                {serverMentions(sv) > 99 ? "99+" : serverMentions(sv)}
-              </span>
-            )}
-          </button>
-        ))}
+        <ServerRail
+          servers={servers}
+          rail={rail}
+          onRail={setRail}
+          folderAlert={(ids) => {
+            const in_ = servers.filter((x) => ids.includes(x.id));
+            return { unread: in_.some(serverUnread), mentions: in_.reduce((n, x) => n + serverMentions(x), 0) };
+          }}
+          renderServer={(sv, extra) => (
+            <button
+              key={sv.id}
+              className={`rail-server ${currentServer?.id === sv.id ? "active" : ""}`}
+              title={sv.name}
+              aria-label={sv.name}
+              onClick={() => openServer(sv)}
+              {...extra}
+            >
+              <ServerIcon server={sv} size={48} />
+              {serverUnread(sv) && <span className="rail-dot" aria-label="Unread" />}
+              {serverMentions(sv) > 0 && (
+                <span className="rail-badge" aria-label={`${serverMentions(sv)} mentions`}>
+                  {serverMentions(sv) > 99 ? "99+" : serverMentions(sv)}
+                </span>
+              )}
+            </button>
+          )}
+        />
         <button
           className={`rail-item rail-add ${view.kind === "directory" ? "active" : ""}`}
           title="Find or create a server"
@@ -940,6 +969,18 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             </span>
             Friends
             {incoming > 0 && <span className="badge">{incoming}</span>}
+          </button>
+          <button className="nav-item" onClick={() => setInbox("mentions")}>
+            <span className="nav-icon" aria-hidden>
+              @
+            </span>
+            Mentions
+          </button>
+          <button className="nav-item" onClick={() => setInbox("saved")}>
+            <span className="nav-icon" aria-hidden>
+              🔖
+            </span>
+            Saved messages
           </button>
           <div className="section-label with-action">
             Conversations
@@ -1172,6 +1213,38 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           onOpen={openHit}
           onClose={closeSearch}
         />
+      )}
+      {inbox && (
+        <InboxPanel
+          me={me}
+          tab={inbox}
+          conversations={conversations}
+          servers={servers}
+          filter={kidRules?.rules.profanityFilter ? kidRules.rules.blockedWords : null}
+          onOpen={(t) => {
+            setInbox(null);
+            openHit(t);
+          }}
+          onClose={() => setInbox(null)}
+        />
+      )}
+      {forwarding && (
+        <ForwardDialog
+          me={me}
+          message={forwarding}
+          conversations={conversations}
+          servers={servers}
+          onDone={(where) => {
+            startForward(null);
+            setToast(`Forwarded to ${where}`);
+          }}
+          onClose={() => startForward(null)}
+        />
+      )}
+      {toast && (
+        <div className="toast" role="status">
+          {toast}
+        </div>
       )}
       {showFamily && (
         <FamilyDialog

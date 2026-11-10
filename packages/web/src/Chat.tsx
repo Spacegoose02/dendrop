@@ -46,6 +46,8 @@ import { fromMentionTokens, mentionSuggestions, mentionsIn, toMentionTokens, typ
 import { NotifyMenu } from "./notify.tsx";
 import { ReportDialog, useBlockedIds } from "./Safety.tsx";
 import { LinkPreviews } from "./LinkPreview.tsx";
+import { postMessage } from "./send.ts";
+import { startForward, toggleSaved, useSavedIds } from "./Inbox.tsx";
 import { clearJump, openSearch, requestJump, useJumpTarget } from "./Search.tsx";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -135,6 +137,7 @@ export function Chat({
   const [replyPing, setReplyPing] = useState(true);
   /** A message being reported, and blocked people's messages someone chose to show anyway. */
   const [reporting, setReporting] = useState<ChatMessage | null>(null);
+  const savedIds = useSavedIds();
   const [shownBlocked, setShownBlocked] = useState<Set<number>>(() => new Set());
   const blockedIds = useBlockedIds();
   /** A message to scroll to (from search or a reply), and the one briefly highlighted. */
@@ -497,34 +500,9 @@ export function Chat({
   };
 
   /** Sends a message: encrypted once the conversation has a key, plain until everyone has set up. */
-  const post = async (c: Conversation, body: string, sendingFiles: File[], reply?: { replyToId: number; replyPing: boolean }): Promise<Message> => {
-    const url = `/api/conversations/${c.id}/messages`;
-    // Server channels aren't end-to-end encrypted yet, so they never make keys.
-    const version = channel ? null : await keyring.forSending(c);
-    const extra: Record<string, string> = reply ? { replyToId: String(reply.replyToId), replyPing: String(reply.replyPing) } : {};
-    if (version) {
-      // The server can't read an encrypted message, so it's told who it pings (only that).
-      const pings = mentionsIn(body);
-      const meta = { ...(reply ?? {}), mentions: pings.ids, mentionsEveryone: pings.everyone };
-      const encrypted = await Promise.all(sendingFiles.map((f) => encryptFile(c.id, version, f)));
-      const cipher = await encryptMessage(c.id, me.id, version, body, encrypted.map((x) => x.meta));
-      if (encrypted.length === 0) return api<Message>(url, { body: { body: cipher, keyVersion: version, ...meta } });
-      const form = new FormData();
-      form.append("body", cipher);
-      form.append("keyVersion", String(version));
-      for (const [k, v] of Object.entries(extra)) form.append(k, v);
-      form.append("mentions", JSON.stringify(pings.ids));
-      form.append("mentionsEveryone", String(pings.everyone));
-      for (const x of encrypted) form.append("file", x.blob, "file");
-      return apiForm<Message>(url, form);
-    }
-    if (sendingFiles.length === 0) return api<Message>(url, { body: { body, ...(reply ?? {}) } });
-    const form = new FormData();
-    form.append("body", body);
-    for (const [k, v] of Object.entries(extra)) form.append(k, v);
-    for (const f of sendingFiles) form.append("file", f, f.name);
-    return apiForm<Message>(url, form);
-  };
+  // Server channels aren't end-to-end encrypted yet, so they never make keys.
+  const post = (c: Conversation, body: string, sendingFiles: File[], reply?: { replyToId: number; replyPing: boolean }): Promise<Message> =>
+    postMessage(c, me.id, !!channel, body, sendingFiles, { reply });
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (suggestions.length && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) {
@@ -852,6 +830,11 @@ export function Chat({
                       📌
                     </span>
                   )}
+                  {m.forwarded && !m.deleted && (
+                    <div className="forwarded-line muted small">
+                      ↪ Forwarded · {m.forwarded.authorName}, {new Date(m.forwarded.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                    </div>
+                  )}
                   {editing?.id === m.id ? (
                     <div className="edit">
                       <textarea
@@ -979,7 +962,28 @@ export function Chat({
                         ⏰
                       </button>
                     )}
-                    {mine && !m.locked && !m.poll && !m.game && !m.nudge && (
+                    {!m.locked && !m.poll && !m.game && !m.nudge && (
+                      <button className="ghost" onClick={() => startForward(m)} title="Forward" aria-label="Forward">
+                        ↪
+                      </button>
+                    )}
+                    {!m.locked && (
+                      <button
+                        className={`ghost ${savedIds.has(m.id) ? "on" : ""}`}
+                        onClick={() =>
+                          void toggleSaved(m.id).then(
+                            (on) => setNotice(on ? "Saved. Find it in your inbox under Saved." : "Removed from saved."),
+                            (e: Error) => setNotice(e.message),
+                          )
+                        }
+                        title={savedIds.has(m.id) ? "Remove from saved" : "Save for later"}
+                        aria-label={savedIds.has(m.id) ? "Remove from saved" : "Save for later"}
+                        aria-pressed={savedIds.has(m.id)}
+                      >
+                        🔖
+                      </button>
+                    )}
+                    {mine && !m.locked && !m.poll && !m.game && !m.nudge && !m.forwarded && (
                       <button className="ghost" onClick={() => setEditing({ id: m.id, text: fromMentionTokens(fromTokens(m.text, emojis), conversation.members) })} title="Edit">
                         Edit
                       </button>

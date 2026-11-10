@@ -2361,3 +2361,76 @@ h5.md-h {
   background: var(--dd-bg-hover);
   box-shadow: inset 3px 0 0 var(--dd-accent);
 }
+
+/* ---- Forwarding, saved messages and the inbox -------------------------------------------------- */
+.forwarded-line {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin: 2px 0;
+  padding-left: 8px;
+  border-left: 3px solid var(--dd-border);
+  font-style: italic;
+}
+.msg-actions button.on {
+  background: var(--dd-bg-hover);
+  box-shadow: inset 0 -2px 0 var(--dd-accent);
+}
+.inbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.inbox-row .search-hit {
+  flex: 1;
+  min-width: 0;
+}
+.forward-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.forward-preview {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--dd-accent);
+  background: var(--dd-bg-hover);
+  border-radius: 0 var(--dd-radius) var(--dd-radius) 0;
+  max-height: 6.5em;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.forward-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.forward-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--dd-radius);
+}
+.forward-row:hover {
+  background: var(--dd-bg-hover);
+}
+.forward-row .nav-text {
+  flex: 1;
+  min-width: 0;
+}
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 80;
+  max-width: calc(100vw - 32px);
+  padding: 10px 16px;
+  border-radius: var(--dd-radius);
+  background: var(--dd-bg-raised);
+  border: 1px solid var(--dd-border);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+}
