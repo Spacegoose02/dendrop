@@ -920,6 +920,21 @@ export const MIGRATIONS: string[] = [
   -- Your server list's folders and order (JSON list of RailItem).
   ALTER TABLE users ADD COLUMN rail TEXT;
   `,
+  `
+  -- Earlier versions of edited messages, so people can see what changed. body is stored as
+  -- it was: ciphertext stays ciphertext under its key_version, so encrypted chats stay private.
+  CREATE TABLE message_edits (
+    id INTEGER PRIMARY KEY,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    key_version INTEGER,
+    -- When this version was written (the message's send time, or an earlier edit).
+    written_at TEXT NOT NULL,
+    -- When an edit replaced it.
+    replaced_at TEXT NOT NULL
+  );
+  CREATE INDEX message_edits_message ON message_edits(message_id, id);
+  `,
 ];
 
 export function now(): string {

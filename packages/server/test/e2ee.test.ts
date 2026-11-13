@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createECDH, randomBytes } from "node:crypto";
 import { after, before, describe, it } from "node:test";
-import type { Conversation, E2eeSetup, Message, WrappedKey } from "@dendrop/shared";
+import type { Conversation, E2eeSetup, Message, MessageEdit, WrappedKey } from "@dendrop/shared";
 import { account, listen, startServer, type TestServer } from "./helpers.js";
 
 const b64 = (n: number) => randomBytes(n).toString("base64url");
@@ -123,6 +123,10 @@ describe("end-to-end encryption", () => {
     const edited = await req(dad, "PATCH", `/api/messages/${id}`, { body: ciphertext(60), keyVersion: 1 });
     assert.equal(edited.statusCode, 200, edited.body);
     assert.ok(edited.json<Message>().editedAt);
+    // The earlier version is kept as the ciphertext it was, never in the clear.
+    const edits = (await req(mom, "GET", `/api/messages/${id}/edits`)).json<MessageEdit[]>();
+    assert.deepEqual(edits.map((e) => [e.body, e.keyVersion]), [[body, 1]]);
+    assert.equal((await req(kit, "GET", `/api/messages/${id}/edits`)).statusCode, 404);
   });
 
   it("stores encrypted files without their names or types", async () => {

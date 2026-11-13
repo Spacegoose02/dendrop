@@ -406,6 +406,9 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     return m;
   });
 
+  /** A message's earlier versions, oldest first (see MessageEdit). */
+  app.get<{ Params: { id: string } }>("/api/messages/:id/edits", async (req) => convos.edits(id(req.params.id), requireUser(req).id));
+
   app.delete<{ Params: { id: string } }>("/api/messages/:id", async (req) => {
     const me = requireUser(req);
     const mid = id(req.params.id);

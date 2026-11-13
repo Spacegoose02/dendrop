@@ -194,6 +194,19 @@ export interface Attachment {
   url: string;
 }
 
+/**
+ * An earlier version of an edited message (GET /api/messages/:id/edits). Like a message, an
+ * encrypted one has ciphertext in `body` and the key version it was sealed with.
+ */
+export interface MessageEdit {
+  body: string;
+  keyVersion: number | null;
+  /** When this version was written: when the message was sent, or an earlier edit. */
+  writtenAt: string;
+  /** When the next edit replaced it. */
+  replacedAt: string;
+}
+
 export interface Message {
   id: number;
   conversationId: number;
@@ -1778,6 +1791,8 @@ export const INLINE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "imag
 /** Limits that the server and clients both check. */
 export const LIMITS = {
   messageLength: 4000,
+  /** Earlier versions kept per edited message; the oldest go first. */
+  editHistory: 50,
   /** Messages you can keep in saved messages. */
   savedMessages: 500,
   /** Folders in your server list, and the length of a folder's name. */

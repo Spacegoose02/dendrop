@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import type { Conversation, Message } from "@dendrop/shared";
+import { LIMITS, type Conversation, type Message, type MessageEdit } from "@dendrop/shared";
 import { account, listen, startServer, type TestServer } from "./helpers.js";
 
 describe("friends and direct messages", () => {
@@ -123,6 +123,41 @@ describe("friends and direct messages", () => {
     const off = await momLive.waitFor("presence");
     assert.equal(off.online, false);
     momLive.ws.close();
+  });
+
+  it("keeps earlier versions of an edited message for the conversation, until it's deleted", async () => {
+    const cid = (await call(dad, "POST", "/api/conversations", { userId: momId })).body.id as number;
+    const m = (await call(mom, "POST", `/api/conversations/${cid}/messages`, { body: "Pizza tonight" })).body as Message;
+    assert.deepEqual((await call(dad, "GET", `/api/messages/${m.id}/edits`)).body, [], "nothing until it's edited");
+    await call(mom, "PATCH", `/api/messages/${m.id}`, { body: "Tacos tonight" });
+    const last = (await call(mom, "PATCH", `/api/messages/${m.id}`, { body: "Tacos at 7" })).body as Message;
+    const edits = (await call(dad, "GET", `/api/messages/${m.id}/edits`)).body as MessageEdit[];
+    assert.deepEqual(
+      edits.map((e) => [e.body, e.keyVersion]),
+      [
+        ["Pizza tonight", null],
+        ["Tacos tonight", null],
+      ],
+    );
+    assert.equal(edits[0]!.writtenAt, m.createdAt);
+    assert.equal(edits[1]!.writtenAt, edits[0]!.replacedAt);
+    assert.equal(edits[1]!.replacedAt, last.editedAt);
+    // Only people in the conversation see them.
+    assert.equal((await call(kit, "GET", `/api/messages/${m.id}/edits`)).status, 404);
+    // Deleting takes the old versions too, from the database as well.
+    await call(mom, "DELETE", `/api/messages/${m.id}`);
+    assert.deepEqual((await call(dad, "GET", `/api/messages/${m.id}/edits`)).body, []);
+    assert.equal(s.ctx.db.prepare("SELECT COUNT(*) AS n FROM message_edits WHERE message_id = ?").get(m.id)!.n, 0);
+  });
+
+  it("keeps at most LIMITS.editHistory earlier versions", async () => {
+    const cid = (await call(dad, "POST", "/api/conversations", { userId: momId })).body.id as number;
+    const m = (await call(mom, "POST", `/api/conversations/${cid}/messages`, { body: "v0" })).body as Message;
+    for (let i = 1; i <= LIMITS.editHistory + 2; i++) await call(mom, "PATCH", `/api/messages/${m.id}`, { body: `v${i}` });
+    const edits = (await call(mom, "GET", `/api/messages/${m.id}/edits`)).body as MessageEdit[];
+    assert.equal(edits.length, LIMITS.editHistory);
+    assert.equal(edits[0]!.body, "v2", "the oldest went first");
+    assert.equal(edits.at(-1)!.body, `v${LIMITS.editHistory + 1}`);
   });
 });
 
