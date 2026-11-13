@@ -3,6 +3,7 @@ package io.github.spacegoose02.dendrop.push;
 import android.util.Log;
 import androidx.annotation.NonNull;
 import io.github.spacegoose02.dendrop.MainActivity;
+import io.github.spacegoose02.dendrop.call.IncomingCalls;
 import java.nio.charset.StandardCharsets;
 import org.json.JSONObject;
 import org.unifiedpush.android.connector.FailedReason;
@@ -32,7 +33,7 @@ public class DendropPushService extends PushService {
     public void onMessage(@NonNull PushMessage message, @NonNull String instance) {
         String kind = kindOf(message.getContent());
         if ("call".equals(kind)) {
-            Notifier.showCall(this);
+            IncomingCalls.ring(this);
         } else if ("event".equals(kind)) {
             if (!MainActivity.isInForeground()) Notifier.showEvent(this);
         } else if (!MainActivity.isInForeground()) {

@@ -15,6 +15,7 @@ import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.CapConfig;
 import com.getcapacitor.WebViewListener;
+import io.github.spacegoose02.dendrop.call.IncomingCalls;
 import io.github.spacegoose02.dendrop.push.Notifier;
 import io.github.spacegoose02.dendrop.push.PushRegistrar;
 
@@ -27,6 +28,8 @@ public class MainActivity extends BridgeActivity {
 
     /** Sent by the "Server settings" launcher shortcut. */
     static final String ACTION_SETTINGS = "io.github.spacegoose02.dendrop.SETTINGS";
+    /** Sent after Answer on the incoming call notification; the page joins the call. */
+    public static final String ACTION_ANSWER = "io.github.spacegoose02.dendrop.ANSWER";
     /** The bundled page, served at the server's origin when the server is unreachable. */
     static final String OFFLINE_PAGE = "dendrop-offline.html";
 
@@ -86,7 +89,12 @@ public class MainActivity extends BridgeActivity {
             }
         });
         if (ACTION_SETTINGS.equals(getIntent().getAction())) showSettings();
-        if (Notifier.ACTION_CALL.equals(getIntent().getAction())) showOverLockScreen(true);
+        if (isCallIntent(getIntent())) showOverLockScreen(true);
+    }
+
+    private static boolean isCallIntent(Intent intent) {
+        String action = intent == null ? null : intent.getAction();
+        return Notifier.ACTION_CALL.equals(action) || ACTION_ANSWER.equals(action);
     }
 
     /**
@@ -103,7 +111,7 @@ public class MainActivity extends BridgeActivity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         if (bridge != null && ACTION_SETTINGS.equals(intent.getAction())) showSettings();
-        if (Notifier.ACTION_CALL.equals(intent.getAction())) showOverLockScreen(true);
+        if (isCallIntent(intent)) showOverLockScreen(true);
     }
 
     @Override
@@ -112,7 +120,7 @@ public class MainActivity extends BridgeActivity {
         inForeground = true;
         Notifier.clear(this);
         // The app's own ringer takes over from the notification once it's open.
-        Notifier.clearCall(this);
+        IncomingCalls.stop(this);
         handler.removeCallbacks(pushSync);
         handler.post(pushSync);
         if (bridge != null) UpdateChecker.maybeCheck(this);

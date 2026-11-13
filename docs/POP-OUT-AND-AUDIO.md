@@ -27,17 +27,36 @@ floating chat head that stays over other apps (Android 11 and newer).
 
 ## Android incoming call screen
 
-A call now rings like a phone call: the **Calls** notification plays your ringtone and vibrates
-until you open it, silence it, or 45 seconds pass. On a locked or idle phone it opens Dendrop
-full screen over the lock screen, where the app's own ringer lets you answer or decline.
+A call rings like a phone call: the **Calls** notification plays your ringtone and vibrates
+until you answer, decline, or 45 seconds pass. It has **Answer** and **Decline** buttons, on the
+lock screen too, and on a locked or idle phone it opens Dendrop full screen over the lock screen,
+where the app's own ringer lets you answer or decline as well.
 
-- It still never says who is calling, because pushes are content-free.
-- **Silence** stops this phone ringing. The call goes on for the caller and anyone else invited.
+- **Answer** opens Dendrop over the lock screen (no unlocking first) and joins the call, with
+  your camera off. Turn it on in the call if you want video.
+- **Decline** tells the server without opening the app, so the caller sees you declined. The
+  call goes on for anyone else invited.
+- The push itself still never says who is calling (it's content-free). When it arrives, the
+  app asks your own server, with your sign-in, which call it is and puts the caller's name on
+  the notification ("Sam", or "Sam in Book club"). If the server can't be reached it still rings,
+  as "Someone".
+- The phone stops ringing by itself when the caller hangs up or you answer on another device
+  (the app checks every few seconds while it rings).
 - Android 14 and newer can turn off full-screen alerts per app. Then the call shows as a
-  heads-up notification instead (Android settings, the app, "Full screen notifications").
-- The old **Calls** notification channel is replaced by a new one that rings. If you'd changed its
-  settings, set them again.
+  heads-up notification instead (Android settings, the app, "Full screen notifications"). Answer
+  and Decline still work.
 
+### Calls with the screen off
+
+While you're in a call, Dendrop shows a quiet **Call in progress** notification (with **Hang
+up**). It keeps the call going when the screen turns off or you switch to another app: Android
+lets an app with that notification keep using the microphone, and the app keeps the phone and
+Wi-Fi awake for the call. It goes away when the call ends. Swiping Dendrop away from recent
+apps ends it too.
+
+The app now asks for the microphone (and the camera, for video) the first time you join a call.
+Earlier versions of the Android app didn't declare these permissions, so calls there had no
+microphone.
 ## Ducking
 
 Voice settings, **Ducking**: watch-together videos play quieter while people talk, then go back
