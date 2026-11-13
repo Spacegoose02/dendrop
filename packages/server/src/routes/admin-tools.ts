@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ServerPermission } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
 import { HttpError } from "../errors.js";
+import { HealthService } from "../health.js";
 import { ServerRepo } from "../servers.js";
 
 /** Permissions that make someone a moderator, who can read the server's audit log. */
@@ -15,9 +16,10 @@ const optionalId = (v: unknown): number | undefined => {
   return n;
 };
 
-/** The audit logs (a server's, and the instance's), and backups. */
+/** The audit logs (a server's, and the instance's), backups, and the server's health. */
 export function adminToolRoutes(app: FastifyInstance, ctx: Context): void {
   const servers = new ServerRepo(ctx.db, ctx.users);
+  const health = new HealthService(ctx);
   const superAdmin = (req: FastifyRequest) => {
     const me = requireUser(req);
     if (!me.isSuperAdmin) throw new HttpError(403, "Only a super admin can do that");
@@ -46,6 +48,15 @@ export function adminToolRoutes(app: FastifyInstance, ctx: Context): void {
   app.get<{ Querystring: LogQuery }>("/api/admin/audit", async (req) => {
     superAdmin(req);
     return ctx.audit.list(null, filters(req.query));
+  });
+
+  // ---- Server health -------------------------------------------------------------
+
+  /** CPU, memory, disks, storage and connections, right now. */
+  app.get("/api/admin/health", async (req, reply) => {
+    superAdmin(req);
+    void reply.header("cache-control", "no-store");
+    return health.snapshot();
   });
 
   // ---- Backups ---------------------------------------------------------------------

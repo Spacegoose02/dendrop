@@ -80,6 +80,17 @@ export class Gateway {
     }
   }
 
+  /** How many connections are open, for the admin's server health. */
+  stats(): { sockets: number; onlineUsers: number; idleSockets: number } {
+    let sockets = 0;
+    let idleSockets = 0;
+    for (const set of this.sockets.values()) {
+      sockets += set.size;
+      for (const ws of set) if (this.idle.has(ws)) idleSockets++;
+    }
+    return { sockets, onlineUsers: this.sockets.size, idleSockets };
+  }
+
   /** Closes someone's connections, for example when their account is deleted. */
   closeUser(userId: number, reason = "Signed out"): void {
     for (const ws of this.sockets.get(userId) ?? []) ws.close(4401, reason);

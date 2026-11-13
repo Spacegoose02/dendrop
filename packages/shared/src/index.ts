@@ -2074,6 +2074,58 @@ export interface BackupStatus {
   running: boolean;
 }
 
+/** Instance admin → Server health: how the Dendrop container is doing right now. */
+export interface ServerHealth {
+  /** When these numbers were taken. */
+  at: string;
+  /** Seconds since Dendrop started. */
+  uptimeSeconds: number;
+  nodeVersion: string;
+  cpu: {
+    cores: number;
+    /** Dendrop's own CPU use since the last look, as a share of one core (can pass 100 on several cores). */
+    processPercent: number;
+    /** The machine's 1, 5 and 15 minute load averages. */
+    loadAverage: [number, number, number];
+  };
+  memory: {
+    /** What Dendrop's process holds (resident set). */
+    processBytes: number;
+    heapUsedBytes: number;
+    /** The container's memory limit when it has one, otherwise the machine's memory. */
+    totalBytes: number;
+    /** Memory in use: the container's, or the machine's. */
+    usedBytes: number;
+    /** Whether total/used are the container's (a cgroup limit) rather than the whole machine's. */
+    container: boolean;
+  };
+  /** The disks the data and backup folders are on (one entry when they share a disk). */
+  disks: { label: string; path: string; totalBytes: number; freeBytes: number }[];
+  storage: {
+    /** dendrop.db, plus its write-ahead log. */
+    databaseBytes: number;
+    uploadsBytes: number;
+    uploadFiles: number;
+    backupsBytes: number;
+    backups: number;
+  };
+  connections: {
+    /** Open gateway connections (each tab, app and phone counts). */
+    sockets: number;
+    /** People with at least one connection. */
+    onlineUsers: number;
+    /** Connections whose app says nobody's looking (in the background, or idle). */
+    idleSockets: number;
+  };
+  counts: {
+    users: number;
+    servers: number;
+    messages: number;
+    /** Messages sent in the last 24 hours. */
+    messagesToday: number;
+  };
+}
+
 // ---- Safety: blocking, reports, deleting your account ------------------------------------
 
 /** Why someone reported a message or person. */

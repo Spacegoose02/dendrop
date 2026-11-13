@@ -1534,3 +1534,57 @@ select {
   color: var(--dd-danger);
   cursor: pointer;
 }
+
+/* ---- Server health (instance admin) ------------------------------------------------- */
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+.health-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-bg-raised);
+}
+.health-tile .small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.health-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--dd-text-faint);
+}
+.health-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--dd-text);
+  font-variant-numeric: tabular-nums;
+}
+.health-meter {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--dd-bg-hover);
+  overflow: hidden;
+}
+.health-meter span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--dd-online);
+}
+.health-meter.warn span {
+  background: var(--dd-warning);
+}
+.health-meter.bad span {
+  background: var(--dd-danger);
+}
