@@ -4,13 +4,14 @@ import { GIF_RATINGS, type AdminServer, type ChannelRef, type ChatServer, type D
 import { api } from "./api.ts";
 import { refreshPreviewSettings } from "./LinkPreview.tsx";
 import { BackupSection, InstanceAuditSection } from "./Audit.tsx";
+import { HealthSection } from "./Health.tsx";
 import { Modal } from "./Modal.tsx";
 import { AdminSignInSection } from "./SignIns.tsx";
 import { ServerIcon } from "./Servers.tsx";
 
 /**
- * The super admin's view of the whole instance: how people sign in, who may make servers,
- * and every server.
+ * The super admin's view of the whole instance: how the server is doing, how people sign in,
+ * who may make servers, and every server.
  * Super admins see server names and counts here, never messages.
  */
 export function AdminDialog({ onClose, version }: { onClose: () => void; version: number }) {
@@ -48,6 +49,7 @@ export function AdminDialog({ onClose, version }: { onClose: () => void; version
   return (
     <Modal title="Instance admin" onClose={onClose}>
       {error && <p className="error">{error}</p>}
+      <HealthSection />
       <div className="section-label">Reports</div>
       <p className="muted small">Reports of people, and of messages in DMs and group chats. Messages in servers go to each server's moderators instead.</p>
       <ReportsList key={version} serverId={null} />
