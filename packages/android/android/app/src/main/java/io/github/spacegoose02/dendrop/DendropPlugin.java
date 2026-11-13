@@ -13,6 +13,11 @@ import androidx.core.app.Person;
 import androidx.core.content.pm.ShortcutInfoCompat;
 import androidx.core.content.pm.ShortcutManagerCompat;
 import androidx.core.graphics.drawable.IconCompat;
+import android.os.Handler;
+import android.os.Looper;
+import androidx.annotation.Nullable;
+import io.github.spacegoose02.dendrop.call.CallService;
+import io.github.spacegoose02.dendrop.call.NativeCalls;
 import io.github.spacegoose02.dendrop.push.Notifier;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -37,7 +42,8 @@ import org.unifiedpush.android.connector.UnifiedPush;
 
 /**
  * The native side of the app's own setup page (www/index.html): choosing the server and turning
- * on notifications. The Dendrop web client itself doesn't need this plugin.
+ * on notifications. The Dendrop web client uses it for chat bubbles and calls (answering from
+ * the notification, and keeping a call going with the screen off).
  */
 @CapacitorPlugin(
     name = "Dendrop",
@@ -47,6 +53,89 @@ public class DendropPlugin extends Plugin {
 
     static final String NOTIFICATIONS = "notifications";
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final Handler main = new Handler(Looper.getMainLooper());
+    /** The call the page is in, or null; the "Call in progress" service follows it. */
+    @Nullable
+    private Integer inCall;
+    /** Tries to start the call service until the microphone permission is granted (the page asks for it as it joins). */
+    private final Runnable startCallService = new Runnable() {
+        private int tries = 0;
+
+        @Override
+        public void run() {
+            Integer cid = inCall;
+            if (cid == null) {
+                tries = 0;
+                return;
+            }
+            if (CallService.start(getContext(), cid)) {
+                tries = 0;
+            } else if (++tries < 60) {
+                main.postDelayed(this, 1_000);
+            } else {
+                tries = 0;
+            }
+        }
+    };
+
+    private final NativeCalls.Listener callListener = new NativeCalls.Listener() {
+        @Override
+        public void callAnswered(JSObject answer) {
+            notifyListeners("callAnswered", answer);
+        }
+
+        @Override
+        public void callEnded(int conversationId) {
+            JSObject data = new JSObject();
+            data.put("conversationId", conversationId);
+            notifyListeners("callEnded", data);
+        }
+    };
+
+    @Override
+    public void load() {
+        NativeCalls.setListener(callListener);
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        NativeCalls.clearListener(callListener);
+        main.removeCallbacks(startCallService);
+        inCall = null;
+        CallService.stop(getContext());
+    }
+
+    /**
+     * For the web client: the phone doesn't ring for calls itself (the page does, and the
+     * notification when the app is closed), and a call answered on the notification before the
+     * page was listening.
+     */
+    @PluginMethod
+    public void nativeCalls(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("ringsNatively", false);
+        JSObject answered = NativeCalls.takePendingAnswer();
+        if (answered != null) result.put("answered", answered);
+        call.resolve(result);
+    }
+
+    /** The page joined or left a call: {conversationId, inCall}. Keeps it going with the screen off. */
+    @PluginMethod
+    public void callState(PluginCall call) {
+        Integer cid = call.getInt("conversationId");
+        boolean joined = Boolean.TRUE.equals(call.getBoolean("inCall", false));
+        main.post(() -> {
+            main.removeCallbacks(startCallService);
+            if (joined && cid != null) {
+                inCall = cid;
+                startCallService.run();
+            } else if (!joined && (cid == null || cid.equals(inCall))) {
+                inCall = null;
+                CallService.stop(getContext());
+            }
+        });
+        call.resolve();
+    }
 
     /** Everything the setup page shows. */
     @PluginMethod

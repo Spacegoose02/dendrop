@@ -679,7 +679,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   // Ring for a call that's ringing this person, unless they're already in one.
   const ringing = Object.values(calls).find((c) => c.ringing.includes(me.id) && c.conversationId !== inCall?.call.conversationId);
 
-  // In the iPhone app, iOS's own call screen rings and answers (CallKit); the page joins the call.
+  // In the iPhone app, iOS's own call screen rings and answers (CallKit); in the Android app, Answer
+  // on the call notification does. Either way the page joins the call.
   const [nativeRinging, setNativeRinging] = useState(false);
   const callsRef = useRef(calls);
   callsRef.current = calls;

@@ -43,8 +43,16 @@ have a new message", "Someone mentioned you" or "Incoming call". No text, no sen
 keys (RFC 8291) when the server supports it, so ntfy only ever sees ciphertext anyway. The message
 notification is skipped while the app is open, and cleared when it's opened.
 
-Channels: **Messages**, **Calls** (rings like a phone call and opens the full-screen call screen) and
-**Chat bubbles** (only chats you popped out yourself), all changeable in Android's settings for the app.
+Channels: **Messages**, **Calls** (rings like a phone call, with Answer and Decline, and opens the
+full-screen call screen), **Call in progress** (quiet; keeps a call going with the screen off, with
+Hang up) and **Chat bubbles** (only chats you popped out yourself), all changeable in Android's
+settings for the app.
+
+A call push doesn't say who is calling either. When one arrives, the app asks your own server
+(`GET /api/me`, `GET /api/calls`, `GET /api/conversations/:id`, with the WebView's session cookie)
+which call it is and who started it, and shows their name on the notification. Decline posts
+`/api/conversations/:id/call/decline` the same way, and Hang up posts `.../call/leave`. See
+[POP-OUT-AND-AUDIO.md](../../docs/POP-OUT-AND-AUDIO.md).
 
 ### What the server does
 

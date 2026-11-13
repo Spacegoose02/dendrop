@@ -9,7 +9,11 @@ import android.media.AudioAttributes;
 import android.media.RingtoneManager;
 import android.app.Notification;
 import androidx.core.app.NotificationCompat;
+import androidx.annotation.Nullable;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.app.Person;
+import androidx.core.graphics.drawable.IconCompat;
+import io.github.spacegoose02.dendrop.call.CallAnswerActivity;
 import io.github.spacegoose02.dendrop.MainActivity;
 import io.github.spacegoose02.dendrop.R;
 
@@ -24,6 +28,8 @@ public final class Notifier {
     public static final String CHANNEL_CALLS = "calls_ringing";
     private static final String OLD_CHANNEL_CALLS = "calls";
     public static final String CHANNEL_BUBBLES = "bubbles";
+    /** The quiet "Call in progress" notification that keeps a call going with the screen off. */
+    public static final String CHANNEL_ONGOING_CALL = "call_ongoing";
     /** Opens the app on the incoming call screen (over the lock screen). */
     public static final String ACTION_CALL = "io.github.spacegoose02.dendrop.CALL";
 
@@ -31,6 +37,7 @@ public final class Notifier {
     private static final int ID_CALL = 2;
     private static final int ID_EVENT = 3;
     private static final int ID_MENTION = 4;
+    public static final int ID_ONGOING_CALL = 5;
     /** Bubbles are 1000 + the conversation id, one per chat. */
     public static final int ID_BUBBLE_BASE = 1000;
 
@@ -66,10 +73,19 @@ public final class Notifier {
         bubbles.setDescription(context.getString(R.string.channel_bubbles_description));
         bubbles.setSound(null, null);
         if (android.os.Build.VERSION.SDK_INT >= 29) bubbles.setAllowBubbles(true);
+        NotificationChannel ongoing = new NotificationChannel(
+            CHANNEL_ONGOING_CALL,
+            context.getString(R.string.channel_ongoing_call),
+            NotificationManager.IMPORTANCE_LOW
+        );
+        ongoing.setDescription(context.getString(R.string.channel_ongoing_call_description));
+        ongoing.setSound(null, null);
+        ongoing.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         nm.deleteNotificationChannel(OLD_CHANNEL_CALLS);
         nm.createNotificationChannel(messages);
         nm.createNotificationChannel(calls);
         nm.createNotificationChannel(bubbles);
+        nm.createNotificationChannel(ongoing);
     }
 
     /**
@@ -103,24 +119,39 @@ public final class Notifier {
     }
 
     /**
-     * The incoming call screen: rings like a phone call and, on a locked or idle phone, opens the
-     * app full screen over the lock screen (where the app's own ringer lets you answer). Still
-     * content-free: it never says who is calling. Stops after 45 seconds, like the call.
+     * The incoming call: rings like a phone call, with Answer and Decline, and on a locked or idle
+     * phone opens the app full screen over the lock screen. The push never says who is calling;
+     * once the app has asked the server, it's shown again with the caller's name (callerName) and
+     * which call it is (conversationId), without ringing again (update). Stops after 45 seconds,
+     * like the call.
      */
-    static void showCall(Context context) {
+    public static void showCall(Context context, @Nullable String callerName, @Nullable Integer conversationId, boolean video, boolean update) {
         NotificationManagerCompat nm = NotificationManagerCompat.from(context);
         if (!nm.areNotificationsEnabled()) return;
-        Intent answer = new Intent(context, MainActivity.class)
+        Intent screen = new Intent(context, MainActivity.class)
             .setAction(ACTION_CALL)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        PendingIntent open = PendingIntent.getActivity(context, ID_CALL, answer, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        Intent silence = new Intent(context, CallActionReceiver.class).setAction(CallActionReceiver.ACTION_SILENCE);
-        PendingIntent dismiss = PendingIntent.getBroadcast(context, ID_CALL, silence, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent open = PendingIntent.getActivity(context, ID_CALL, screen, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        Intent answerIntent = new Intent(context, CallAnswerActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        Intent declineIntent = new Intent(context, CallActionReceiver.class).setAction(CallActionReceiver.ACTION_DECLINE);
+        if (conversationId != null) {
+            answerIntent.putExtra(CallAnswerActivity.EXTRA_CONVERSATION, (int) conversationId);
+            declineIntent.putExtra(CallActionReceiver.EXTRA_CONVERSATION, (int) conversationId);
+        }
+        PendingIntent answer = PendingIntent.getActivity(context, ID_CALL + 100, answerIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent decline = PendingIntent.getBroadcast(context, ID_CALL, declineIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        String name = callerName != null ? callerName : context.getString(R.string.notify_call_someone);
+        Person caller = new Person.Builder()
+            .setName(name)
+            .setIcon(IconCompat.createWithResource(context, R.mipmap.ic_launcher_round))
+            .setImportant(true)
+            .build();
+        String text = context.getString(video ? R.string.notify_call_video : R.string.notify_call_voice);
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_CALLS)
             .setSmallIcon(R.drawable.ic_stat_dendrop)
             .setColor(context.getColor(R.color.dd_accent))
-            .setContentTitle(context.getString(R.string.notify_call_title))
-            .setContentText(context.getString(R.string.notify_call_text))
+            .setContentTitle(callerName != null ? callerName : context.getString(R.string.notify_call_title))
+            .setContentText(callerName != null ? text : context.getString(R.string.notify_call_text))
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -128,11 +159,22 @@ public final class Notifier {
             .setFullScreenIntent(open, true)
             .setOngoing(true)
             .setAutoCancel(true)
+            .setOnlyAlertOnce(update)
             .setTimeoutAfter(45_000)
-            .addAction(0, context.getString(R.string.notify_call_answer), open)
-            .addAction(0, context.getString(R.string.notify_call_silence), dismiss);
-        Notification n = builder.build();
-        // Keep ringing until answered, silenced or timed out, like a phone.
+            .addPerson(caller)
+            .setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, decline, answer).setIsVideo(video));
+        Notification n;
+        try {
+            n = builder.build();
+        } catch (IllegalArgumentException e) {
+            // Android refused the call style (it shouldn't, with a full-screen intent): plain buttons instead.
+            n = builder
+                .setStyle(null)
+                .addAction(0, context.getString(R.string.notify_call_decline), decline)
+                .addAction(0, context.getString(R.string.notify_call_answer), answer)
+                .build();
+        }
+        // Keep ringing until answered, declined or timed out, like a phone.
         n.flags |= Notification.FLAG_INSISTENT;
         try {
             nm.notify(ID_CALL, n);

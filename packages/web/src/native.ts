@@ -1,7 +1,8 @@
 /**
- * The iPhone app (packages/ios) runs this web client inside its WebView and rings calls on
- * iOS's own call screen (CallKit). This is the small bridge to it. In a browser, the PC app and
- * the Android app it does nothing.
+ * The phone apps run this web client inside their WebView. The iPhone app (packages/ios) rings
+ * calls on iOS's own call screen (CallKit); the Android app (packages/android) rings with a call
+ * notification that has Answer and Decline, and keeps calls going with the screen off. This is
+ * the small bridge to both. In a browser and the PC app it does nothing.
  */
 
 interface CapacitorBridge {
@@ -32,13 +33,19 @@ export interface NativeCallHandlers {
   onEnded: (conversationId: number) => void;
 }
 
+/** True inside the iPhone or Android app, which answer and keep calls going natively. */
+function inPhoneApp(): boolean {
+  return inIosApp() || inAndroidApp();
+}
+
 /**
- * Starts listening to the call screen. Resolves with whether iOS rings for calls (so the page
- * shouldn't ring as well), and hands over a call that was answered before the page loaded.
+ * Starts listening to the call screen (iPhone) or call notification (Android). Resolves with
+ * whether the phone rings for calls itself (so the page shouldn't ring as well; only iOS does),
+ * and hands over a call that was answered before the page loaded.
  */
 export async function connectNativeCalls(handlers: NativeCallHandlers): Promise<{ ringsNatively: boolean }> {
   const c = bridge();
-  if (!inIosApp() || !c?.nativeCallback || !c.nativePromise) return { ringsNatively: false };
+  if (!inPhoneApp() || !c?.nativeCallback || !c.nativePromise) return { ringsNatively: false };
   c.nativeCallback("Dendrop", "addListener", { eventName: "callAnswered" }, (data) => {
     if (!data) return;
     // The app also keeps the answer for a page that wasn't loaded yet; this page has it now.
@@ -58,10 +65,10 @@ export async function connectNativeCalls(handlers: NativeCallHandlers): Promise<
   }
 }
 
-/** Tells the app the page joined or left a call, so iOS shows it as a call and keeps it going with the screen off. */
+/** Tells the app the page joined or left a call, so the phone shows it as a call and keeps it going with the screen off. */
 export function reportCallState(conversationId: number | null, inCall: boolean): void {
   const c = bridge();
-  if (!inIosApp() || !c?.nativePromise) return;
+  if (!inPhoneApp() || !c?.nativePromise) return;
   c.nativePromise("Dendrop", "callState", { conversationId: conversationId ?? undefined, inCall }).catch(() => {});
 }
 

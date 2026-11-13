@@ -6,6 +6,16 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- The incoming call screen, over the lock screen. -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- Calls: the microphone and camera (asked for when a call starts) and the speaker. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <!-- Keeps a call going with the screen off: a foreground service that uses the microphone. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:allowBackup="false"
@@ -53,8 +63,27 @@
             android:documentLaunchMode="always"
             android:exported="false" />
 
+        <!-- Answer on the incoming call notification: opens the app over the lock screen without unlocking. -->
+        <activity
+            android:name=".call.CallAnswerActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:exported="false" />
+
+        <!-- Decline on the incoming call, Hang up on the call in progress. -->
         <receiver
             android:name=".push.CallActionReceiver"
+            android:exported="false" />
+
+        <!-- Keeps a call going with the screen off or the app in the background. -->
+        <service
+            android:name=".call.CallService"
+            android:foregroundServiceType="microphone"
+            android:stopWithTask="true"
             android:exported="false" />
 
         <!-- Receives content-free pushes from the UnifiedPush distributor (for example the ntfy app). -->
