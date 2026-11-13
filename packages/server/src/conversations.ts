@@ -1,4 +1,4 @@
-import { EVERYONE_RE, LIMITS, MENTION_RE, type Attachment, type ReplyRef, type MessageButton, type Conversation, type ForwardRef, type MessageInPlace, type MessagePlace, type ConversationE2ee, type Message, type NudgeKind, type ReadState, type ThreadRef, type UnreadCount, type WrappedKey } from "@dendrop/shared";
+import { EVERYONE_RE, LIMITS, MENTION_RE, type Attachment, type ReplyRef, type MessageButton, type Conversation, type ForwardRef, type MessageInPlace, type MessagePlace, type ConversationE2ee, type Message, type MessageEdit, type NudgeKind, type ReadState, type ThreadRef, type UnreadCount, type WrappedKey } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { ExpressionRepo } from "./expressions.js";
@@ -672,10 +672,37 @@ export class ConversationRepo {
     const keptReplyPing = reply && this.db.prepare("SELECT 1 FROM message_mentions WHERE message_id = ? AND user_id = ?").get(messageId, reply.author_id) ? reply.author_id : null;
     const pings = this.pings(r.conversation_id, userId, version ? null : text, opts, keptReplyPing);
     tx(this.db, () => {
-      this.db.prepare("UPDATE messages SET body = ?, edited_at = ?, key_version = ?, mentions_everyone = ? WHERE id = ?").run(text, now(), version, pings.everyone ? 1 : 0, messageId);
+      const at = now();
+      // Keep the version being replaced, as stored (still encrypted if it was), then drop the
+      // oldest past the cap.
+      this.db
+        .prepare("INSERT INTO message_edits (message_id, body, key_version, written_at, replaced_at) VALUES (?, ?, ?, ?, ?)")
+        .run(messageId, r.body, r.key_version, r.edited_at ?? r.created_at, at);
+      this.db
+        .prepare("DELETE FROM message_edits WHERE message_id = ? AND id NOT IN (SELECT id FROM message_edits WHERE message_id = ? ORDER BY id DESC LIMIT ?)")
+        .run(messageId, messageId, LIMITS.editHistory);
+      this.db.prepare("UPDATE messages SET body = ?, edited_at = ?, key_version = ?, mentions_everyone = ? WHERE id = ?").run(text, at, version, pings.everyone ? 1 : 0, messageId);
       this.saveMentions(messageId, pings.ids);
     });
     return this.message(messageId)!;
+  }
+
+  /**
+   * A message's earlier versions, oldest first, for anyone who can see the message. Encrypted
+   * ones come back as ciphertext with their key version, for the reader's app to open.
+   */
+  edits(messageId: number, userId: number): MessageEdit[] {
+    const r = this.db.prepare("SELECT conversation_id, deleted_at FROM messages WHERE id = ?").get(messageId) as { conversation_id: number; deleted_at: string | null } | undefined;
+    if (!r || !this.isMember(r.conversation_id, userId)) throw new HttpError(404, "No such message");
+    if (r.deleted_at) return [];
+    return (
+      this.db.prepare("SELECT body, key_version, written_at, replaced_at FROM message_edits WHERE message_id = ? ORDER BY id").all(messageId) as {
+        body: string;
+        key_version: number | null;
+        written_at: string;
+        replaced_at: string;
+      }[]
+    ).map((e) => ({ body: e.body, keyVersion: e.key_version, writtenAt: e.written_at, replacedAt: e.replaced_at }));
   }
 
   /** Changes a bot message's buttons (null or [] removes them). The caller checks it's the bot's. */
@@ -702,6 +729,8 @@ export class ConversationRepo {
       this.db.prepare("DELETE FROM message_pins WHERE message_id = ?").run(messageId);
       this.db.prepare("UPDATE messages SET body = '', key_version = NULL, buttons = NULL, mentions_everyone = 0, deleted_at = ? WHERE id = ?").run(now(), messageId);
       this.db.prepare("DELETE FROM message_mentions WHERE message_id = ?").run(messageId);
+      // Deleting takes the earlier versions too.
+      this.db.prepare("DELETE FROM message_edits WHERE message_id = ?").run(messageId);
       return ids;
     });
     return { message: this.message(messageId)!, removedFiles };

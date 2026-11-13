@@ -12,6 +12,7 @@ import {
   type KidStatus,
   type Me,
   type Message,
+  type MessageEdit,
   type NudgeKind,
   type Reaction,
 } from "@dendrop/shared";
@@ -38,6 +39,7 @@ import { Avatar } from "./Avatar.tsx";
 import { ProfileLink, StatusLine } from "./Profile.tsx";
 import { decryptFile, encryptFile, encryptMessage, keyring, reveal, type ChatMessage, type FileMeta } from "./e2ee.ts";
 import { EncryptionInfo } from "./EncryptionInfo.tsx";
+import { Modal } from "./Modal.tsx";
 import { CouplesKitDialog, useCouplesKit } from "./Couples.tsx";
 import { useColors } from "./colors.ts";
 import { conversationTitle, upsert, type History } from "./util.ts";
@@ -140,6 +142,7 @@ export function Chat({
   const [replyPing, setReplyPing] = useState(true);
   /** A message being reported, and blocked people's messages someone chose to show anyway. */
   const [reporting, setReporting] = useState<ChatMessage | null>(null);
+  const [historyOf, setHistoryOf] = useState<ChatMessage | null>(null);
   const savedIds = useSavedIds();
   const [shownBlocked, setShownBlocked] = useState<Set<number>>(() => new Set());
   const blockedIds = useBlockedIds();
@@ -879,7 +882,14 @@ export function Chat({
                         m.text && (
                           <div className="msg-body" style={colors.text}>
                             <Markdown text={shown} nameOf={nameOf} meId={me.id} />
-                            {m.editedAt && <span className="muted small"> (edited)</span>}
+                            {m.editedAt && (
+                              <>
+                                {" "}
+                                <button className="edited-link muted small" title={`Edited ${new Date(m.editedAt).toLocaleString()} · see earlier versions`} onClick={() => setHistoryOf(m)}>
+                                  (edited)
+                                </button>
+                              </>
+                            )}
                           </div>
                         )
                       )}
@@ -1019,6 +1029,9 @@ export function Chat({
         })}
       </div>
 
+      {historyOf && (
+        <EditHistory m={historyOf} nameOf={nameOf} meId={me.id} mask={maskText} onClose={() => setHistoryOf(null)} />
+      )}
       {reporting && (
         <ReportDialog
           target={{
@@ -1366,6 +1379,57 @@ export function AttachmentView({ a }: { a: Attachment }) {
       <span className="ellipsis">{a.name}</span>
       <span className="muted small">{bytes(a.size)}</span>
     </a>
+  );
+}
+
+/**
+ * A message's earlier versions, oldest first, then the one shown now. Encrypted versions are
+ * decrypted here, on this device, with the key they were sealed with.
+ */
+function EditHistory({ m, nameOf, meId, mask, onClose }: { m: ChatMessage; nameOf: (id: number) => string; meId: number; mask: (t: string) => string; onClose: () => void }) {
+  const [versions, setVersions] = useState<{ at: string; text: string; locked?: string }[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void api<MessageEdit[]>(`/api/messages/${m.id}/edits`)
+      .then((edits) =>
+        Promise.all(
+          edits.map(async (e) => {
+            const shown = await reveal({ ...m, body: e.body, keyVersion: e.keyVersion, editedAt: null });
+            return { at: e.writtenAt, text: shown.text, locked: shown.locked };
+          }),
+        ),
+      )
+      .then((old) => live && setVersions(old))
+      .catch((err: unknown) => live && setError(err instanceof Error ? err.message : String(err)));
+    return () => {
+      live = false;
+    };
+  }, [m]);
+  const when = (at: string) => new Date(at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return (
+    <Modal title="Edit history" onClose={onClose}>
+      {error ? (
+        <p className="error">{error}</p>
+      ) : !versions ? (
+        <p className="muted">Loading…</p>
+      ) : (
+        <ol className="edit-history">
+          {versions.length === 0 && <li className="muted small">Earlier versions of this message weren't kept.</li>}
+          {versions.map((v, i) => (
+            <li key={i}>
+              <span className="muted small">{i === 0 ? "Original" : "Edited"} · {when(v.at)}</span>
+              {v.locked ? <p className="msg-body deleted">🔒 {v.locked}</p> : v.text ? <Markdown text={mask(v.text)} nameOf={nameOf} meId={meId} /> : <p className="muted small">📎 Attachment only</p>}
+            </li>
+          ))}
+          <li className="current">
+            <span className="muted small">Now · {when(m.editedAt ?? m.createdAt)}</span>
+            {m.locked ? <p className="msg-body deleted">🔒 {m.locked}</p> : <Markdown text={mask(m.text)} nameOf={nameOf} meId={meId} />}
+          </li>
+        </ol>
+      )}
+      {m.keyVersion !== null && <p className="muted small">🔒 Earlier versions stay end-to-end encrypted, like the message.</p>}
+    </Modal>
   );
 }
 

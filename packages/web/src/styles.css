@@ -2453,3 +2453,38 @@ h5.md-h {
 .shell.popout .channel-split {
   grid-template-columns: 1fr;
 }
+
+/* "(edited)" opens the edit history. */
+.edited-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.edited-link:hover {
+  text-decoration: underline;
+}
+.edit-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.edit-history li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-bg-hover);
+  overflow-wrap: anywhere;
+}
+.edit-history li.current {
+  border-left: 3px solid var(--dd-accent);
+}
