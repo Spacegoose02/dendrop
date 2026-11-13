@@ -28,7 +28,7 @@ import type { EncryptionMode } from "./EncryptionDialog.tsx";
 import { disableWebPush, enableWebPush, webPushState, type WebPushState } from "./webpush.ts";
 import "./settings.css";
 
-/** The gear button and the settings dialog it opens: your account and privacy, voice and audio, then appearance. */
+/** The gear button and the full-page settings screen it opens: a menu of pages on the left (your account, then the app), one page on the right. */
 type KeyState = "loading" | "off" | "locked" | "on";
 
 export function SettingsButton({
@@ -99,6 +99,48 @@ export function SettingsButton({
   );
 }
 
+type PageId = "account" | "profile" | "signin" | "encryption" | "blocked" | "family" | "notifications" | "voice" | "theme" | "icon" | "data";
+
+/** The left-hand menu, in groups. The names match what other screens call them ("Settings → Sign-in"). */
+const MENU: { group: string; pages: { id: PageId; label: string; icon: string }[] }[] = [
+  {
+    group: "Your account",
+    pages: [
+      { id: "account", label: "Account", icon: "🦝" },
+      { id: "profile", label: "Profile", icon: "🪪" },
+      { id: "signin", label: "Sign-in", icon: "🔑" },
+      { id: "encryption", label: "Encryption", icon: "🔒" },
+      { id: "blocked", label: "Blocked", icon: "🚫" },
+      { id: "family", label: "Family", icon: "👪" },
+    ],
+  },
+  {
+    group: "App",
+    pages: [
+      { id: "notifications", label: "Notifications", icon: "🔔" },
+      { id: "voice", label: "Voice and audio", icon: "🎙️" },
+      { id: "theme", label: "Theme", icon: "🎨" },
+      { id: "icon", label: "App icon", icon: "🖼️" },
+    ],
+  },
+  { group: "Data", pages: [{ id: "data", label: "Your data", icon: "📦" }] },
+];
+const LABEL = Object.fromEntries(MENU.flatMap((g) => g.pages.map((p) => [p.id, p.label]))) as Record<PageId, string>;
+
+/** Phones: the menu and a page take turns filling the screen. Matches the 720px breakpoint in settings.css. */
+const NARROW = "(max-width: 720px)";
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(() => matchMedia(NARROW).matches);
+  useEffect(() => {
+    const mq = matchMedia(NARROW);
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return narrow;
+}
+
+/** The full-page settings screen: a menu on the left, one page at a time on the right. On a phone, the menu first, then the page with a Back button. */
 function SettingsPane({
   me,
   onSaved,
@@ -118,86 +160,202 @@ function SettingsPane({
   onEncryption: (mode: EncryptionMode) => void;
   onFamily: () => void;
 }) {
-  const [appearance, set] = useState<Appearance>(loadAppearance);
-  const [family, setFamily] = useState<ThemeFamily | "all">(() => getTheme(loadAppearance().theme).family);
-  const current = getTheme(appearance.theme);
-  const shown = useMemo(() => (family === "all" ? THEMES : THEMES.filter((t) => t.family === family)), [family]);
+  const narrow = useNarrow();
+  const [picked, setPicked] = useState<PageId | null>(null);
+  // On a wide screen there's always a page showing; on a phone, nothing picked means the menu.
+  const page: PageId | null = picked ?? (narrow ? null : "account");
+  const content = useRef<HTMLDivElement>(null);
 
-  const choose = (next: Partial<Appearance>) => {
-    const a = { ...appearance, ...next };
-    setAppearance(a);
-    set(a);
+  const go = (id: PageId) => {
+    setPicked(id);
+    content.current?.scrollTo(0, 0);
   };
 
   return (
-    <div className="settings-body">
-      <header className="settings-header">
-        <h2>Settings</h2>
-        <button className="ghost" onClick={onDone} aria-label="Close settings">
-          Done
-        </button>
-      </header>
-
-      <AccountSection me={me} onSaved={onSaved} />
-      <DeviceNotificationsSection />
-      <section>
-        <h3>Profile</h3>
-        <p className="muted small">What friends and the people in your chats and servers see when they click your name.</p>
-        <ProfileEditor me={me} onSaved={onSaved} picturesAllowed={picturesAllowed} />
-      </section>
-      <EncryptionSection me={me} keyState={keyState} onEncryption={onEncryption} />
-      <SignInSection />
-      <AudioSettings />
-
-      <section>
-        <h3>Family</h3>
-        <p className="muted small">
-          {me.isKid
-            ? "Your account is linked to your parents. See what they can see, your rules, and when they looked."
-            : "Link a kid's account to yours: you set their rules and get alerts, and their chats stay end-to-end encrypted. Got a code from a parent? Type it here."}
-        </p>
-        <button onClick={onFamily}>{me.isKid ? "Your family" : "Family and kid accounts"}</button>
-      </section>
-
-      <section>
-        <h3>Theme</h3>
-        <p className="muted small">
-          {current.name}: {current.blurb} Saved on this device.
-        </p>
-        <div className="chips" role="tablist" aria-label="Theme packs">
-          {[{ id: "all" as const, name: "All" }, ...FAMILIES].map((f) => (
-            <button key={f.id} role="tab" aria-selected={family === f.id} className={`chip ${family === f.id ? "on" : ""}`} onClick={() => setFamily(f.id)}>
-              {f.name}
+    <div className={`settings-body ${narrow ? (page ? "show-page" : "show-menu") : ""}`}>
+      <nav className="settings-nav" aria-label="Settings sections">
+        <div className="settings-nav-inner">
+          <header className="settings-nav-header">
+            <h2>Settings</h2>
+            <button className="ghost settings-close narrow-only" onClick={onDone} aria-label="Close settings">
+              Done
             </button>
+          </header>
+          <div className="settings-me">
+            <strong>{me.displayName}</strong>
+            <span className="muted small">@{me.username}</span>
+          </div>
+          {MENU.map((g) => (
+            <div key={g.group} className="settings-nav-group">
+              <h3>{g.group}</h3>
+              {g.pages.map((p) => (
+                <button
+                  key={p.id}
+                  className={`settings-nav-item ${page === p.id ? "on" : ""}`}
+                  aria-current={page === p.id ? "page" : undefined}
+                  onClick={() => go(p.id)}
+                >
+                  <span className="settings-nav-icon" aria-hidden>
+                    {p.icon}
+                  </span>
+                  <span className="settings-nav-label">{p.label}</span>
+                  <span className="settings-nav-chevron narrow-only" aria-hidden>
+                    ›
+                  </span>
+                </button>
+              ))}
+            </div>
           ))}
         </div>
-        <div className="theme-grid">
-          {shown.map((t) => (
-            <ThemeCard key={t.id} theme={t} selected={t.id === current.id} onPick={() => choose({ theme: t.id })} />
-          ))}
-        </div>
-      </section>
+      </nav>
 
-      <section>
-        <h3>App icon</h3>
-        <p className="muted small">Shown in the browser tab, and on the desktop and Android apps.</p>
-        <div className="icon-grid">
-          {[{ id: THEME_ICON, name: "Match theme" }, ...APP_ICONS].map((icon) => (
-            <button
-              key={icon.id}
-              className={`icon-choice ${appearance.icon === icon.id ? "on" : ""}`}
-              aria-pressed={appearance.icon === icon.id}
-              onClick={() => choose({ icon: icon.id })}
-            >
-              <img src={svgDataUri(appIconSvg(icon.id, current))} alt="" width={56} height={56} />
-              <span>{icon.name}</span>
-            </button>
-          ))}
-        </div>
-      </section>
-      <BlockedSection />
-      <YourDataSection me={me} onDeleted={onDeleted} />
+      <div className="settings-content" ref={content}>
+        {page && (
+          <div className="settings-page">
+            <header className="settings-header">
+              <button className="ghost settings-back narrow-only" onClick={() => setPicked(null)} aria-label="Back to settings">
+                ‹ Settings
+              </button>
+              <h2>{LABEL[page]}</h2>
+              <button className="ghost settings-close wide-only" onClick={onDone} aria-label="Close settings" title="Close (Esc)">
+                <span aria-hidden>✕</span>
+                <span className="settings-esc">Esc</span>
+              </button>
+            </header>
+            <SettingsPage
+              page={page}
+              me={me}
+              onSaved={onSaved}
+              keyState={keyState}
+              onEncryption={onEncryption}
+              onFamily={onFamily}
+              onDeleted={onDeleted}
+              picturesAllowed={picturesAllowed}
+            />
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+/** One page of settings. Each section's own title is hidden in CSS, since the page header already says it. */
+function SettingsPage({
+  page,
+  me,
+  onSaved,
+  keyState,
+  onEncryption,
+  onFamily,
+  onDeleted,
+  picturesAllowed,
+}: {
+  page: PageId;
+  me: Me;
+  onSaved: (me: Me) => void;
+  onDeleted: () => void;
+  picturesAllowed: boolean;
+  keyState: KeyState;
+  onEncryption: (mode: EncryptionMode) => void;
+  onFamily: () => void;
+}) {
+  switch (page) {
+    case "account":
+      return <AccountSection me={me} onSaved={onSaved} />;
+    case "profile":
+      return (
+        <section>
+          <p className="muted small">What friends and the people in your chats and servers see when they click your name.</p>
+          <ProfileEditor me={me} onSaved={onSaved} picturesAllowed={picturesAllowed} />
+        </section>
+      );
+    case "signin":
+      return <SignInSection />;
+    case "encryption":
+      return <EncryptionSection me={me} keyState={keyState} onEncryption={onEncryption} />;
+    case "blocked":
+      return <BlockedSection />;
+    case "family":
+      return (
+        <section>
+          <p className="muted small">
+            {me.isKid
+              ? "Your account is linked to your parents. See what they can see, your rules, and when they looked."
+              : "Link a kid's account to yours: you set their rules and get alerts, and their chats stay end-to-end encrypted. Got a code from a parent? Type it here."}
+          </p>
+          <button onClick={onFamily}>{me.isKid ? "Your family" : "Family and kid accounts"}</button>
+        </section>
+      );
+    case "notifications":
+      return <DeviceNotificationsSection />;
+    case "voice":
+      return <AudioSettings />;
+    case "theme":
+      return <ThemeSection />;
+    case "icon":
+      return <AppIconSection />;
+    case "data":
+      return <YourDataSection me={me} onDeleted={onDeleted} />;
+  }
+}
+
+/** Appearance is saved on this device; the theme and app icon pages share it. */
+function useAppearance(): [Appearance, (next: Partial<Appearance>) => void] {
+  const [appearance, set] = useState<Appearance>(loadAppearance);
+  const choose = (next: Partial<Appearance>) => {
+    const a = { ...loadAppearance(), ...next };
+    setAppearance(a);
+    set(a);
+  };
+  return [appearance, choose];
+}
+
+function ThemeSection() {
+  const [appearance, choose] = useAppearance();
+  const [family, setFamily] = useState<ThemeFamily | "all">(() => getTheme(loadAppearance().theme).family);
+  const current = getTheme(appearance.theme);
+  const shown = useMemo(() => (family === "all" ? THEMES : THEMES.filter((t) => t.family === family)), [family]);
+  return (
+    <section>
+      <p className="muted small">
+        {current.name}: {current.blurb} Saved on this device.
+      </p>
+      <div className="chips" role="tablist" aria-label="Theme packs">
+        {[{ id: "all" as const, name: "All" }, ...FAMILIES].map((f) => (
+          <button key={f.id} role="tab" aria-selected={family === f.id} className={`chip ${family === f.id ? "on" : ""}`} onClick={() => setFamily(f.id)}>
+            {f.name}
+          </button>
+        ))}
+      </div>
+      <div className="theme-grid">
+        {shown.map((t) => (
+          <ThemeCard key={t.id} theme={t} selected={t.id === current.id} onPick={() => choose({ theme: t.id })} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AppIconSection() {
+  const [appearance, choose] = useAppearance();
+  const current = getTheme(appearance.theme);
+  return (
+    <section>
+      <p className="muted small">Shown in the browser tab, and on the desktop and Android apps.</p>
+      <div className="icon-grid">
+        {[{ id: THEME_ICON, name: "Match theme" }, ...APP_ICONS].map((icon) => (
+          <button
+            key={icon.id}
+            className={`icon-choice ${appearance.icon === icon.id ? "on" : ""}`}
+            aria-pressed={appearance.icon === icon.id}
+            onClick={() => choose({ icon: icon.id })}
+          >
+            <img src={svgDataUri(appIconSvg(icon.id, current))} alt="" width={56} height={56} />
+            <span>{icon.name}</span>
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -357,7 +515,13 @@ function DeviceNotificationsSection() {
   useEffect(() => {
     void webPushState().then(setState, () => setState("unsupported"));
   }, []);
-  if (!state || state === "app") return null;
+  if (!state) return null;
+  if (state === "app")
+    return (
+      <section>
+        <p className="muted small">The Dendrop app sends its own notifications. Turn them on or off for Dendrop in your phone's or computer's settings.</p>
+      </section>
+    );
 
   const flip = async (on: boolean) => {
     setBusy(true);

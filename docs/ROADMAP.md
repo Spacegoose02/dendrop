@@ -219,7 +219,7 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Sounds | Sounds for deafen/mute events | 4 | Done (mute, unmute, deafen, undeafen, join, leave; can be turned off) |
 | Sounds | Incoming call / message notifications | 2 | Done: calls ring full screen on Android and on iOS's call screen; content-free message notifications on phones and the PC app |
 | Automod | Automod settings | 6 | Done (blocked words, spam and mentions, links, new accounts; block, alert, timeout; exempt roles and channels; mod log) |
-| Look alike | Layout reference 1 (settings) | 1, 7 | Partial: settings is a dialog of sections, not yet a full page with a left nav |
+| Look alike | Layout reference 1 (settings) | 1, 7 | Done: settings is a full page with a left-hand menu (Your account, App, Data); on a phone the menu and each page take turns filling the screen |
 | Look alike | Layout reference 2 (main chat) | 1, 7 | Done: server rail, channel list with members, chat, and your controls bottom-left |
 
 ## Still to do

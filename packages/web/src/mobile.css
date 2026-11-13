@@ -189,7 +189,8 @@ body {
   .settings {
     padding-top: env(safe-area-inset-top, 0px);
   }
-  .settings-body {
+  .settings-nav-inner,
+  .settings-page {
     padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
   }
 
