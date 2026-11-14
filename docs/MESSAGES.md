@@ -3,6 +3,15 @@
 Everyday message features. Everything here respects end-to-end encryption: the server never
 reads an encrypted chat to make any of it work.
 
+## Notes to self
+
+**Notes to self** sits under *Saved messages* in the Direct messages sidebar. It's a private chat
+with only you in it: jot things down, or pass links, pictures and files between your phone and
+PC. It works like any DM (replies, edits, search, reminders, end-to-end encryption once you've set
+it up), it's made the first time you open it, and it never counts as unread. There are no calls
+in it. In the API, `POST /api/conversations` with your own `userId` opens it, and the
+conversation comes back with `isNotes: true`.
+
 ## Search
 
 Press **Ctrl+F** (or Ctrl+K, or the 🔍 in a chat's header). Search covers:

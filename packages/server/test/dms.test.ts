@@ -159,6 +159,40 @@ describe("friends and direct messages", () => {
     assert.equal(edits[0]!.body, "v2", "the oldest went first");
     assert.equal(edits.at(-1)!.body, `v${LIMITS.editHistory + 1}`);
   });
+
+  it("opens notes to self: a chat with only you in it, kept private", async () => {
+    const live = await listen(s, dad);
+    const first = await call(dad, "POST", "/api/conversations", { userId: dadId });
+    assert.equal(first.status, 200);
+    const notes = first.body as Conversation;
+    assert.equal(notes.isNotes, true);
+    assert.equal(notes.isGroup, false);
+    assert.deepEqual(notes.members.map((m) => m.id), [dadId]);
+    assert.equal((await live.waitFor("conversation.created")).conversation.id, notes.id);
+    live.ws.close();
+    // Opening it again finds the same chat, and it's listed with the rest.
+    assert.equal((await call(dad, "POST", "/api/conversations", { userId: dadId })).body.id, notes.id);
+    assert.ok((await call(dad, "GET", "/api/conversations")).body.some((c: Conversation) => c.id === notes.id && c.isNotes));
+    // Other chats aren't notes.
+    const dm = (await call(dad, "POST", "/api/conversations", { userId: momId })).body as Conversation;
+    assert.equal(dm.isNotes, false);
+
+    const sent = await call(dad, "POST", `/api/conversations/${notes.id}/messages`, { body: "buy milk" });
+    assert.equal(sent.status, 200);
+    // Your own notes never show as unread.
+    assert.ok(!(await call(dad, "GET", "/api/unread")).body.some((u: { conversationId: number }) => u.conversationId === notes.id));
+    // Nobody else can see them.
+    assert.equal((await call(mom, "GET", `/api/conversations/${notes.id}/messages`)).status, 404);
+    assert.equal((await call(mom, "GET", `/api/conversations/${notes.id}`)).status, 404);
+    // Someone else's id still needs a friendship.
+    assert.equal((await call(await account(s, "zed"), "POST", "/api/conversations", { userId: dadId })).status, 403);
+    // There's no one to call.
+    assert.equal((await call(dad, "POST", `/api/conversations/${notes.id}/call`, {})).status, 400);
+    // Saved notes say where they're from.
+    await s.app.inject({ method: "PUT", url: `/api/saved/${sent.body.id}`, headers: { cookie: dad } });
+    const saved = (await call(dad, "GET", "/api/saved")).body as { place: { kind: string; name: string } }[];
+    assert.deepEqual([saved[0]!.place.kind, saved[0]!.place.name], ["dm", "Notes to self"]);
+  });
 });
 
 describe("presence on new friendships", () => {

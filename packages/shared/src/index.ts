@@ -138,6 +138,8 @@ export interface Conversation {
   id: number;
   /** True for a group DM (more than two people, or named). */
   isGroup: boolean;
+  /** True for someone's notes to self: a private 1:1 chat with only them in it. */
+  isNotes: boolean;
   name: string | null;
   members: PublicUser[];
   lastMessageAt: string | null;

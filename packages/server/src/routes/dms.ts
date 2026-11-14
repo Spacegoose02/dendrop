@@ -198,7 +198,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
 
   app.get("/api/conversations", async (req) => convos.list(requireUser(req).id));
 
-  /** { userId } opens the 1:1 DM with a friend; { userIds, name } makes a group DM. */
+  /** { userId } opens the 1:1 DM with a friend (your own id: your notes to self); { userIds, name } makes a group DM. */
   app.post<{ Body: { userId?: unknown; userIds?: unknown; name?: unknown } }>("/api/conversations", async (req) => {
     const me = requireUser(req);
     const body = req.body ?? {};
@@ -345,6 +345,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
     const cid = id(req.params.id);
     member(cid, me.id);
     notBlocked(cid, me.id);
+    if (convos.isNotes(cid)) throw new HttpError(400, "There's no one to call in your notes");
     const isNew = !calls.get(cid);
     const join = await calls.join(cid, convos.memberIds(cid), me, req.body?.video === true, livekitUrl(config, req));
     // A new call rings everyone's phones too, even if a PC is already ringing.
