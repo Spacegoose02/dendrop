@@ -7,6 +7,8 @@ import { contextBridge, ipcRenderer } from "electron";
 contextBridge.exposeInMainWorld("dendrop", {
   version: 1,
   platform: process.platform,
+  /** This app opens the server's ?popout= pages in app windows. Older apps sent them to the browser. */
+  popOutWindows: true,
   /** The app's settings (tray, startup, notifications, updates); pass a patch to change them. */
   appSettings: (patch?: object) => ipcRenderer.invoke("dd:appSettings", patch),
   checkForUpdates: () => ipcRenderer.invoke("dd:checkForUpdates"),

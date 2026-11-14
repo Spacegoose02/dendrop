@@ -388,7 +388,7 @@ describe("LootDen game links, game nights, screenshots and kids", () => {
   });
 
   it("announces game nights with a voice channel, updates them, and tidies up after", async () => {
-    nights = [{ id: 5, title: "Mario Party", date: "2026-11-13", time: "19:00", players: [{ id: 2, name: "Bob" }], game: { id: "mp", title: "Mario Party" }, note: null }];
+    nights = [{ id: 5, title: "Mario Party", date: "2030-11-15", time: "19:00", players: [{ id: 2, name: "Bob" }], game: { id: "mp", title: "Mario Party" }, note: null }];
     const res = await call(admin, "PUT", "/api/admin/lootden/channels", { gameNights: { serverId, channelId: general.id } });
     assert.equal(res.status, 200);
     assert.deepEqual(res.body.settings.gameNights, { serverId, channelId: general.id });
@@ -397,7 +397,7 @@ describe("LootDen game links, game nights, screenshots and kids", () => {
     assert.equal(voice?.name, "game-night-mario-party");
     let [m] = await lastMessages(1);
     assert.equal(m!.webhook?.name, "LootDen");
-    assert.equal(m!.body, "🎲 Game night: Mario Party\nFri, Nov 13 at 7:00 PM\nPlaying Mario Party\nWith Bob\nVoice: 🔊 game-night-mario-party");
+    assert.equal(m!.body, "🎲 Game night: Mario Party\nFri, Nov 15 at 7:00 PM\nPlaying Mario Party\nWith Bob\nVoice: 🔊 game-night-mario-party");
     // A change in LootDen edits the announcement.
     nights = [{ ...nights[0]!, time: "20:30" }];
     await call(admin, "PUT", "/api/admin/lootden/channels", {});
@@ -410,7 +410,7 @@ describe("LootDen game links, game nights, screenshots and kids", () => {
     const ev = events[0]!;
     assert.equal(ev.name, "🎲 Mario Party");
     assert.equal(ev.channelId, voice!.id);
-    assert.equal(ev.startsAt, "2026-11-14T02:30:00.000Z", "8:30 PM in Chicago");
+    assert.equal(ev.startsAt, "2030-11-16T02:30:00.000Z", "8:30 PM in Chicago");
     assert.equal(ev.myRsvp, "going");
     assert.match(ev.description, /Playing Mario Party/);
     // Bob takes his Going back: LootDen takes him off the night.

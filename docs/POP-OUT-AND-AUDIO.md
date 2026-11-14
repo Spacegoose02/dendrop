@@ -13,6 +13,10 @@ You can keep it beside a game or on another screen while the main window does so
 - In the PC app, only those exact addresses on your own server open an app window. Every other
   link still opens in your browser, from the pop-out too.
 - Threads aren't popped out on their own. Pop out their channel.
+- The chat page comes from your server, but the PC app is installed on each PC. A PC app from
+  before pop-outs (0.7.0 and older) sends every new window to the system browser, so a newer
+  server's pop-out would open there. The page checks for that and asks you to update the PC app
+  instead. In a browser, if pop-ups are blocked, it says so.
 
 ## Android chat bubbles
 

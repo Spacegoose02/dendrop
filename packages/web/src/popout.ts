@@ -23,9 +23,21 @@ export const popout: PopoutTarget | null = typeof location === "undefined" ? nul
 export const canPopOut = (): boolean =>
   !popout && !(window as { Capacitor?: unknown }).Capacitor && !inIosApp() && !matchMedia("(pointer: coarse) and (max-width: 900px)").matches;
 
-export function popOut(t: PopoutTarget): void {
+/**
+ * The PC app, when this page runs in it. The page comes from the server but the app is installed
+ * on the PC, so a newer server can meet an older app. Apps before pop-outs sent every new window,
+ * pop-outs too, to the system browser; only apps that say popOutWindows open them as app windows.
+ */
+const desktopApp = (): { popOutWindows?: boolean } | undefined => (window as { dendrop?: { popOutWindows?: boolean } }).dendrop;
+
+/** Opens the chat in its own window. Says why it couldn't, for a toast, or null when it did. */
+export function popOut(t: PopoutTarget): string | null {
+  const app = desktopApp();
+  if (app && !app.popOutWindows) return "Update the Dendrop PC app to pop chats out into their own app window.";
   const key = t.kind === "conversation" ? `c${t.id}` : `s${t.serverId}.${t.channelId}`;
   // One window per chat: popping out the same one again brings it to the front.
   const w = window.open(`/?popout=${key}`, `dendrop-${key}`, "popup,width=460,height=720");
-  w?.focus();
+  if (!w) return app ? "Couldn't open the pop-out window." : "Your browser blocked the pop-out window. Allow pop-ups for this site and try again.";
+  w.focus();
+  return null;
 }
