@@ -284,7 +284,7 @@ export function ForwardDialog({
       key: `c${c.id}`,
       conversationId: c.id,
       label: conversationTitle(c, me.id),
-      detail: c.isGroup ? `Group · ${c.members.length} members` : "Direct message",
+      detail: c.isGroup ? `Group · ${c.members.length} members` : c.isNotes ? "Just you" : "Direct message",
       plain: false,
     })),
     ...servers.flatMap((sv) =>

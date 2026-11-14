@@ -8,6 +8,7 @@ export interface History {
 }
 
 export const conversationTitle = (c: Conversation, meId: number): string =>
+  (c.isNotes ? "Notes to self" : null) ??
   c.name ??
   (c.members
     .filter((m) => m.id !== meId)

@@ -614,6 +614,10 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     open({ kind: "channel", serverId: sv.id, channelId: channelId ?? sv.channels[0]?.id ?? 0 });
   };
 
+  /** Your notes to self, once opened: pinned above the list instead of in it. */
+  const notes = conversations.find((c) => c.isNotes);
+  const chats = conversations.filter((c) => !c.isNotes);
+
   const messageFriend = async (user: PublicUser) => {
     const c = await api<Conversation>("/api/conversations", { body: { userId: user.id } });
     setConversations((cs) => [c, ...cs.filter((x) => x.id !== c.id)]);
@@ -764,6 +768,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
     return {
       id: currentChannel.conversationId,
       isGroup: true,
+      isNotes: false,
       name: channelTitle(currentChannel),
       // A role color wins over someone's own name color in a server.
       members: currentServer.members.map((m) => ({ ...m.user, displayName: m.nickname ?? m.user.displayName, nameColor: m.color ?? m.user.nameColor })),
@@ -995,14 +1000,24 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             </span>
             Saved messages
           </button>
+          <button
+            className={`nav-item ${view.kind === "conversation" && view.id === notes?.id ? "active" : ""}`}
+            onClick={() => (notes ? open({ kind: "conversation", id: notes.id }) : void messageFriend(me))}
+            title="A private chat with just you: jot things down, or pass links and files between your devices"
+          >
+            <span className="nav-icon" aria-hidden>
+              📝
+            </span>
+            Notes to self
+          </button>
           <div className="section-label with-action">
             Conversations
             <button className="ghost" onClick={() => setDialog("group")} title="New group chat" aria-label="New group chat">
               ＋
             </button>
           </div>
-          {conversations.length === 0 && <p className="muted small">No conversations yet.</p>}
-          {conversations.map((c) => {
+          {chats.length === 0 && <p className="muted small">No conversations yet.</p>}
+          {chats.map((c) => {
             const others = c.members.filter((m) => m.id !== me.id);
             const solo = !c.isGroup && others[0];
             return (
@@ -1205,7 +1220,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             setHistory={(h) => setHistories((all) => ({ ...all, [current.id]: h(all[current.id]) }))}
             typingIds={Object.keys(typing[current.id] ?? {}).map(Number)}
             sendTyping={() => sendRef.current({ type: "typing", conversationId: current.id })}
-            callsEnabled={!!server?.calls}
+            callsEnabled={!!server?.calls && !current.isNotes}
             call={calls[current.id]}
             inThisCall={inCall?.call.conversationId === current.id}
             onCall={(video) => void startCall(current.id, video)}

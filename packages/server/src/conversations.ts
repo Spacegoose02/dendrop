@@ -12,9 +12,19 @@ interface ConversationRow {
   id: number;
   is_group: number;
   name: string | null;
+  dm_key: string | null;
   created_at: string;
   last_message_at: string | null;
 }
+
+/** The dm_key of someone's notes to self: a 1:1 conversation with only them in it. */
+const notesKey = (userId: number) => `${userId}:${userId}`;
+/** Whether a dm_key is a notes-to-self key (both halves the same person). */
+const isNotesKey = (key: string | null): boolean => {
+  if (!key) return false;
+  const [a, b] = key.split(":");
+  return a === b;
+};
 
 interface MessageRow {
   id: number;
@@ -148,6 +158,7 @@ export class ConversationRepo {
       reads: this.reads(r.id, viewerId),
       id: r.id,
       isGroup: !!r.is_group,
+      isNotes: !r.is_group && isNotesKey(r.dm_key),
       name: r.name,
       members: this.memberIds(r.id).flatMap((id) => {
         const u = this.users.byId(id);
@@ -256,10 +267,10 @@ export class ConversationRepo {
     return ids.map((r) => this.get(r.id, userId)!).filter(Boolean);
   }
 
-  /** In a 1:1 DM, the other person; undefined for groups, channels and threads. */
+  /** In a 1:1 DM, the other person; undefined for groups, channels, threads and notes to self. */
   dmPartner(conversationId: number, me: number): number | undefined {
     const r = this.db.prepare("SELECT dm_key FROM conversations WHERE id = ?").get(conversationId) as { dm_key: string | null } | undefined;
-    if (!r?.dm_key) return undefined;
+    if (!r?.dm_key || isNotesKey(r.dm_key)) return undefined;
     const [a, b] = r.dm_key.split(":").map(Number);
     return a === me ? b : b === me ? a : undefined;
   }
@@ -270,9 +281,33 @@ export class ConversationRepo {
     return (this.db.prepare("SELECT id FROM conversations WHERE dm_key = ?").get(key) as { id: number } | undefined)?.id;
   }
 
-  /** The 1:1 conversation between two friends, made the first time it's needed. */
+  /** Whether a conversation is someone's notes to self. */
+  isNotes(conversationId: number): boolean {
+    const r = this.db.prepare("SELECT is_group, dm_key FROM conversations WHERE id = ?").get(conversationId) as { is_group: number; dm_key: string | null } | undefined;
+    return !!r && !r.is_group && isNotesKey(r.dm_key);
+  }
+
+  /**
+   * Your notes to self: a private chat with only you in it, for jotting things down and passing
+   * links and files between your devices. Made the first time it's opened.
+   */
+  openNotes(me: number): { conversation: Conversation; created: boolean } {
+    const key = notesKey(me);
+    const existing = this.db.prepare("SELECT id FROM conversations WHERE dm_key = ?").get(key) as { id: number } | undefined;
+    if (existing) return { conversation: this.get(existing.id, me)!, created: false };
+    const id = tx(this.db, () => {
+      const t = now();
+      const res = this.db.prepare("INSERT INTO conversations (is_group, dm_key, created_by, created_at) VALUES (0, ?, ?, ?)").run(key, me, t);
+      const cid = Number(res.lastInsertRowid);
+      this.db.prepare("INSERT INTO conversation_members (conversation_id, user_id, joined_at) VALUES (?, ?, ?)").run(cid, me, t);
+      return cid;
+    });
+    return { conversation: this.get(id, me)!, created: true };
+  }
+
+  /** The 1:1 conversation between two friends, made the first time it's needed. Yourself: your notes. */
   openDm(me: number, other: number): { conversation: Conversation; created: boolean } {
-    if (me === other) throw new HttpError(400, "You can't message yourself");
+    if (me === other) return this.openNotes(me);
     if (!this.friends.areFriends(me, other)) throw new HttpError(403, "You can only message friends");
     const key = me < other ? `${me}:${other}` : `${other}:${me}`;
     const existing = this.db.prepare("SELECT id FROM conversations WHERE dm_key = ?").get(key) as { id: number } | undefined;
@@ -510,6 +545,7 @@ export class ConversationRepo {
       .get(conversationId) as { id: number; name: string; server_id: number; server_name: string } | undefined;
     if (ch) return { ...base, kind: "channel", name: ch.name, serverId: ch.server_id, serverName: ch.server_name, channelId: ch.id };
     const c = this.get(conversationId, viewerId);
+    if (c?.isNotes) return { ...base, kind: "dm", name: "Notes to self" };
     if (c?.isGroup) return { ...base, kind: "group", name: c.name ?? c.members.filter((m) => m.id !== viewerId).map((m) => m.displayName).join(", ") };
     const other = c?.members.find((m) => m.id !== viewerId);
     return { ...base, kind: "dm", name: other?.displayName ?? "Direct message" };

@@ -649,6 +649,10 @@ export function Chat({
           <span className="channel-hash" aria-hidden>
             {channel.icon ?? (channel.voice ? (channel.voice.stage ? "🎙️" : "🔊") : "#")}
           </span>
+        ) : conversation.isNotes ? (
+          <span className="channel-hash" aria-hidden>
+            📝
+          </span>
         ) : !conversation.isGroup && others[0] ? (
           <ProfileLink userId={others[0].id}>
             <Avatar name={others[0].displayName} src={others[0].avatar} online={online.has(others[0].id)} size={28} />
@@ -666,6 +670,8 @@ export function Chat({
           channel.topic && <span className="muted small ellipsis channel-topic">{channel.topic}</span>
         ) : conversation.isGroup ? (
           <span className="muted small">{conversation.members.length} members</span>
+        ) : conversation.isNotes ? (
+          <span className="muted small ellipsis">Just you, on all your devices</span>
         ) : (
           others[0] && (
             <>
@@ -765,8 +771,14 @@ export function Chat({
               </p>
             ) : (
               <p className="muted">
-                This is the start of your conversation.{" "}
-                {conversation.e2ee ? "New messages are end-to-end encrypted: only the people in it can read them." : "Only the people in it can see it."}
+                {conversation.isNotes ? "Your own space for notes, links and files. It shows up on all your devices." : "This is the start of your conversation."}{" "}
+                {conversation.isNotes
+                  ? conversation.e2ee
+                    ? "New notes are end-to-end encrypted: only you can read them."
+                    : "Only you can see it."
+                  : conversation.e2ee
+                    ? "New messages are end-to-end encrypted: only the people in it can read them."
+                    : "Only the people in it can see it."}
               </p>
             )}
           </div>
