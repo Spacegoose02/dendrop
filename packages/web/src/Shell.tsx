@@ -820,7 +820,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       onBack={onBack}
       onPopOut={
         canPopOut() && view.kind === "channel" && currentChannel?.conversationId === conversation.id
-          ? () => popOut({ kind: "channel", serverId: view.serverId, channelId: view.channelId })
+          ? () => setToast(popOut({ kind: "channel", serverId: view.serverId, channelId: view.channelId }))
           : undefined
       }
       keyState={keyState}
@@ -1212,7 +1212,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             onBack={() => setShowMain(false)}
             onPopOut={
               canPopOut()
-                ? () => popOut({ kind: "conversation", id: current.id })
+                ? () => setToast(popOut({ kind: "conversation", id: current.id }))
                 : inAndroidApp()
                   ? () => void openBubble(current.id, conversationTitle(current, me.id)).then((why) => why && setToast(why))
                   : undefined
