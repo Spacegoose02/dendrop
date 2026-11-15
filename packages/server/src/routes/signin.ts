@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { AdminAccount, AdminSignIn, MySignIns, SignInProvider, SignInSettings } from "@dendrop/shared";
+import type { AdminAccount, AdminSignIn, MySignIns, SignInMove, SignInProvider, SignInSettings } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
 import { hashPassword, verifyPassword } from "../auth/crypto.js";
 import { SESSION_COOKIE } from "../auth/sessions.js";
@@ -41,14 +41,28 @@ export function signInRoutes(app: FastifyInstance, ctx: Context): void {
 
   const managed = (u: UserRecord) => u.isKid && u.managedBy !== null;
 
+  /** Why a provider can't be linked right now, or null. Setup hints only go to super admins. */
+  const note = (u: UserRecord, p: SignInProvider, s: SignInSettings): string | null => {
+    const name = services[p].name;
+    const configured = p === "tinyauth" ? signin.tinyauthConfigured : signin.googleConfigured;
+    if (!configured) {
+      if (!u.isSuperAdmin) return null;
+      return p === "tinyauth"
+        ? "Not set up on this server yet: add DENDROP_OIDC_ISSUER, DENDROP_OIDC_CLIENT_ID and DENDROP_PUBLIC_URL, then restart Dendrop."
+        : "Not set up on this server yet: add DENDROP_GOOGLE_CLIENT_ID, DENDROP_GOOGLE_CLIENT_SECRET and DENDROP_PUBLIC_URL, then restart Dendrop.";
+    }
+    if (!s[p]) return u.isSuperAdmin ? `${name} sign-in is switched off in Instance admin → Sign-in.` : `The admin has switched off signing in with ${name}.`;
+    return null;
+  };
+
   const mine = (u: UserRecord): MySignIns => {
     const s = signin.settings();
     const live = signin.live(s);
     const manager = managed(u) ? users.byId(u.managedBy!) : undefined;
     return {
       password: !!u.passwordHash,
-      tinyauth: { name: config.oidc.name, linked: !!u.oidcSubject, available: live.tinyauth },
-      google: { linked: !!u.googleSubject, email: u.googleEmail, available: live.google },
+      tinyauth: { name: config.oidc.name, linked: !!u.oidcSubject, available: live.tinyauth, account: u.oidcSubject ? (u.oidcEmail ?? u.oidcUsername) : null, note: note(u, "tinyauth", s) },
+      google: { linked: !!u.googleSubject, email: u.googleEmail, available: live.google, note: note(u, "google", s) },
       canLink: s.linking && !managed(u),
       managedBy: manager ? toPublic(manager) : null,
     };
@@ -74,6 +88,55 @@ export function signInRoutes(app: FastifyInstance, ctx: Context): void {
     const after = { ...me, oidcSubject: p === "tinyauth" ? null : me.oidcSubject, googleSubject: p === "google" ? null : me.googleSubject };
     if (waysIn(after).length === 0) throw new HttpError(409, "Add another way to sign in first, or you'd be locked out");
     return mine(users.setSignIn(me.id, p, null));
+  });
+
+  // ---- Moving a login that a different account has ---------------------------------------
+  // Linking a login that's already on another account (often one a first sign-in made by
+  // itself) comes back here with an offer. The round trip proved they own that login, so they
+  // could already sign in to that account: moving the login over gives them nothing new.
+
+  const offerFor = (me: UserRecord, p: SignInProvider, token: string) => {
+    const offer = services[p].moveOffer(token, me.id);
+    if (!offer) throw new HttpError(404, "That offer has run out. Link it again from Settings → Sign-in.");
+    const from = users.byId(offer.fromId);
+    const subject = from && (p === "tinyauth" ? from.oidcSubject : from.googleSubject);
+    if (!from || !subject) throw new HttpError(409, "That login isn't on the other account any more. Link it again from Settings → Sign-in.");
+    return from;
+  };
+
+  const otherWays = (u: UserRecord, p: SignInProvider) => waysIn({ ...u, oidcSubject: p === "tinyauth" ? null : u.oidcSubject, googleSubject: p === "google" ? null : u.googleSubject });
+
+  app.get<{ Params: { provider: string; token: string } }>("/api/me/signins/:provider/moves/:token", async (req): Promise<SignInMove> => {
+    const me = requireUser(req);
+    const p = provider(req.params.provider);
+    const from = offerFor(me, p, req.params.token);
+    const messages = (ctx.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE author_id = ? AND deleted_at IS NULL").get(from.id) as { n: number }).n;
+    return {
+      provider: p,
+      name: services[p].name,
+      login: p === "tinyauth" ? (from.oidcEmail ?? from.oidcUsername) : from.googleEmail,
+      from: { user: toPublic(from), createdAt: from.createdAt, messages: Number(messages), otherWaysIn: otherWays(from, p) },
+    };
+  });
+
+  /** Moves the login to your account. The other account stays, without it. */
+  app.post<{ Params: { provider: string; token: string } }>("/api/me/signins/:provider/moves/:token", async (req) => {
+    const me = requireUser(req);
+    const p = provider(req.params.provider);
+    if (managed(me)) throw new HttpError(403, "Your parent looks after how this account signs in");
+    if (!signin.settings().linking) throw new HttpError(403, "Linking sign-ins is switched off by the admin");
+    const from = offerFor(me, p, req.params.token);
+    if (managed(from)) throw new HttpError(403, "That login is on a kid account its parent looks after. Ask the admin to move it.");
+    services[p].dropMoveOffer(req.params.token);
+    req.log.info({ userId: me.id, fromId: from.id, provider: p }, "sign-in moved between accounts");
+    return mine(users.moveSignIn(from.id, me.id, p));
+  });
+
+  app.delete<{ Params: { provider: string; token: string } }>("/api/me/signins/:provider/moves/:token", async (req) => {
+    const me = requireUser(req);
+    const p = provider(req.params.provider);
+    if (services[p].moveOffer(req.params.token, me.id)) services[p].dropMoveOffer(req.params.token);
+    return { ok: true };
   });
 
   /** Sets or changes your password. Changing it needs the current one, and signs out your other devices. */
@@ -125,6 +188,7 @@ export function signInRoutes(app: FastifyInstance, ctx: Context): void {
     managedBy: u.isKid && u.managedBy ? (users.byId(u.managedBy)?.displayName ?? null) : null,
     password: !!u.passwordHash,
     tinyauth: !!u.oidcSubject,
+    tinyauthLogin: u.oidcSubject ? { subject: u.oidcSubject, email: u.oidcEmail, username: u.oidcUsername } : null,
     google: u.googleSubject ? (u.googleEmail ?? "linked") : null,
     createdAt: u.createdAt,
     twoFactor: ctx.twofactor.totpOn(u.id),
@@ -144,6 +208,40 @@ export function signInRoutes(app: FastifyInstance, ctx: Context): void {
     if (!u || u.isBot) throw new HttpError(404, "No such account");
     return account(users.setSignIn(u.id, provider(req.params.provider), null));
   });
+
+  /**
+   * Links a login to an account: `fromAccount` moves it over from another account; `subject`
+   * links a TinyAuth login by its subject (the "sub" TinyAuth sends). A subject that another
+   * account has needs `move: true`. Whatever login of that kind the account had is replaced.
+   */
+  app.put<{ Params: { id: string; provider: string }; Body: { fromAccount?: unknown; subject?: unknown; move?: unknown } }>(
+    "/api/admin/accounts/:id/signins/:provider",
+    async (req) => {
+      admin(req);
+      const p = provider(req.params.provider);
+      const u = users.byId(id(req.params.id));
+      if (!u || u.isBot) throw new HttpError(404, "No such account");
+      const body = req.body ?? {};
+      const subjectOf = (x: UserRecord) => (p === "tinyauth" ? x.oidcSubject : x.googleSubject);
+      let from: UserRecord | undefined;
+      if (body.fromAccount !== undefined) {
+        from = users.byId(id(body.fromAccount));
+        if (!from || from.isBot || !subjectOf(from)) throw new HttpError(404, `That account has no ${services[p].name} sign-in to move`);
+      } else {
+        if (p !== "tinyauth") throw new HttpError(400, "Move a Google sign-in from another account, or have them link it in Settings");
+        const subject = typeof body.subject === "string" ? body.subject.trim() : "";
+        if (!subject || subject.length > 300) throw new HttpError(400, "Give the TinyAuth subject (its \"sub\")");
+        from = users.byOidcSubject(subject);
+        if (!from) return account(users.setSignIn(u.id, "tinyauth", subject));
+        if (from.id !== u.id && body.move !== true) {
+          throw new HttpError(409, `That ${services[p].name} login is on @${from.username}. Move it to @${u.username}?`);
+        }
+      }
+      if (from.id === u.id) return account(u);
+      req.log.info({ userId: u.id, fromId: from.id, provider: p }, "admin moved a sign-in between accounts");
+      return account(users.moveSignIn(from.id, u.id, p));
+    },
+  );
 
   /**
    * Switches the couples kit on or off for an account. Kid accounts are always refused. Turning

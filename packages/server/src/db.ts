@@ -943,6 +943,12 @@ export const MIGRATIONS: string[] = [
   UPDATE users SET username_picked = 0
     WHERE is_bot = 0 AND password_hash IS NULL AND (oidc_subject IS NOT NULL OR google_subject IS NOT NULL);
   `,
+  `
+  -- The email and username TinyAuth last gave for the linked login, so people and the admin can
+  -- tell which TinyAuth login an account has (the subject alone is often an opaque id).
+  ALTER TABLE users ADD COLUMN oidc_email TEXT;
+  ALTER TABLE users ADD COLUMN oidc_username TEXT;
+  `,
 ];
 
 export function now(): string {

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  SignInProvider,
   Activity,
   Call,
   CallJoin,
@@ -50,6 +51,7 @@ import { needsWelcome, WelcomeScreen } from "./Welcome.tsx";
 import { NewGroup } from "./NewGroup.tsx";
 import { SettingsButton } from "./Settings.tsx";
 import { PickUsernameDialog } from "./Username.tsx";
+import { SignInMoveDialog } from "./SignIns.tsx";
 import { EncryptionDialog, type EncryptionMode } from "./EncryptionDialog.tsx";
 import { useVoiceKeybinds } from "./keybinds.ts";
 import { keyring, loadIdentity, reveal, type Identity } from "./e2ee.ts";
@@ -115,13 +117,19 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       .then((list) => setFired((cur) => [...cur, ...list.filter((r) => r.firedAt && !cur.some((x) => x.reminder.id === r.id)).map((reminder) => ({ reminder, excerpt: null }))]))
       .catch(() => {});
   }, []);
+  /** Back from linking a login that another account has: offer to move it here. */
+  const [signInMove, setSignInMove] = useState<{ provider: SignInProvider; token: string } | null>(() => {
+    const m = /^(tinyauth|google)\.([\w-]+)$/.exec(new URLSearchParams(location.search).get("signin_move") ?? "");
+    return m ? { provider: m[1] as SignInProvider, token: m[2]! } : null;
+  });
   /** Back from linking Google or TinyAuth in Settings: say how it went, then tidy the address. */
   const [signInNotice, setSignInNotice] = useState<{ ok: boolean; text: string } | null>(() => {
     const q = new URLSearchParams(location.search);
     const linked = q.get("linked");
     const failed = q.get("signin_error");
-    if (!linked && !failed) return null;
+    if (!linked && !failed && !q.get("signin_move")) return null;
     history.replaceState(null, "", location.pathname);
+    if (!linked && !failed) return null;
     if (failed) return { ok: false, text: failed };
     return { ok: true, text: `${linked === "google" ? "Google" : "Single sign-on"} is linked. You can sign in with it now.` };
   });
@@ -1434,6 +1442,17 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         />
       )}
       {me.pickUsername && !popout && <PickUsernameDialog me={me} onDone={(u) => setMe((m) => ({ ...m, ...u, publicKey: m.publicKey ?? u.publicKey }))} />}
+      {/* Last, so it sits above the other first-visit prompts: they came back to answer it. */}
+      {signInMove && (
+        <SignInMoveDialog
+          provider={signInMove.provider}
+          token={signInMove.token}
+          onDone={(text) => {
+            setSignInMove(null);
+            if (text) setSignInNotice({ ok: true, text });
+          }}
+        />
+      )}
       {levelUp && !ringing && (() => {
         const sv = servers.find((x) => x.id === levelUp.serverId);
         return sv ? <LevelUpCard server={sv} level={levelUp.level} rank={levelUp.rank} rankUp={levelUp.rankUp} onClose={() => setLevelUp(null)} /> : null;

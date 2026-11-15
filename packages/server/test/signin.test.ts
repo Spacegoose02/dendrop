@@ -64,7 +64,7 @@ describe("linked sign-ins, the admin's sign-in switches, and kid accounts under 
 
   it("links Google to the account someone signed up with", async () => {
     const before = (await req(mom, "GET", "/api/me/signins")).json<MySignIns>();
-    assert.deepEqual(before.google, { linked: false, email: null, available: true });
+    assert.deepEqual(before.google, { linked: false, email: null, available: true, note: null });
     assert.equal(before.password, true);
     assert.equal(before.canLink, true);
     assert.equal((await req(mom, "POST", "/api/me/signins/tinyauth")).statusCode, 404, "TinyAuth isn't set up");

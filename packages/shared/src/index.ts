@@ -578,12 +578,42 @@ export type SignInProvider = "tinyauth" | "google";
 /** GET /api/me/signins: the ways you can sign in, and what you could link. */
 export interface MySignIns {
   password: boolean;
-  tinyauth: { name: string; linked: boolean; available: boolean };
-  google: { linked: boolean; email: string | null; available: boolean };
+  /**
+   * `account` is the TinyAuth email or username the linked login goes by. `note` says why it
+   * can't be linked right now (switched off, or not set up: that one only for super admins).
+   */
+  tinyauth: { name: string; linked: boolean; available: boolean; account?: string | null; note?: string | null };
+  google: { linked: boolean; email: string | null; available: boolean; note?: string | null };
   /** Linking is switched on by the admin (and you aren't a kid account under a parent). */
   canLink: boolean;
   /** For a kid account under a parent: who looks after its sign-in. */
   managedBy: PublicUser | null;
+}
+
+/**
+ * GET /api/me/signins/moves/:token: you tried to link a login that another account already has.
+ * You proved you own it, so you can move it to your account.
+ */
+export interface SignInMove {
+  provider: SignInProvider;
+  name: string;
+  /** The TinyAuth email or username (or Google email) of the login. */
+  login: string | null;
+  from: {
+    user: PublicUser;
+    createdAt: string;
+    /** Messages it has sent: 0 for an account a first sign-in made and nobody used. */
+    messages: number;
+    /** The other ways into it once the login moves ("password", "google", "passkey" ...). */
+    otherWaysIn: string[];
+  };
+}
+
+/** The TinyAuth login linked to an account, as the super admin sees it. */
+export interface TinyAuthLogin {
+  subject: string;
+  email: string | null;
+  username: string | null;
 }
 
 /** An account as the super admin sees it, for managing sign-ins. */
@@ -594,6 +624,8 @@ export interface AdminAccount {
   managedBy: string | null;
   password: boolean;
   tinyauth: boolean;
+  /** Which TinyAuth login it is, when one is linked. */
+  tinyauthLogin?: TinyAuthLogin | null;
   google: string | null;
   createdAt: string;
   /** An authenticator app is set up for password sign-ins. */
@@ -2077,6 +2109,7 @@ export const AUDIT_ACTIONS: Record<string, string> = {
   "account.rename": "changed their username",
   "account.password": "set a new password for",
   "account.unlink": "unlinked a sign-in from",
+  "account.link": "linked a sign-in to",
   "account.reset2fa": "turned off two-step sign-in for",
   "account.couplesOn": "switched on the couples kit for",
   "account.couplesOff": "switched off the couples kit for",

@@ -1418,11 +1418,35 @@ button.attachment-file {
 .account-row {
   flex-wrap: wrap;
 }
+/* The name keeps room to read; the buttons wrap under it when they don't fit beside. */
+.account-row > .nav-text {
+  flex: 1 1 200px;
+  min-width: 200px;
+}
 .account-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   margin-left: auto;
+}
+/* Linking sign-ins: the note under a provider, the admin's link form, and the move dialog. */
+.signin-note {
+  display: block;
+}
+/* Instance admin: attaching a TinyAuth login to an account, under its row. */
+.link-tinyauth {
+  flex-basis: 100%;
+  margin-left: 0;
+}
+.signin-move p {
+  margin: 0 0 10px;
+}
+.signin-move + .modal-actions,
+.modal > .modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
 }
 .family-form {
   display: flex;

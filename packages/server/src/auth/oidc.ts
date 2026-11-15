@@ -13,6 +13,31 @@ interface Pending {
   linkUserId?: number;
 }
 
+/** A login someone proved they own, that another Dendrop account already has: they can move it. */
+export interface MoveOffer {
+  userId: number;
+  fromId: number;
+  provider: SignInProvider;
+  expires: number;
+}
+
+/** Thrown by link() when the login is already on another account. */
+export class LinkedElsewhere extends Error {
+  constructor(
+    readonly fromId: number,
+    name: string,
+  ) {
+    super(`That ${name} account is already linked to another Dendrop account`);
+  }
+}
+
+/** The email and username a TinyAuth login goes by, for telling logins apart. */
+export function seenAs(claims: Record<string, unknown>): { email: string | null; username: string | null } {
+  const email = typeof claims.email === "string" && claims.email ? claims.email.slice(0, 200) : null;
+  const u = claims.preferred_username ?? claims.nickname;
+  return { email, username: typeof u === "string" && u ? u.slice(0, 100) : null };
+}
+
 const GOOGLE = { issuer: "https://accounts.google.com", scopes: "openid email profile" };
 
 /**
@@ -23,6 +48,7 @@ const GOOGLE = { issuer: "https://accounts.google.com", scopes: "openid email pr
 export class OidcService {
   private configPromise: Promise<client.Configuration> | null = null;
   private pending = new Map<string, Pending>();
+  private offers = new Map<string, MoveOffer>();
 
   constructor(
     private readonly config: ServerConfig,
@@ -83,7 +109,7 @@ export class OidcService {
    * Finishes the round trip. A sign-in returns the local account (made on first sign-in when
    * allowed); a link adds this provider to the account that started it.
    */
-  async finish(callbackUrl: URL): Promise<{ user: UserRecord; returnTo: string; linked: boolean }> {
+  async finish(callbackUrl: URL): Promise<{ user: UserRecord; returnTo: string; linked: boolean; moveOffer?: string }> {
     const cfg = await this.discover();
     const state = callbackUrl.searchParams.get("state") ?? "";
     const pending = this.pending.get(state);
@@ -98,7 +124,15 @@ export class OidcService {
         // Some providers have no userinfo endpoint; the ID token claims are enough.
       }
     }
-    if (pending.linkUserId !== undefined) return { user: this.link(pending.linkUserId, claims), returnTo: pending.returnTo, linked: true };
+    if (pending.linkUserId !== undefined) {
+      try {
+        return { user: this.link(pending.linkUserId, claims), returnTo: pending.returnTo, linked: true };
+      } catch (err) {
+        if (!(err instanceof LinkedElsewhere)) throw err;
+        // They just proved they own this login, so they may move it here from the other account.
+        return { user: this.users.byId(pending.linkUserId)!, returnTo: pending.returnTo, linked: false, moveOffer: this.offerMove(pending.linkUserId, err.fromId) };
+      }
+    }
     return { user: this.provider === "google" ? this.provisionGoogle(claims) : this.provision(claims), returnTo: pending.returnTo, linked: false };
   }
 
@@ -111,9 +145,28 @@ export class OidcService {
     if (!this.signin.settings().linking) throw new Error("Linking sign-ins is switched off by the admin");
     if (user.isKid && user.managedBy !== null) throw new Error("Your parent looks after how this account signs in");
     const owner = this.provider === "google" ? this.users.byGoogleSubject(sub) : this.users.byOidcSubject(sub);
-    if (owner && owner.id !== userId) throw new Error(`That ${this.name} account is already linked to another Dendrop account`);
-    const email = typeof claims.email === "string" ? claims.email : null;
-    return this.users.setSignIn(userId, this.provider, sub, email);
+    if (owner && owner.id !== userId) throw new LinkedElsewhere(owner.id, this.name);
+    const seen = seenAs(claims);
+    return this.users.setSignIn(userId, this.provider, sub, seen.email, this.provider === "tinyauth" ? seen.username : null);
+  }
+
+  /** Remembers that `userId` may move this provider's login over from `fromId`, for ten minutes. */
+  offerMove(userId: number, fromId: number): string {
+    const now = Date.now();
+    for (const [k, v] of this.offers) if (v.expires < now) this.offers.delete(k);
+    const token = client.randomState();
+    this.offers.set(token, { userId, fromId, provider: this.provider, expires: now + 10 * 60_000 });
+    return token;
+  }
+
+  /** The move offer behind `token`, if it's still good and belongs to `userId`. */
+  moveOffer(token: string, userId: number): MoveOffer | undefined {
+    const o = this.offers.get(token);
+    return o && o.userId === userId && o.expires >= Date.now() ? o : undefined;
+  }
+
+  dropMoveOffer(token: string): void {
+    this.offers.delete(token);
   }
 
   /**
@@ -150,13 +203,15 @@ export class OidcService {
     const groups = Array.isArray(claims.groups) ? claims.groups.map(String) : typeof claims.groups === "string" ? claims.groups.split(",") : [];
     const isAdmin = !!this.config.oidc.adminGroup && groups.map((g) => g.trim()).includes(this.config.oidc.adminGroup);
 
+    const seen = seenAs(claims);
     let user = this.users.byOidcSubject(sub);
+    if (user) this.users.sawTinyAuth(user.id, seen.email, seen.username);
     if (!user) {
       // Link to a local account with the same email unless the provider says it's unverified.
       // Never by username: anyone can pick "admin" as a nickname at many providers.
       const verified = claims.email_verified !== false && claims.email_verified !== "false";
       const existing = email && verified ? this.users.byEmail(email) : undefined;
-      if (existing && !existing.oidcSubject) user = this.users.update(existing.id, { oidcSubject: sub });
+      if (existing && !existing.oidcSubject) user = this.users.setSignIn(existing.id, "tinyauth", sub, seen.email, seen.username);
     }
     if (!user) {
       if (!this.signin.settings().tinyauthSignup) {
@@ -170,6 +225,8 @@ export class OidcService {
         isSuperAdmin: isAdmin || this.users.count() === 0,
         usernamePicked: false,
       });
+      this.users.sawTinyAuth(user.id, seen.email, seen.username);
+      user = this.users.byId(user.id)!;
     } else if (isAdmin && !user.isSuperAdmin) {
       user = this.users.update(user.id, { isSuperAdmin: true });
     }

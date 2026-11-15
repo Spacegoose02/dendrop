@@ -240,6 +240,12 @@ const RULES: Record<string, Rule> = {
       .join(", "),
   }),
   "PUT /api/admin/accounts/:id/password": (p) => ({ serverId: null, action: "account.password", targetUserId: num(p.id) }),
+  "PUT /api/admin/accounts/:id/signins/:provider": (p, b) => ({
+    serverId: null,
+    action: "account.link",
+    targetUserId: num(p.id),
+    details: typeof b.fromAccount === "number" || typeof b.fromAccount === "string" ? `${p.provider} from account ${b.fromAccount}` : p.provider,
+  }),
   "DELETE /api/admin/accounts/:id/signins/:provider": (p) => ({ serverId: null, action: "account.unlink", targetUserId: num(p.id), details: p.provider }),
   "DELETE /api/admin/accounts/:id/2fa": (p) => ({ serverId: null, action: "account.reset2fa", targetUserId: num(p.id) }),
   "PUT /api/admin/accounts/:id/couples": (p, b) => ({ serverId: null, action: b.on === true ? "account.couplesOn" : "account.couplesOff", targetUserId: num(p.id) }),
