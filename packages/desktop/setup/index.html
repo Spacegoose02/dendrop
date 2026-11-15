@@ -6,8 +6,8 @@
     <title>Connect to your Dendrop server</title>
     <style>
       /* The Den theme's tokens (packages/theme/src/tokens.css), copied because this page loads before the server. */
-      :root { --dd-bg-sidebar: #1a1d22; --dd-bg-main: #20242a; --dd-bg-raised: #2a2f37; --dd-bg-input: #16181c; --dd-border: #343a44; --dd-text: #e9e6e1; --dd-text-muted: #a3a8b1; --dd-accent: #f2a541; --dd-accent-strong: #ffb85c; --dd-accent-text: #1a1206; --dd-danger: #e5605a; color-scheme: dark; }
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--dd-bg-main); color: var(--dd-text); font: 16px/1.5 "Nunito", "Segoe UI", system-ui, sans-serif; }
+      :root { --dd-bg-rail: #121418; --dd-bg-sidebar: #1a1d22; --dd-bg-main: #20242a; --dd-bg-raised: #2a2f37; --dd-bg-input: #16181c; --dd-border: #343a44; --dd-text: #e9e6e1; --dd-text-muted: #a3a8b1; --dd-accent: #f2a541; --dd-accent-strong: #ffb85c; --dd-accent-text: #1a1206; --dd-danger: #e5605a; color-scheme: dark; }
+      body { margin: 0; min-height: calc(100vh - var(--dendrop-titlebar-height, 0px)); display: grid; place-items: center; background: var(--dd-bg-main); color: var(--dd-text); font: 16px/1.5 "Nunito", "Segoe UI", system-ui, sans-serif; }
       form { width: min(420px, calc(100vw - 32px)); box-sizing: border-box; background: var(--dd-bg-sidebar); border: 1px solid var(--dd-border); border-radius: 16px; padding: 2rem; display: flex; flex-direction: column; gap: 1rem; text-align: center; }
       h1 { margin: 0; font-size: 1.6rem; }
       input { font: inherit; padding: 0.75em 1em; border-radius: 10px; border: 1px solid var(--dd-border); background: var(--dd-bg-input); color: inherit; }

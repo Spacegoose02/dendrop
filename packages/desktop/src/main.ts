@@ -23,6 +23,7 @@ import {
 import { cleanCombo, setBackgroundPtt, stopBackgroundPtt } from "./ptt.js";
 import { normalizeServerUrl, originOf } from "./serverUrl.js";
 import { SettingsStore, type DesktopSettings } from "./settings.js";
+import { cleanTitleBarColors, titleBarCss, titleBarOptions } from "./titlebar.js";
 import { downloadUpdate, findUpdate, installKind, launchUpdate, verifyUpdate, type AvailableUpdate } from "./updater.js";
 
 const APP_ID = "io.github.spacegoose02.dendrop";
@@ -130,6 +131,23 @@ function saveBounds(): void {
   settings.update({ bounds: { ...win.getNormalBounds(), maximized: win.isMaximized() } });
 }
 
+/**
+ * Windows with the themed title bar (titlebar.ts): every page they load gets room for the bar
+ * the preload draws, and the bar hides while the window is full screen.
+ */
+function themeTitleBar(w: BrowserWindow): void {
+  if (!titleBarOptions().titleBarStyle) return;
+  const fullScreen = () => {
+    if (!w.isDestroyed()) w.webContents.send("dd:fullScreen", w.isFullScreen());
+  };
+  w.webContents.on("dom-ready", () => {
+    void w.webContents.insertCSS(titleBarCss()).catch(() => {});
+    fullScreen();
+  });
+  w.on("enter-full-screen", fullScreen);
+  w.on("leave-full-screen", fullScreen);
+}
+
 async function createWindow(): Promise<void> {
   const b = settings.get().bounds;
   win = new BrowserWindow({
@@ -142,6 +160,7 @@ async function createWindow(): Promise<void> {
     backgroundColor: BACKGROUND,
     show: !(startHidden && tray),
     autoHideMenuBar: true,
+    ...titleBarOptions(),
     title: "Dendrop",
     icon: asset("icon.png"),
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
@@ -162,6 +181,7 @@ async function createWindow(): Promise<void> {
           minHeight: 400,
           backgroundColor: BACKGROUND,
           autoHideMenuBar: true,
+          ...titleBarOptions(),
           title: "Dendrop",
           icon: asset("icon.png"),
           webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
@@ -171,7 +191,9 @@ async function createWindow(): Promise<void> {
     openExternal(url);
     return { action: "deny" };
   });
+  themeTitleBar(win);
   win.webContents.on("did-create-window", (child) => {
+    themeTitleBar(child);
     // A pop-out follows the same rules as the main window: links go to the browser.
     child.webContents.setWindowOpenHandler(({ url }) => {
       openExternal(url);
@@ -678,6 +700,14 @@ function setShortcuts(wanted: Record<string, unknown>): Record<string, boolean> 
 }
 
 function registerIpc(): void {
+  // The theme's colors for a window's minimize, maximize and close buttons. Any page may set its
+  // own window's (the sign-in pages just keep the default); only plain hex colors are taken.
+  ipcMain.handle("dd:titleBarColors", (e, colors: unknown) => {
+    const clean = cleanTitleBarColors(colors);
+    const w = BrowserWindow.fromWebContents(e.sender);
+    if (!clean || !w || w.isDestroyed() || !titleBarOptions().titleBarStyle) return;
+    w.setTitleBarOverlay(clean);
+  });
   // The in-game overlay: the page sends what to show; the overlay page sends quick messages back.
   ipcMain.handle("dd:overlayState", (e, state: unknown) => {
     fromServer(e);

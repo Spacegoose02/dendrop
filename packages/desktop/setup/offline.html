@@ -5,8 +5,8 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:" />
     <title>Dendrop can't reach the server</title>
     <style>
-      :root { --dd-bg-sidebar: #1a1d22; --dd-bg-main: #20242a; --dd-bg-raised: #2a2f37; --dd-border: #343a44; --dd-text: #e9e6e1; --dd-text-muted: #a3a8b1; --dd-accent: #f2a541; --dd-accent-strong: #ffb85c; --dd-accent-text: #1a1206; color-scheme: dark; }
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--dd-bg-main); color: var(--dd-text); font: 16px/1.5 "Nunito", "Segoe UI", system-ui, sans-serif; }
+      :root { --dd-bg-rail: #121418; --dd-bg-sidebar: #1a1d22; --dd-bg-main: #20242a; --dd-bg-raised: #2a2f37; --dd-border: #343a44; --dd-text: #e9e6e1; --dd-text-muted: #a3a8b1; --dd-accent: #f2a541; --dd-accent-strong: #ffb85c; --dd-accent-text: #1a1206; color-scheme: dark; }
+      body { margin: 0; min-height: calc(100vh - var(--dendrop-titlebar-height, 0px)); display: grid; place-items: center; background: var(--dd-bg-main); color: var(--dd-text); font: 16px/1.5 "Nunito", "Segoe UI", system-ui, sans-serif; }
       main { width: min(420px, calc(100vw - 32px)); box-sizing: border-box; background: var(--dd-bg-sidebar); border: 1px solid var(--dd-border); border-radius: 16px; padding: 2rem; display: flex; flex-direction: column; gap: 0.75rem; text-align: center; }
       h1 { margin: 0; font-size: 1.4rem; }
       p { margin: 0; color: var(--dd-text-muted); }
