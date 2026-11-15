@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { DEFAULT_TITLE_BAR, FULL_SCREEN_CLASS, themedTitleBar, TITLE_BAR_ID, type TitleBarColors } from "./titlebar.js";
 
 /**
  * window.dendrop tells the web client it runs in the desktop app. Calls only work from the
@@ -51,3 +52,51 @@ contextBridge.exposeInMainWorld("dendropSetup", {
   retry: () => ipcRenderer.invoke("dd:retry"),
   changeServer: () => ipcRenderer.invoke("dd:changeServer"),
 });
+
+// The themed title bar (titlebar.ts): a bar to drag the window by, under the window buttons,
+// in the theme's colors. The main process only adds its styles to windows that hide the system bar.
+if (themedTitleBar(process.platform)) {
+  let sent = "";
+  /** The page's theme colors for the window buttons; the Den theme's on pages without them. */
+  const colors = (): TitleBarColors => {
+    const style = getComputedStyle(document.documentElement);
+    const read = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
+    return { color: read("--dd-bg-rail", DEFAULT_TITLE_BAR.color), symbolColor: read("--dd-text", DEFAULT_TITLE_BAR.symbolColor) };
+  };
+  const sync = () => {
+    let bar = document.getElementById(TITLE_BAR_ID);
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = TITLE_BAR_ID;
+      bar.setAttribute("aria-hidden", "true");
+    }
+    // A modal dialog (Settings) sits above everything else on the page, so the bar moves into it.
+    const host = document.querySelector("dialog:modal") ?? document.documentElement;
+    if (bar.parentElement !== host) host.append(bar);
+    const title = document.title || "Dendrop";
+    if (bar.textContent !== title) bar.textContent = title;
+    const c = JSON.stringify(colors());
+    if (c !== sent) {
+      sent = c;
+      void ipcRenderer.invoke("dd:titleBarColors", JSON.parse(c)).catch(() => {});
+    }
+  };
+  let queued = false;
+  const later = () => {
+    if (queued) return;
+    queued = true;
+    setTimeout(() => {
+      queued = false;
+      sync();
+    }, 0);
+  };
+  window.addEventListener("DOMContentLoaded", () => {
+    sync();
+    // A theme change sets new colors on <html>; the page's title changes with unread counts;
+    // dialogs open and close.
+    new MutationObserver(later).observe(document.documentElement, { attributes: true, attributeFilter: ["style", "class", "data-theme"] });
+    new MutationObserver(later).observe(document.head, { childList: true, subtree: true, characterData: true });
+    new MutationObserver(later).observe(document.body, { attributes: true, subtree: true, attributeFilter: ["open"] });
+  });
+  ipcRenderer.on("dd:fullScreen", (_e, on: boolean) => document.documentElement.classList.toggle(FULL_SCREEN_CLASS, on === true));
+}
