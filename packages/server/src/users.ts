@@ -1,5 +1,5 @@
 import { liveStatus, type CustomStatus, type Me, type PresenceMode, type PublicUser } from "@dendrop/shared";
-import { now, type Db } from "./db.js";
+import { now, tx, type Db } from "./db.js";
 
 export interface UserRecord {
   id: number;
@@ -8,6 +8,9 @@ export interface UserRecord {
   email: string | null;
   passwordHash: string | null;
   oidcSubject: string | null;
+  /** The email and username TinyAuth last gave for the linked login. */
+  oidcEmail: string | null;
+  oidcUsername: string | null;
   googleSubject: string | null;
   googleEmail: string | null;
   /** The parent who made this kid account under theirs. */
@@ -49,6 +52,8 @@ interface Row {
   email: string | null;
   password_hash: string | null;
   oidc_subject: string | null;
+  oidc_email: string | null;
+  oidc_username: string | null;
   google_subject: string | null;
   google_email: string | null;
   managed_by: number | null;
@@ -86,6 +91,8 @@ const fromRow = (r: Row): UserRecord => ({
   email: r.email,
   passwordHash: r.password_hash,
   oidcSubject: r.oidc_subject,
+  oidcEmail: r.oidc_email,
+  oidcUsername: r.oidc_username,
   googleSubject: r.google_subject,
   googleEmail: r.google_email,
   managedBy: r.managed_by,
@@ -207,11 +214,37 @@ export class UserRepo {
     return (this.db.prepare(`${SELECT} WHERE is_bot = 0 ORDER BY id`).all() as unknown as Row[]).map(fromRow);
   }
 
-  /** Links or unlinks (null) a sign-in. */
-  setSignIn(id: number, provider: "tinyauth" | "google", subject: string | null, email: string | null = null): UserRecord {
-    if (provider === "tinyauth") this.db.prepare("UPDATE users SET oidc_subject = ? WHERE id = ?").run(subject, id);
-    else this.db.prepare("UPDATE users SET google_subject = ?, google_email = ? WHERE id = ?").run(subject, subject ? email : null, id);
+  /**
+   * Links or unlinks (null) a sign-in. `email` is what the provider says; `username` is the
+   * TinyAuth username, kept so the login can be recognised.
+   */
+  setSignIn(id: number, provider: "tinyauth" | "google", subject: string | null, email: string | null = null, username: string | null = null): UserRecord {
+    if (provider === "tinyauth") {
+      this.db.prepare("UPDATE users SET oidc_subject = ?, oidc_email = ?, oidc_username = ? WHERE id = ?").run(subject, subject ? email : null, subject ? username : null, id);
+    } else this.db.prepare("UPDATE users SET google_subject = ?, google_email = ? WHERE id = ?").run(subject, subject ? email : null, id);
     return this.byId(id)!;
+  }
+
+  /** Remembers the email and username TinyAuth gave at a sign-in, when it gave them. */
+  sawTinyAuth(id: number, email: string | null, username: string | null): void {
+    this.db.prepare("UPDATE users SET oidc_email = COALESCE(?, oidc_email), oidc_username = COALESCE(?, oidc_username) WHERE id = ?").run(email, username, id);
+  }
+
+  /**
+   * Moves a linked sign-in from one account to another in one step: the old account loses it and
+   * any login the new account had for that provider is replaced.
+   */
+  moveSignIn(fromId: number, toId: number, provider: "tinyauth" | "google"): UserRecord {
+    const from = this.byId(fromId);
+    if (!from) throw new Error("No such account");
+    const subject = provider === "tinyauth" ? from.oidcSubject : from.googleSubject;
+    if (!subject) throw new Error("Nothing to move");
+    const email = provider === "tinyauth" ? from.oidcEmail : from.googleEmail;
+    tx(this.db, () => {
+      this.setSignIn(fromId, provider, null);
+      this.setSignIn(toId, provider, subject, email, provider === "tinyauth" ? from.oidcUsername : null);
+    });
+    return this.byId(toId)!;
   }
 
   setManagedBy(id: number, parentId: number | null): UserRecord {

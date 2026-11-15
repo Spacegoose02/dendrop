@@ -55,6 +55,19 @@ in. Changing a password signs out their other devices.
 A Google or TinyAuth account can only be linked to one Dendrop account. Google sign-ins are
 never matched to accounts by email: they have to be linked first, from inside the account.
 
+**"That TinyAuth account is already linked to another Dendrop account":** this usually means
+someone signed in with TinyAuth before linking it, and "New accounts from TinyAuth" made a
+second, separate account for them. Linking it from the account they really use now asks
+**Move TinyAuth to this account?**, showing which account has it, when it was made and how
+many messages it has sent. Since they just signed in to TinyAuth as that login, they can move
+it: afterwards TinyAuth signs them in to the account they linked it from, and the other
+account stays (nothing in it is deleted) with whatever other ways in it had. The same works
+for Google. A super admin can also do it for them (below).
+
+TinyAuth and Google always show in Settings → Sign-in once they're set up. If the admin has
+switched one off, it says so instead of the Link button; super admins also see it when it
+isn't set up yet, with the settings it still needs.
+
 Kid accounts under a parent can't change their own sign-in; their parents set the password.
 
 ## Two-step sign-in
@@ -106,8 +119,13 @@ The switches start from `DENDROP_LOCAL_LOGIN`, `DENDROP_SIGNUP` and `DENDROP_OID
 once you change one in the app, the app's setting wins. Dendrop won't let you switch off the
 only way *you* can sign in.
 
-Below the switches is every account with how it signs in. You can unlink someone's Google or
-TinyAuth (a lost or shared account), set a new password for someone who's locked out, and
+Below the switches is every account with how it signs in, including which TinyAuth login
+(its username and email, as TinyAuth last gave them) is linked. You can unlink someone's
+Google or TinyAuth (a lost or shared account), and **Link TinyAuth…** (or **Change
+TinyAuth…**) attaches a TinyAuth login to any account: pick a login another account has, to
+move it over, or type the subject (the `sub` TinyAuth sends) for a login that hasn't signed in
+to Dendrop yet. Moving one asks first, and the account it came from loses it. You can also
+set a new password for someone who's locked out, and
 **Reset two-step** for someone who lost their phone (it turns off their authenticator app and
 removes their passkeys). Each signs them out everywhere, and shows in the instance's
 [audit log](AUDIT-LOG.md).

@@ -136,10 +136,13 @@ export function authRoutes(app: FastifyInstance, ctx: Context): void {
     app.get(`/api/auth/${path}/callback`, async (req, reply) => {
       if (!service.enabled) throw new HttpError(404, `Sign-in with ${service.name} isn't set up`);
       try {
-        const { user, returnTo, linked } = await service.finish(new URL(req.url, config.publicUrl));
-        if (!linked) signIn(req, reply, user);
+        const { user, returnTo, linked, moveOffer } = await service.finish(new URL(req.url, config.publicUrl));
         const to = safeReturn(returnTo);
-        return reply.redirect(linked ? `${to}${to.includes("?") ? "&" : "?"}linked=${service.provider}` : to);
+        const join = to.includes("?") ? "&" : "?";
+        // The login is on another account: back to the app, which offers to move it here.
+        if (moveOffer) return reply.redirect(`${to}${join}signin_move=${service.provider}.${moveOffer}`);
+        if (!linked) signIn(req, reply, user);
+        return reply.redirect(linked ? `${to}${join}linked=${service.provider}` : to);
       } catch (err) {
         req.log.warn({ err }, `${service.name} sign-in failed`);
         const message = encodeURIComponent(err instanceof Error ? err.message : "Sign-in failed");
