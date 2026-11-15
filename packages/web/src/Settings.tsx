@@ -27,6 +27,7 @@ import { HTTPS_GUIDE, isSecure } from "./secure.ts";
 import type { EncryptionMode } from "./EncryptionDialog.tsx";
 import { disableWebPush, enableWebPush, webPushState, type WebPushState } from "./webpush.ts";
 import "./settings.css";
+import { UsernameSetting } from "./Username.tsx";
 
 /** The gear button and the full-page settings screen it opens: a menu of pages on the left (your account, then the app), one page on the right. */
 type KeyState = "loading" | "off" | "locked" | "on";
@@ -399,7 +400,7 @@ export function ColorPicker({ label, value, onChange }: { label: string; value: 
   );
 }
 
-/** Display name, read receipts and sharing what you play. These are saved to your account, so they follow you to every device. */
+/** Username, display name, read receipts and sharing what you play. These are saved to your account, so they follow you to every device. */
 function AccountSection({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
   const [displayName, setDisplayName] = useState(me.displayName);
   const [readReceipts, setReadReceipts] = useState(me.readReceipts);
@@ -431,6 +432,7 @@ function AccountSection({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) 
   return (
     <section className="account-settings">
       <h3>Account</h3>
+      <UsernameSetting me={me} onSaved={onSaved} />
       <label>
         Display name
         <input

@@ -226,6 +226,11 @@ const RULES: Record<string, Rule> = {
   },
 
   // ---- The instance (super admins)
+  // Someone changing their own username, so admins can still tell who "@oldname" was.
+  "PUT /api/me/username": (_p, b, _r, _db, me) => {
+    const to = str(b.username);
+    return to && to !== me.username ? { serverId: null, action: "account.rename", details: `@${me.username} → @${to}` } : null;
+  },
   "PUT /api/admin/signin": (_p, b) => ({
     serverId: null,
     action: "signin.update",

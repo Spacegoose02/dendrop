@@ -1,5 +1,5 @@
 import * as client from "openid-client";
-import { isUsername } from "@dendrop/shared";
+import { isReservedUsername, isUsername } from "@dendrop/shared";
 import type { SignInProvider } from "@dendrop/shared";
 import type { ServerConfig } from "../config.js";
 import type { SignInService } from "../signin.js";
@@ -136,6 +136,7 @@ export class OidcService {
       displayName: String(claims.name ?? email?.split("@")[0] ?? "Raccoon").slice(0, 64),
       email,
       isSuperAdmin: this.users.count() === 0,
+      usernamePicked: false,
     });
     return this.users.setSignIn(user.id, "google", sub, email);
   }
@@ -167,6 +168,7 @@ export class OidcService {
         email,
         oidcSubject: sub,
         isSuperAdmin: isAdmin || this.users.count() === 0,
+        usernamePicked: false,
       });
     } else if (isAdmin && !user.isSuperAdmin) {
       user = this.users.update(user.id, { isSuperAdmin: true });
@@ -183,7 +185,7 @@ export function safeReturn(returnTo: string): string {
 /** A username like the one wanted, made valid and not taken. */
 function freeUsername(users: UserRepo, wanted: string, sub: string): string {
   let username = wanted.replace(/[^\w.-]/g, "_").slice(0, 32);
-  if (!isUsername(username)) username = `user_${sub.replace(/[^\w]/g, "").slice(0, 16) || "x"}`;
+  if (!isUsername(username) || isReservedUsername(username)) username = `user_${sub.replace(/[^\w]/g, "").slice(0, 16) || "x"}`;
   for (let i = 2; users.byUsername(username); i++) username = `${username.slice(0, 28)}_${i}`;
   return username;
 }

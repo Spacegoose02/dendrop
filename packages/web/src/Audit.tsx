@@ -115,7 +115,7 @@ export function InstanceAuditSection() {
   return (
     <>
       <div className="section-label">Audit log</div>
-      <p className="muted small">What super admins changed: sign-in switches, passwords, servers, backups. Each server keeps its own log for its moderators.</p>
+      <p className="muted small">What super admins changed: sign-in switches, passwords, servers, backups. Username changes show here too. Each server keeps its own log for its moderators.</p>
       <label className="audit-filter">
         Show{" "}
         <select value={filter} onChange={(e) => setFilter(e.target.value)}>

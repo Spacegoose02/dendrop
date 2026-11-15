@@ -935,6 +935,14 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX message_edits_message ON message_edits(message_id, id);
   `,
+  `
+  -- 0 while someone still has the username Dendrop picked for them on a first TinyAuth or
+  -- Google sign-in: the app asks them once to choose their own (or keep it). Accounts that only
+  -- ever signed in that way are asked too, since their name came from the provider.
+  ALTER TABLE users ADD COLUMN username_picked INTEGER NOT NULL DEFAULT 1;
+  UPDATE users SET username_picked = 0
+    WHERE is_bot = 0 AND password_hash IS NULL AND (oidc_subject IS NOT NULL OR google_subject IS NOT NULL);
+  `,
 ];
 
 export function now(): string {

@@ -574,3 +574,40 @@
   padding-left: 24px;
   font-family: var(--dd-font-mono, ui-monospace, monospace);
 }
+
+/* Username: Settings → Account, and the first-sign-in prompt */
+.username-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.username-input > span[aria-hidden] {
+  color: var(--dd-text-muted);
+  font-size: 15px;
+}
+.username-input input {
+  margin-top: 0;
+  flex: 1;
+  min-width: 0;
+}
+.username-setting > label {
+  margin-bottom: 4px;
+}
+.username-setting > p {
+  margin: 0 0 16px;
+  max-width: 420px;
+}
+.username-free {
+  color: var(--dd-online);
+}
+.pick-username p {
+  margin: 0 0 12px;
+}
+.pick-username .modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
