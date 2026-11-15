@@ -27,4 +27,5 @@ The **Mod log** tab is still there for what automod caught and who is timed out 
 
 **Instance admin → Audit log**, for super admins: sign-in switches, passwords set for someone,
 unlinked sign-ins, two-step sign-in reset for someone, who may make servers, deleted servers,
-linking parents and kids, GIF, LootDen and Den Duty settings, and backups.
+linking parents and kids, GIF, LootDen and Den Duty settings, and backups. It also lists
+anyone changing their own username (old and new), so you can still tell who "@oldname" was.

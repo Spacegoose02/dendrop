@@ -102,6 +102,11 @@ export interface Me extends PublicUser {
   presence?: PresenceMode;
   /** When Do Not Disturb ends by itself, or null for until you turn it off. */
   dndUntil?: string | null;
+  /**
+   * Their username came from a first TinyAuth or Google sign-in, and they haven't chosen their
+   * own yet (or said to keep it): the app asks once. Missing (older servers) means nothing to ask.
+   */
+  pickUsername?: boolean;
 }
 
 export type PresenceMode = "online" | "dnd" | "invisible";
@@ -1941,6 +1946,26 @@ export const isHexColor = (s: unknown): s is string => typeof s === "string" && 
 export const isUsername = (s: unknown): s is string =>
   typeof s === "string" && s.length >= 2 && s.length <= LIMITS.usernameLength && /^[\w.-]+$/.test(s);
 
+/** Names nobody can have: "@everyone" already means everyone in the chat. */
+export const RESERVED_USERNAMES = ["everyone", "here"];
+export const isReservedUsername = (s: string): boolean => RESERVED_USERNAMES.includes(s.toLowerCase());
+
+/** What's wrong with a username someone typed, in words, or null if it's fine (taken or not). */
+export function usernameProblem(s: string): string | null {
+  if (s.length < 2) return "Usernames need at least 2 characters";
+  if (s.length > LIMITS.usernameLength) return `Usernames can be at most ${LIMITS.usernameLength} characters`;
+  if (!/^[\w.-]+$/.test(s)) return "Only letters, numbers, dots, dashes and underscores (no spaces)";
+  if (isReservedUsername(s)) return `"${s}" is saved for @mentions; pick another`;
+  return null;
+}
+
+/** GET /api/usernames/available?name=…: whether a username can be yours. */
+export interface UsernameCheck {
+  available: boolean;
+  /** Why not, when it isn't. */
+  reason?: string;
+}
+
 // ---- Two-step sign-in, passkeys, the audit log and backups ------------------------------
 
 /** POST /api/auth/login answers with this instead of the account when a second step is needed. */
@@ -2049,6 +2074,7 @@ export const AUDIT_ACTIONS: Record<string, string> = {
   "event.update": "changed an event",
   "event.delete": "cancelled an event",
   "signin.update": "changed the sign-in switches",
+  "account.rename": "changed their username",
   "account.password": "set a new password for",
   "account.unlink": "unlinked a sign-in from",
   "account.reset2fa": "turned off two-step sign-in for",

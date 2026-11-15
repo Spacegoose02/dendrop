@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { isHexColor, isUsername, LIMITS, type AuthInfo, type ServerInfo, type TwoFactorChallenge } from "@dendrop/shared";
+import { isHexColor, isReservedUsername, isUsername, LIMITS, usernameProblem, type AuthInfo, type UsernameCheck, type ServerInfo, type TwoFactorChallenge } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
 import { hashPassword, verifyPassword } from "../auth/crypto.js";
 import { FailureLimiter } from "../auth/limiter.js";
@@ -31,6 +31,7 @@ export function checkNew(ctx: Context, body: Credentials): { username: string; p
   const { username, password } = body;
   if (!isUsername(username)) throw new HttpError(400, "Usernames are 2 to 32 letters, numbers, dots, dashes or underscores");
   if (typeof password !== "string" || password.length < MIN_PASSWORD) throw new HttpError(400, `Passwords need at least ${MIN_PASSWORD} characters`);
+  if (isReservedUsername(username)) throw new HttpError(400, usernameProblem(username)!);
   if (ctx.users.byUsername(username)) throw new HttpError(409, "That username is taken");
   const displayName = typeof body.displayName === "string" && body.displayName.trim() ? body.displayName.trim().slice(0, LIMITS.displayNameLength) : username;
   return { username, password, displayName };
@@ -171,6 +172,47 @@ export function authRoutes(app: FastifyInstance, ctx: Context): void {
     // Names and colors show everywhere, so tell everyone who can see them.
     if (name !== undefined || nameColor !== undefined || textColor !== undefined) ctx.profiles.announce(user.id);
     return updated;
+  });
+
+  /** Whether a username is free for you: as you type in Settings, or on the first-sign-in prompt. */
+  app.get<{ Querystring: { name?: string } }>("/api/usernames/available", async (req): Promise<UsernameCheck> => {
+    const me = requireUser(req);
+    const name = String(req.query.name ?? "").trim();
+    const problem = usernameProblem(name);
+    if (problem) return { available: false, reason: problem };
+    const owner = users.byUsername(name);
+    if (owner && owner.id !== me.id) return { available: false, reason: "That username is taken" };
+    return { available: true };
+  });
+
+  /**
+   * Changes your username. Friends, DMs, servers and mentions all point at your account by id,
+   * so they carry on; people just see the new @name. Sending the name you have already (or the
+   * same name in other capitals) keeps it, which also answers the first-sign-in prompt.
+   * Kid accounts under a parent can't: the username is how they sign in, which their parent
+   * looks after.
+   */
+  app.put<{ Body: { username?: unknown } }>("/api/me/username", async (req) => {
+    const me = requireUser(req);
+    if (me.isKid && me.managedBy !== null) throw new HttpError(403, "Your parent looks after how this account signs in");
+    const raw = req.body?.username;
+    const name = typeof raw === "string" ? raw.trim() : "";
+    const problem = usernameProblem(name);
+    if (problem) throw new HttpError(400, problem);
+    let updated: UserRecord;
+    try {
+      updated = users.setUsername(me.id, name);
+    } catch (err) {
+      if ((err as Error).message === "taken") throw new HttpError(409, "That username is taken");
+      throw err;
+    }
+    if (updated.username !== me.username) {
+      req.log.info({ userId: me.id, from: me.username, to: updated.username }, "username changed");
+      ctx.profiles.announce(me.id);
+    }
+    // Their other devices: the new name, and no more asking them to pick one.
+    ctx.gateway.send([me.id], { type: "me.updated", user: toMe(updated) });
+    return toMe(updated);
   });
 
   app.get("/api/server", async (req): Promise<ServerInfo> => {

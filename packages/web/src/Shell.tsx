@@ -49,6 +49,7 @@ import { LevelUpCard } from "./Levels.tsx";
 import { needsWelcome, WelcomeScreen } from "./Welcome.tsx";
 import { NewGroup } from "./NewGroup.tsx";
 import { SettingsButton } from "./Settings.tsx";
+import { PickUsernameDialog } from "./Username.tsx";
 import { EncryptionDialog, type EncryptionMode } from "./EncryptionDialog.tsx";
 import { useVoiceKeybinds } from "./keybinds.ts";
 import { keyring, loadIdentity, reveal, type Identity } from "./e2ee.ts";
@@ -1293,7 +1294,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         />
       )}
       {me.couplesKit && !me.isKid && <LoveNotePopup me={me} conversations={conversations} />}
-      {encryptionDialog && (
+      {/* A first TinyAuth or Google sign-in picks a username before setting up encryption. */}
+      {encryptionDialog && !me.pickUsername && (
         <EncryptionDialog me={me} mode={encryptionDialog} setMode={setEncryptionDialog} onDone={onUnlocked} onClose={() => setEncryptionDialog(null)} />
       )}
       {/* A pop-out window leaves ringing to the main window. */}
@@ -1431,6 +1433,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           }}
         />
       )}
+      {me.pickUsername && !popout && <PickUsernameDialog me={me} onDone={(u) => setMe((m) => ({ ...m, ...u, publicKey: m.publicKey ?? u.publicKey }))} />}
       {levelUp && !ringing && (() => {
         const sv = servers.find((x) => x.id === levelUp.serverId);
         return sv ? <LevelUpCard server={sv} level={levelUp.level} rank={levelUp.rank} rankUp={levelUp.rankUp} onClose={() => setLevelUp(null)} /> : null;

@@ -37,6 +37,8 @@ export interface UserRecord {
   isBot: boolean;
   /** A super admin switched the couples kit on for them (see couplesAllowed). */
   couplesKit: boolean;
+  /** False while they still have the username a TinyAuth or Google sign-in picked for them. */
+  usernamePicked: boolean;
   createdAt: string;
 }
 
@@ -73,6 +75,7 @@ interface Row {
   is_kid: number;
   is_bot: number;
   couples_kit: number;
+  username_picked: number;
   created_at: string;
 }
 
@@ -107,6 +110,7 @@ const fromRow = (r: Row): UserRecord => ({
   isKid: !!r.is_kid,
   isBot: !!r.is_bot,
   couplesKit: !!r.couples_kit,
+  usernamePicked: r.username_picked !== 0,
   createdAt: r.created_at,
 });
 
@@ -143,6 +147,7 @@ export const toMe = (u: UserRecord): Me => ({
   couplesKit: couplesAllowed(u),
   presence: presenceNow(u),
   dndUntil: presenceNow(u) === "dnd" ? u.dndUntil : null,
+  pickUsername: !u.usernamePicked,
 });
 
 /** Someone's presence right now: Do Not Disturb that ran out counts as online. */
@@ -161,6 +166,8 @@ export interface NewUser {
   isSuperAdmin?: boolean;
   isBot?: boolean;
   managedBy?: number | null;
+  /** False for a name a sign-in provider gave them, so the app asks them to choose their own. */
+  usernamePicked?: boolean;
 }
 
 export class UserRepo {
@@ -215,10 +222,27 @@ export class UserRepo {
   create(u: NewUser): UserRecord {
     const res = this.db
       .prepare(
-        "INSERT INTO users (username, display_name, email, password_hash, oidc_subject, is_super_admin, is_bot, managed_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO users (username, display_name, email, password_hash, oidc_subject, is_super_admin, is_bot, managed_by, username_picked, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(u.username, u.displayName, u.email ?? null, u.passwordHash ?? null, u.oidcSubject ?? null, u.isSuperAdmin ? 1 : 0, u.isBot ? 1 : 0, u.managedBy ?? null, now());
+      .run(u.username, u.displayName, u.email ?? null, u.passwordHash ?? null, u.oidcSubject ?? null, u.isSuperAdmin ? 1 : 0, u.isBot ? 1 : 0, u.managedBy ?? null, u.usernamePicked === false ? 0 : 1, now());
     return this.byId(Number(res.lastInsertRowid))!;
+  }
+
+  /**
+   * Changes someone's username (or keeps it, when it's the same) and stops asking them to pick
+   * one. Everything else points at the account by id, so friends, chats and mentions follow.
+   * Throws "taken" if someone else has it (any capitalization).
+   */
+  setUsername(id: number, username: string): UserRecord {
+    const other = this.byUsername(username);
+    if (other && other.id !== id) throw new Error("taken");
+    try {
+      this.db.prepare("UPDATE users SET username = ?, username_picked = 1 WHERE id = ?").run(username, id);
+    } catch (err) {
+      if (/UNIQUE/i.test(String((err as Error).message))) throw new Error("taken");
+      throw err;
+    }
+    return this.byId(id)!;
   }
 
   setCouplesKit(id: number, on: boolean): UserRecord {

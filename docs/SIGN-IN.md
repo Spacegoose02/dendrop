@@ -24,6 +24,28 @@ password, or a parent ending a kid's sign-ins (Family) still signs those devices
 - **Kids:** see [KIDS.md](KIDS.md). A parent can make a kid account under theirs, or a kid
   with their own account links to a parent with a code.
 
+## Changing your username
+
+Anyone can change their username in **Settings → Account → Username**. It checks as you type
+whether the name is free: 2 to 32 letters, numbers, dots, dashes or underscores, any
+capitals, and not one someone else has (in any capitals). `everyone` and `here` are saved for
+@mentions.
+
+Friends, DMs, groups, servers, roles and @mentions all point at the account, not the name, so
+nothing breaks: people just see the new @name everywhere, straight away. What changes is what
+you type to sign in with a password, and what people type to add you as a friend. The old name
+is free for someone else to take, and the change shows in the instance
+[audit log](AUDIT-LOG.md) so admins can still tell who it was.
+
+**First sign-in through TinyAuth or Google:** the new account gets a username from the
+provider (its username, or the start of the email), which may not be what someone wants. So
+the first time they open Dendrop it asks them to pick their own, or keep that one. Accounts
+made that way before this existed (no password, signed in only through TinyAuth or Google)
+are asked once too.
+
+Kid accounts under a parent can't change their username, since it's how they sign in, which
+their parents look after.
+
 ## Linking sign-ins
 
 In **Settings → Sign-in**, people can link Google and TinyAuth to the account they have, set or
