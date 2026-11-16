@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { UnreadBadge } from "./Unread.tsx";
 import {
   isVoiceKind,
@@ -184,9 +184,16 @@ export function ServerSidebar({
     }
     await api(`/api/servers/${server.id}/categories/${cat.id}`, { method: "PATCH", body: { name } }).catch((err: Error) => alert(err.message));
   };
+  const [channelMenu, setChannelMenu] = useState<{ channel: Channel; x: number; y: number } | null>(null);
   const channelRow = (c: Channel) => (
                 <div key={c.id}>
-                  <div className="channel-row">
+                  <div
+                    className="channel-row"
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setChannelMenu({ channel: c, x: e.clientX, y: e.clientY });
+                    }}
+                  >
                     <button
                       className={`nav-item channel ${activeChannel === c.id ? "active" : ""} ${unread.has(c.conversationId) ? "unread" : ""} ${inVoice === c.id ? "in-voice" : ""}`}
                       onClick={() => onOpen(c)}
@@ -383,7 +390,41 @@ export function ServerSidebar({
           );
         })}
       </div>
+      {channelMenu && <ChannelMenu {...channelMenu} onClose={() => setChannelMenu(null)} />}
     </>
+  );
+}
+
+/** The right-click menu on a channel: for now, copying its ID (bots post to a channel by ID). */
+function ChannelMenu({ channel, x, y, onClose }: { channel: Channel; x: number; y: number; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState<boolean | null>(null);
+  useEffect(() => {
+    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && onClose();
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [onClose]);
+  const copy = async () => {
+    const ok = await navigator.clipboard
+      ?.writeText(String(channel.id))
+      .then(() => true)
+      .catch(() => false);
+    setCopied(ok === true);
+    if (ok) setTimeout(onClose, 900);
+  };
+  return (
+    <div ref={ref} className="rail-menu" role="menu" style={{ left: Math.min(x, window.innerWidth - 230), top: Math.min(y, window.innerHeight - 120) }}>
+      <strong className="small ellipsis">{channelTitle(channel)}</strong>
+      <button role="menuitem" onClick={() => void copy()}>
+        {copied ? "Copied ✓" : "Copy channel ID"}
+      </button>
+      {copied === false && <span className="small muted channel-menu-id">ID: {channel.id}</span>}
+    </div>
   );
 }
 

@@ -42,13 +42,16 @@ A session cookie never counts here, and a bot token counts nowhere else.
 | Call | What it does |
 | --- | --- |
 | `GET /me` | The bot. |
-| `GET /servers` | Servers it's in, with the channels it can see. |
+| `GET /servers` | Servers it's in, with the channels it can see (each with its `id`). |
 | `GET /channels/:channelId/messages?before=&limit=` | History (needs *reads messages*). Each message has `author` `{ id, username, displayName }`. |
 | `POST /channels/:channelId/messages` | `{ content, buttons? }`: posts in a text channel. |
 | `PATCH /messages/:id` | `{ content?, buttons? }`: edits its own message. `buttons: null` or `[]` removes them. |
 | `DELETE /messages/:id` | Deletes its own message. |
 | `POST /interactions/:id/reply` | `{ content }`: answers a click; only the clicker sees it. Once per click, within 15 minutes. |
 | `GET /gateway` | WebSocket of events (send `{"type":"ping"}` to keep it alive). |
+
+To get a channel's ID, right-click the channel in the server's channel list and pick
+**Copy channel ID**, or call `GET /servers` as the bot.
 
 ### Buttons
 

@@ -1514,6 +1514,10 @@ select {
 .rail-menu button[role="menuitem"]:hover {
   background: var(--dd-bg-hover);
 }
+.rail-menu .channel-menu-id {
+  padding: 4px 8px;
+  user-select: all;
+}
 .rail-menu input {
   width: 100%;
 }
