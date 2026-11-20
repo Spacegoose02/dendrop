@@ -47,6 +47,7 @@ import { dmRoutes } from "./routes/dms.js";
 import { guardSpam, SpamGuard } from "./spam.js";
 import { expressionRoutes } from "./routes/expressions.js";
 import { funRoutes } from "./routes/fun.js";
+import { scheduledRoutes } from "./routes/scheduled.js";
 import { familyRoutes, guardKids } from "./routes/family.js";
 import { dendutyRoutes } from "./routes/denduty.js";
 import { eventRoutes } from "./routes/events.js";
@@ -125,6 +126,10 @@ export interface Context {
   onMessageCreated: ((message: Message) => void)[];
   /** Set by the fun routes: sends out reminders due by `at` (runs by itself every few seconds). */
   fireReminders?: (at?: Date) => void;
+  /** Set by the scheduled routes: sends scheduled messages due by `at` (runs by itself every few seconds). */
+  fireScheduled?: (at?: Date) => void;
+  /** Set by the channel guard: why someone can't post in a channel or thread right now (read-only, slowmode, locked), or null. */
+  postBlocked?: (conversationId: number, userId: number) => string | null;
   /** How long calls ring before they count as missed; shorter in tests. */
   callRingMs?: number;
 }
@@ -236,6 +241,7 @@ export async function buildApp(
   await app.register(async (api) => dmRoutes(api, ctx));
   await app.register(async (api) => expressionRoutes(api, ctx));
   await app.register(async (api) => funRoutes(api, ctx));
+  await app.register(async (api) => scheduledRoutes(api, ctx));
   await app.register(async (api) => pushRoutes(api, ctx));
   await app.register(async (api) => serverRoutes(api, ctx));
   await app.register(async (api) => threadRoutes(api, ctx));

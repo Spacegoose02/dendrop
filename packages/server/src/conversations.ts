@@ -85,7 +85,7 @@ const toAttachment = (a: AttachmentRow): Attachment => ({
 
 const B64 = /^[A-Za-z0-9_-]+$/;
 /** An encrypted message body: base64url IV and ciphertext. */
-const isCiphertext = (s: unknown): s is string =>
+export const isCiphertext = (s: unknown): s is string =>
   typeof s === "string" && s.length <= LIMITS.encryptedBodyLength && /^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{22,}$/.test(s);
 /** A wrapped conversation key: base64url ephemeral public key, IV and ciphertext. */
 export const isWrappedKey = (s: unknown): s is string =>

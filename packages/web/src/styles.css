@@ -2642,3 +2642,40 @@ h5.md-h {
 .mark-all-read:hover {
   color: var(--dd-accent);
 }
+
+/* Send later */
+.schedule-menu {
+  left: auto;
+  right: 0;
+}
+.schedule-menu .fun-sep {
+  border-top: 0;
+}
+.schedule-menu form {
+  padding: 4px 8px;
+}
+.scheduled-bar {
+  margin: 0 0 6px;
+}
+.scheduled-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.scheduled-item {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius);
+}
+.scheduled-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.scheduled-edit {
+  display: grid;
+  gap: 6px;
+}

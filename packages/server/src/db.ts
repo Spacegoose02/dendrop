@@ -953,6 +953,25 @@ export const MIGRATIONS: string[] = [
   -- Keyword alerts: a JSON list of words or phrases that ping this person like an @mention.
   ALTER TABLE users ADD COLUMN keyword_alerts TEXT;
   `,
+  `
+  -- "Send later": messages waiting for their time. Encrypted ones keep their ciphertext and key
+  -- version, like messages. error is set when one couldn't go out; it then waits for its author.
+  CREATE TABLE scheduled_messages (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    key_version INTEGER,
+    mentions TEXT,
+    mentions_everyone INTEGER NOT NULL DEFAULT 0,
+    reply_to_id INTEGER,
+    send_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    error TEXT
+  );
+  CREATE INDEX scheduled_messages_user ON scheduled_messages(user_id, send_at);
+  CREATE INDEX scheduled_messages_due ON scheduled_messages(error, send_at);
+  `,
 ];
 
 export function now(): string {

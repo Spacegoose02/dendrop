@@ -972,6 +972,8 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
 export function guardChannelConversations(app: FastifyInstance, ctx: Context): void {
   const servers = new ServerRepo(ctx.db, ctx.users);
   const threads = new ThreadRepo(ctx.db, servers, new ConversationRepo(ctx.db, ctx.users, new FriendRepo(ctx.db, ctx.users)));
+  // The same rules, for messages that go out later (send later).
+  ctx.postBlocked = (cid, userId) => threads.postBlocked(cid, userId) ?? servers.postRule(cid, userId);
   app.addHook("preHandler", async (req) => {
     if (req.method !== "POST") return;
     const m = /^\/api\/conversations\/(\d+)\/(call|keys|messages|polls|games|nudges)(\/|\?|$)/.exec(req.url);

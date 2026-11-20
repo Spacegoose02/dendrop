@@ -306,6 +306,10 @@ export function guardKids(app: FastifyInstance, ctx: Context): void {
     // Polls, quick games and nudges.
     ["POST", /^\/api\/conversations\/\d+\/(polls|games|nudges)$/],
     ["POST", /^\/api\/messages\/\d+\/(votes|close-poll|game)$/],
+    // Send later: scheduling, editing and sending one now (it's checked again when it goes out).
+    ["POST", /^\/api\/conversations\/\d+\/scheduled$/],
+    ["PATCH", /^\/api\/scheduled\/\d+$/],
+    ["POST", /^\/api\/scheduled\/\d+\/send$/],
   ];
   const servers: [string, RegExp][] = [
     ["POST", /^\/api\/servers$/],
@@ -323,7 +327,8 @@ export function guardKids(app: FastifyInstance, ctx: Context): void {
       throw new HttpError(403, "Ask a parent: your account can't join chat servers yet");
     }
     const sending =
-      (req.method === "POST" && /^\/api\/conversations\/(\d+)\/messages$/.exec(url)) ||
+      (req.method === "POST" && /^\/api\/conversations\/(\d+)\/(?:messages|scheduled)$/.exec(url)) ||
+      (req.method === "PATCH" && /^\/api\/scheduled\/\d+$/.test(url)) ||
       (req.method === "PATCH" && /^\/api\/messages\/\d+$/.test(url)) ||
       // Thread titles and forum posts show to everyone too.
       (req.method === "POST" && /^\/api\/messages\/\d+\/thread$/.test(url)) ||
