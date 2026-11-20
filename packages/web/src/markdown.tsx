@@ -1,13 +1,16 @@
 import { useState, type ReactNode } from "react";
 import { RichText } from "./expressions.tsx";
+import { type Align, fitRow, highlight, linkNeedsHost, MAX_TABLE_COLS, MAX_TABLE_ROWS, safeHttpUrl, splitTableRow, tableStartsAt } from "./markdown-syntax.ts";
 
 /**
  * Message formatting, Discord style: **bold**, *italic* or _italic_, __underline__,
- * ~~strike~~, `code`, ```code blocks```, ||spoilers||, > quotes, # headings, - lists, links,
- * <@id> mentions and @everyone. A backslash shows the next character as it is (\*not bold\*).
+ * ~~strike~~, `code`, ```code blocks``` (colored when a language is given), ||spoilers||,
+ * > quotes, # headings, - lists, | tables |, links and [labelled links](https://…), <@id>
+ * mentions and @everyone. A backslash shows the next character as it is (\*not bold\*).
  *
  * Everything is built as React elements (never HTML strings), so nothing in a message can add
- * markup or scripts. Links are only ever http or https, and open in a new tab.
+ * markup or scripts. Links are only ever http or https, open in a new tab and show their real
+ * site on hover; a labelled link whose text names another site shows the real one next to it.
  */
 export interface MarkdownProps {
   text: string;
@@ -34,6 +37,8 @@ interface Ctx {
   nameOf?: (userId: number) => string | undefined;
   meId?: number;
   key: number;
+  /** Inside a link's label: no links in links. */
+  noLinks?: boolean;
 }
 
 // ---- Blocks: code blocks, quotes, headings, lists and paragraphs ------------------------------
@@ -74,6 +79,20 @@ function parseBlocks(text: string, ctx: Ctx): ReactNode[] {
         continue;
       }
       // No closing fence: just text.
+    }
+    const aligns = tableStartsAt(lines, i);
+    if (aligns) {
+      flush();
+      const width = Math.min(aligns.length, MAX_TABLE_COLS);
+      const head = fitRow(splitTableRow(line), width);
+      const rows: string[][] = [];
+      let k = i + 2;
+      for (; k < lines.length && lines[k]!.includes("|") && lines[k]!.trim(); k++) {
+        if (rows.length < MAX_TABLE_ROWS) rows.push(fitRow(splitTableRow(lines[k]!), width));
+      }
+      i = k - 1;
+      out.push(<Table key={ctx.key++} head={head} rows={rows} aligns={aligns.slice(0, width)} ctx={ctx} />);
+      continue;
     }
     const quote = /^>\s?(.*)$/.exec(line);
     if (quote) {
@@ -150,8 +169,49 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
         </button>
       </div>
       <pre>
-        <code>{code}</code>
+        <code>
+          {highlight(code, lang).map((t, i) =>
+            t.kind ? (
+              <span key={i} className={`tok-${t.kind}`}>
+                {t.text}
+              </span>
+            ) : (
+              t.text
+            ),
+          )}
+        </code>
       </pre>
+    </div>
+  );
+}
+
+function Table({ head, rows, aligns, ctx }: { head: string[]; rows: string[][]; aligns: Align[]; ctx: Ctx }) {
+  return (
+    <div className="md-table-wrap">
+      <table className="md-table">
+        <thead>
+          <tr>
+            {head.map((c, i) => (
+              <th key={i} style={aligns[i] ? { textAlign: aligns[i] } : undefined}>
+                {parseInline(c, ctx)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        {rows.length > 0 && (
+          <tbody>
+            {rows.map((r, j) => (
+              <tr key={j}>
+                {r.map((c, i) => (
+                  <td key={i} style={aligns[i] ? { textAlign: aligns[i] } : undefined}>
+                    {parseInline(c, ctx)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        )}
+      </table>
     </div>
   );
 }
@@ -164,10 +224,12 @@ interface Rule {
 }
 
 const URL_RE = /https?:\/\/[^\s<>"'`]+[^\s<>"'`.,;:!?)\]}]/;
+/** [label](https://…): the label can't hold [ ] or new lines; the address may hold (balanced) parentheses. */
+const LABELLED_LINK_RE = /\[((?:[^[\]\n\\]|\\.){1,300})\]\((https?:\/\/[^\s()<>]+(?:\([^\s()<>]*\)[^\s()<>]*)*)\)/;
 
 const RULES: Rule[] = [
   // A backslash escapes the next character.
-  { re: /\\([*_~`|\\>#@<-])/, render: (m) => m[1] },
+  { re: /\\([*_~`|\\>#@<[\]-])/, render: (m) => m[1] },
   { re: /`([^`\n]+)`/, render: (m, ctx) => <code className="md-code" key={ctx.key++}>{m[1]}</code> },
   { re: /\|\|([\s\S]+?)\|\|/, render: (m, ctx) => <Spoiler key={ctx.key++}>{parseInline(m[1]!, ctx)}</Spoiler> },
   { re: /\*\*([\s\S]+?)\*\*(?!\*)/, render: (m, ctx) => <strong key={ctx.key++}>{parseInline(m[1]!, ctx)}</strong> },
@@ -175,7 +237,14 @@ const RULES: Rule[] = [
   { re: /~~([\s\S]+?)~~/, render: (m, ctx) => <s key={ctx.key++}>{parseInline(m[1]!, ctx)}</s> },
   { re: /\*(?!\s)([\s\S]+?)(?<!\s)\*/, render: (m, ctx) => <em key={ctx.key++}>{parseInline(m[1]!, ctx)}</em> },
   { re: /(?<![\w])_(?!\s)([\s\S]+?)(?<!\s)_(?![\w])/, render: (m, ctx) => <em key={ctx.key++}>{parseInline(m[1]!, ctx)}</em> },
-  { re: URL_RE, render: (m, ctx) => <SafeLink key={ctx.key++} href={m[0]} /> },
+  {
+    re: LABELLED_LINK_RE,
+    render: (m, ctx) => {
+      if (ctx.noLinks) return m[0];
+      return <LabelledLink key={ctx.key++} href={m[2]!} label={m[1]!} ctx={ctx} />;
+    },
+  },
+  { re: URL_RE, render: (m, ctx) => (ctx.noLinks ? m[0] : <SafeLink key={ctx.key++} href={m[0]} />) },
   {
     re: /<@(\d{1,12})>/,
     render: (m, ctx) => {
@@ -246,18 +315,37 @@ function Spoiler({ children }: { children: ReactNode }) {
 }
 
 function SafeLink({ href }: { href: string }) {
-  let ok = false;
-  try {
-    const u = new URL(href);
-    ok = u.protocol === "http:" || u.protocol === "https:";
-  } catch {
-    ok = false;
-  }
-  if (!ok) return <>{href}</>;
+  const u = safeHttpUrl(href);
+  if (!u) return <>{href}</>;
   return (
-    <a href={href} target="_blank" rel="noreferrer noopener" className="md-link">
+    <a href={u.href} target="_blank" rel="noreferrer noopener" className="md-link" title={u.hostname}>
       {href}
     </a>
+  );
+}
+
+/**
+ * [label](url). Hovering shows the site it goes to. When the label names a different site, or
+ * the real one is spelled with look-alike letters, the real site is shown next to it as well, so
+ * [paypal.com](https://evil.example) can't pass for PayPal.
+ */
+function LabelledLink({ href, label, ctx }: { href: string; label: string; ctx: Ctx }) {
+  const u = safeHttpUrl(href);
+  if (!u) return <>{`[${label}](${href})`}</>;
+  const inner = parseInline(label, { ...ctx, noLinks: true });
+  const showHost = linkNeedsHost(label, u);
+  return (
+    <>
+      <a href={u.href} target="_blank" rel="noreferrer noopener" className="md-link md-link-labelled" title={`${u.hostname}\n${u.href}`}>
+        {inner}
+      </a>
+      {showHost && (
+        <span className="md-link-host" title={`This link goes to ${u.hostname}`}>
+          {" "}
+          ({u.hostname})
+        </span>
+      )}
+    </>
   );
 }
 
@@ -275,6 +363,7 @@ export function plainText(text: string, nameOf?: (id: number) => string | undefi
   return text
     .replace(/```[\w+-]*\n?([\s\S]*?)```/g, "$1")
     .replace(/\|\|[\s\S]*?\|\|/g, "▒▒▒")
+    .replace(new RegExp(LABELLED_LINK_RE.source, "g"), "$1")
     .replace(/<@(\d{1,12})>/g, (_w, id: string) => `@${nameOf?.(Number(id)) ?? "someone"}`)
     .replace(/(\*\*|__|~~|`)/g, "")
     .replace(/\s+/g, " ")
