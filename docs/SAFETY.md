@@ -1,4 +1,4 @@
-# Safety: blocking, reports, sign-in limits and your data
+# Safety: blocking, reports, sign-in and spam limits, and your data
 
 ## Blocking
 
@@ -34,6 +34,23 @@ username until the oldest try is 15 minutes old. One address gets 50 wrong passw
 minutes, across all usernames. A right password clears the username's count. The counts are
 kept in memory, so restarting the server clears them. Single sign-on isn't affected, and the
 authenticator-app step already had its own limit.
+
+## Spam limits
+
+Each account can only send so much so fast, so one bad or hacked account can't flood a chat.
+The limits are well above what a family ever does, and they're per account, so everyone else
+keeps chatting when one person hits them.
+
+| What | Burst | Longer run |
+| --- | --- | --- |
+| Messages (and polls, games, new threads and forum posts) | 20 in 10 seconds | 120 in 5 minutes |
+| Files (each attachment, plus new pictures, emojis, stickers and sounds) | 30 in a minute | 100 in an hour |
+| Friend requests (including ones for usernames that aren't there) | 10 in 10 minutes | 30 in a day |
+
+Someone over a limit gets a friendly note saying how long to wait ("Easy, raccoon! ... You
+can send more messages in 8 seconds."), and their message stays in the box to send again.
+Bots, webhooks, nudges and slowmode keep their own limits. The limits live in
+`packages/server/src/spam.ts`.
 
 ## Your data
 

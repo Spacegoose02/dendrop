@@ -44,6 +44,7 @@ import { signInRoutes } from "./routes/signin.js";
 import { botRoutes } from "./routes/bots.js";
 import { couplesRoutes } from "./routes/couples.js";
 import { dmRoutes } from "./routes/dms.js";
+import { guardSpam, SpamGuard } from "./spam.js";
 import { expressionRoutes } from "./routes/expressions.js";
 import { funRoutes } from "./routes/fun.js";
 import { familyRoutes, guardKids } from "./routes/family.js";
@@ -97,6 +98,8 @@ export interface Context {
   notifications: NotificationService;
   /** Preview cards under links, off until a super admin turns them on. */
   linkPreviews: LinkPreviewService;
+  /** Spam limits on messages, uploads and friend requests, per account. */
+  spam: SpamGuard;
   /** Set by the server routes: whether someone may ping @everyone in a channel (always yes in DMs). */
   canMentionEveryone?: (conversationId: number, userId: number) => boolean;
   /** Scheduled events in servers: RSVPs, reminders, starting and ending them. */
@@ -134,7 +137,7 @@ export interface BuiltApp {
 export async function buildApp(
   config: ServerConfig,
   db: Db = openDb(path.join(config.dataDir, "dendrop.db")),
-  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2]; apnsSend?: ConstructorParameters<typeof PushService>[3]; webhookPost?: WebhookPost; lootdenFetch?: LootdenFetch; dendutyFetch?: DendutyFetch; botFetch?: BotFetch; gifFetch?: GifFetch; previewFetch?: PreviewFetch } = {},
+  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2]; apnsSend?: ConstructorParameters<typeof PushService>[3]; webhookPost?: WebhookPost; lootdenFetch?: LootdenFetch; dendutyFetch?: DendutyFetch; botFetch?: BotFetch; gifFetch?: GifFetch; previewFetch?: PreviewFetch; spam?: SpamGuard } = {},
 ): Promise<BuiltApp> {
   const logger = process.env.NODE_ENV === "test" ? false : { level: process.env.DENDROP_LOG_LEVEL ?? "info" };
   // Built-in HTTPS (config.tls) is the same app on an https server; the types are the plain one's.
@@ -170,6 +173,7 @@ export async function buildApp(
     gifs: new GifService(db, family, config.dataDir, options.gifFetch),
     notifications: new NotificationService(db, gateway, push),
     linkPreviews: new LinkPreviewService(db, family, config.dataDir, options.previewFetch),
+    spam: options.spam ?? new SpamGuard(),
     events: new EventService(db, users, gateway, push),
     watch: new WatchSettingsStore(db),
     couples: new CouplesService(db, users, gateway, path.join(config.dataDir, "uploads"), (ids) => void push.notify(ids, "message")),
@@ -219,6 +223,7 @@ export async function buildApp(
   });
 
   guardChannelConversations(app, ctx);
+  guardSpam(app, ctx.spam);
   guardKids(app, ctx);
   recordAudit(app, ctx.audit, db);
 
