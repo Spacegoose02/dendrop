@@ -144,6 +144,42 @@ describe("bots", () => {
     await call(owner, "PUT", `/api/servers/${serverId}/members/${bot.id}/roles`, { roleIds: [] });
   });
 
+  it("lets its owner give it a profile picture that shows on its messages", async () => {
+    const png = Buffer.from(
+      "89504e470d0a1a0a0000000d4948445200000001000000010806000000" + "1f15c4890000000d49444154789c6300010000000500010d0a2db40000000049454e44ae426082",
+      "hex",
+    );
+    const boundary = "----dendrop";
+    const upload = (cookie: string) =>
+      s.app.inject({
+        method: "PUT",
+        url: `/api/bots/${bot.id}/avatar`,
+        headers: { cookie, "content-type": `multipart/form-data; boundary=${boundary}` },
+        payload: Buffer.concat([
+          Buffer.from(`--${boundary}\r\ncontent-disposition: form-data; name="file"; filename="p.png"\r\ncontent-type: image/png\r\n\r\n`),
+          png,
+          Buffer.from(`\r\n--${boundary}--\r\n`),
+        ]),
+      });
+    // Only its owner.
+    assert.equal((await upload(bob)).statusCode, 404);
+    const r = await upload(owner);
+    assert.equal(r.statusCode, 200);
+    const avatar = (r.json() as Bot).avatar!;
+    assert.match(avatar, new RegExp(`^/api/users/${bot.id}/pictures/[0-9a-f]{32}$`));
+    // Its owner and people in its servers see it; strangers don't.
+    assert.equal((await s.app.inject({ method: "GET", url: avatar, headers: { cookie: owner } })).statusCode, 200);
+    assert.equal((await s.app.inject({ method: "GET", url: avatar, headers: { cookie: bob } })).statusCode, 200);
+    assert.equal((await s.app.inject({ method: "GET", url: avatar, headers: { cookie: kid } })).statusCode, 404);
+    const sv = (await call(bob, "GET", `/api/servers/${serverId}`)).body as ChatServer;
+    assert.equal(sv.members.find((m) => m.user.id === bot.id)!.user.avatar, avatar);
+    // Taking it off.
+    assert.equal((await call(bob, "DELETE", `/api/bots/${bot.id}/avatar`)).status, 404);
+    const off = await call(owner, "DELETE", `/api/bots/${bot.id}/avatar`);
+    assert.equal(off.body.avatar, null);
+    assert.equal((await s.app.inject({ method: "GET", url: avatar, headers: { cookie: bob } })).statusCode, 404);
+  });
+
   it("posts messages with buttons, and checks them", async () => {
     const bobLive = await listen(s, bob);
     const r = await asBot("POST", `/channels/${general.id}/messages`, {

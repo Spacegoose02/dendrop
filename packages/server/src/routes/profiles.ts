@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { createReadStream, createWriteStream, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { findBlockedWords, INLINE_IMAGE_TYPES, isHexColor, isUnicodeEmoji, PROFILE_LIMITS, type CustomStatus, type UserProfile } from "@dendrop/shared";
 import { requireUser, type Context } from "../app.js";
 import { HttpError } from "../errors.js";
@@ -15,6 +15,32 @@ const id = (v: unknown): number => {
 };
 
 const MB = PROFILE_LIMITS.imageBytes / 1024 / 1024;
+
+/**
+ * Saves one uploaded picture (multipart, PNG/JPEG/GIF/WebP, up to PROFILE_LIMITS.imageBytes)
+ * under a random name in `uploads`. Used for people's pictures and banners, and bots' pictures.
+ */
+export async function savePicture(req: FastifyRequest, uploads: string): Promise<{ file: string; type: string }> {
+  if (!req.isMultipart()) throw new HttpError(400, "Send the picture as multipart form data");
+  const part = await req.file({ limits: { fileSize: PROFILE_LIMITS.imageBytes, files: 1 } });
+  if (!part) throw new HttpError(400, "Send a picture");
+  const type = part.mimetype.toLowerCase();
+  if (!INLINE_IMAGE_TYPES.includes(type)) {
+    part.file.resume();
+    throw new HttpError(400, "Use a PNG, JPEG, GIF or WebP picture");
+  }
+  const file = randomBytes(16).toString("hex");
+  const dest = path.join(uploads, file);
+  try {
+    await pipeline(part.file, createWriteStream(dest, { flags: "wx" }));
+    if (part.file.truncated || statSync(dest).size === 0) throw new HttpError(413, `Pictures can be up to ${MB} MB`);
+  } catch (err) {
+    rmSync(dest, { force: true });
+    if ((err as { code?: string }).code === "FST_REQ_FILE_TOO_LARGE") throw new HttpError(413, `Pictures can be up to ${MB} MB`);
+    throw err;
+  }
+  return { file, type };
+}
 
 /**
  * Profiles: GET someone's profile, edit your own (bio, pronouns, banner color, custom status),
@@ -106,24 +132,7 @@ export function profileRoutes(app: FastifyInstance, ctx: Context): void {
     const me = requireUser(req);
     const kind = req.params.kind === "banner" ? "banner" : "avatar";
     if (me.isKid && !family.rules(me.id).profilePictures) throw new HttpError(403, "Ask a parent: your account can't have a profile picture yet");
-    if (!req.isMultipart()) throw new HttpError(400, "Send the picture as multipart form data");
-    const part = await req.file({ limits: { fileSize: PROFILE_LIMITS.imageBytes, files: 1 } });
-    if (!part) throw new HttpError(400, "Send a picture");
-    const type = part.mimetype.toLowerCase();
-    if (!INLINE_IMAGE_TYPES.includes(type)) {
-      part.file.resume();
-      throw new HttpError(400, "Use a PNG, JPEG, GIF or WebP picture");
-    }
-    const file = randomBytes(16).toString("hex");
-    const dest = path.join(uploads, file);
-    try {
-      await pipeline(part.file, createWriteStream(dest, { flags: "wx" }));
-      if (part.file.truncated || statSync(dest).size === 0) throw new HttpError(413, `Pictures can be up to ${MB} MB`);
-    } catch (err) {
-      rmSync(dest, { force: true });
-      if ((err as { code?: string }).code === "FST_REQ_FILE_TOO_LARGE") throw new HttpError(413, `Pictures can be up to ${MB} MB`);
-      throw err;
-    }
+    const { file, type } = await savePicture(req, uploads);
     profiles.removeFile(users.setPicture(me.id, kind, file, type));
     if (me.isKid) family.alert(me.id, "profile", {});
     if (kind === "avatar") profiles.announce(me.id);

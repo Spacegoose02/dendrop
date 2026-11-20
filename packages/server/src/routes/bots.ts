@@ -1,9 +1,11 @@
+import path from "node:path";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { WebSocket } from "ws";
 import { requireUser, type Context } from "../app.js";
 import { HttpError } from "../errors.js";
 import { ServerRepo } from "../servers.js";
 import { toMe, type UserRecord } from "../users.js";
+import { savePicture } from "./profiles.js";
 
 const id = (v: unknown): number => {
   const n = Number(v);
@@ -71,6 +73,29 @@ export function botRoutes(app: FastifyInstance, ctx: Context): void {
     for (const sid of left) ctx.serverChanged?.(sid);
     return { ok: true };
   });
+
+  /** The bot's profile picture: shown next to its messages and in member lists. Its owner only. */
+  app.put<{ Params: { id: string } }>("/api/bots/:id/avatar", async (req) => {
+    const botId = id(req.params.id);
+    const me = requireUser(req);
+    bots.owned(me, botId);
+    const { file, type } = await savePicture(req, path.join(ctx.config.dataDir, "uploads"));
+    return setBotAvatar(me, botId, file, type);
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/bots/:id/avatar", async (req) => {
+    const botId = id(req.params.id);
+    const me = requireUser(req);
+    bots.owned(me, botId);
+    return setBotAvatar(me, botId, null, null);
+  });
+
+  const setBotAvatar = (me: UserRecord, botId: number, file: string | null, type: string | null) => {
+    ctx.profiles.removeFile(ctx.users.setPicture(botId, "avatar", file, type));
+    ctx.profiles.announce(botId);
+    for (const sid of serversOf(botId)) ctx.serverChanged?.(sid);
+    return bots.view(bots.owned(me, botId), true);
+  };
 
   const serversOf = (userId: number) =>
     (ctx.db.prepare("SELECT server_id FROM server_members WHERE user_id = ?").all(userId) as { server_id: number }[]).map((r) => r.server_id);

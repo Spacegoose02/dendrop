@@ -11,7 +11,8 @@ import { toPublic, type UserRepo } from "./users.js";
  * Who can see someone's profile (and their picture): themselves, anyone they're friends with or
  * have a friend request with, anyone they share a chat or a server with, and their family. To
  * everyone else they don't exist (404). Kids' profiles follow their parents' rules: pictures need
- * a parent's OK, and their text goes through the family filter (see routes/profiles.ts).
+ * a parent's OK, and their text goes through the family filter (see routes/profiles.ts). A bot's
+ * owner can always see it, so they can see the picture they gave it.
  */
 export class ProfileService {
   constructor(
@@ -50,7 +51,8 @@ export class ProfileService {
            EXISTS (SELECT 1 FROM friendships WHERE user_a = ?1 AND user_b = ?2)
            OR EXISTS (SELECT 1 FROM conversation_members x JOIN conversation_members y ON y.conversation_id = x.conversation_id WHERE x.user_id = ?1 AND y.user_id = ?2)
            OR EXISTS (SELECT 1 FROM server_members x JOIN server_members y ON y.server_id = x.server_id WHERE x.user_id = ?1 AND y.user_id = ?2)
-           OR EXISTS (SELECT 1 FROM family_links WHERE (kid_id = ?1 AND parent_id = ?2) OR (kid_id = ?2 AND parent_id = ?1))`,
+           OR EXISTS (SELECT 1 FROM family_links WHERE (kid_id = ?1 AND parent_id = ?2) OR (kid_id = ?2 AND parent_id = ?1))
+           OR EXISTS (SELECT 1 FROM bots WHERE (user_id = ?1 AND owner_id = ?2) OR (user_id = ?2 AND owner_id = ?1))`,
       )
       .get(a, b);
   }

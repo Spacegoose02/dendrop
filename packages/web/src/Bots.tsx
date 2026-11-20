@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { BOT_LIMITS, LIMITS, type Bot, type ChatServer, type Message, type MessageButton, type NewBotToken } from "@dendrop/shared";
 import { api } from "./api.ts";
+import { Avatar } from "./Avatar.tsx";
 
 interface ServerBots {
   bots: Bot[];
@@ -91,6 +92,7 @@ export function BotsTab({ server }: { server: ChatServer }) {
           <h4>Add a bot</h4>
           {data.addable.map((b) => (
             <div key={b.id} className="member-row">
+              <Avatar name={b.displayName} src={b.avatar} size={32} />
               <span className="nav-text">
                 <span className="ellipsis">
                   {b.displayName} <span className="bot-tag">bot</span>
@@ -130,10 +132,20 @@ function BotRow({ bot, server, run, onToken }: { bot: Bot; server: ChatServer; r
   const [description, setDescription] = useState(bot.description);
   const mine = bot.signingSecret !== undefined;
   const patch = (body: object) => run(() => api(`/api/bots/${bot.id}`, { method: "PATCH", body }));
+  const pictureInput = useRef<HTMLInputElement>(null);
+  const setPicture = (file: File | null) =>
+    run(async () => {
+      if (!file) return api(`/api/bots/${bot.id}/avatar`, { method: "DELETE" });
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`/api/bots/${bot.id}/avatar`, { method: "PUT", credentials: "same-origin", body: form });
+      if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? res.statusText);
+    });
 
   return (
     <div className="bot-row">
       <div className="member-row">
+        <Avatar name={bot.displayName} src={bot.avatar} size={32} />
         <span className="nav-text">
           <span className="ellipsis">
             {bot.displayName} <span className="bot-tag">bot</span> {bot.readsMessages && <span className="muted small">· reads messages</span>}
@@ -159,6 +171,28 @@ function BotRow({ bot, server, run, onToken }: { bot: Bot; server: ChatServer; r
       </div>
       {open && mine && (
         <div className="bot-settings">
+          <div className="bot-picture">
+            <Avatar name={bot.displayName} src={bot.avatar} size={56} />
+            <button className="ghost small" onClick={() => pictureInput.current?.click()}>
+              {bot.avatar ? "Change picture" : "Add picture"}
+            </button>
+            {bot.avatar && (
+              <button className="ghost small" onClick={() => void setPicture(null)}>
+                Remove picture
+              </button>
+            )}
+            <input
+              ref={pictureInput}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              hidden
+              aria-label="Bot picture"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void setPicture(file).then(() => (e.target.value = ""));
+              }}
+            />
+          </div>
           <label>
             Description
             <input value={description} maxLength={BOT_LIMITS.description} onChange={(e) => setDescription(e.target.value)} onBlur={() => description !== bot.description && void patch({ description })} />
