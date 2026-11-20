@@ -29,6 +29,13 @@ matches the server and nothing in the web client is forked.
   choose *Restart to update*. The .deb updates through your package manager instead.
 - `window.dendrop` (from `src/preload.ts`) lets the web client read and change these settings later,
   for a desktop section in its own settings page. It only answers the configured server's pages.
+- **Keybinds in the background.** Push to talk, mute and deafen keys work while another window
+  has focus (push to talk through a keyboard hook that only runs while you're in voice).
+- **Pop-out chats** open a DM, group or channel in a small window of its own
+  ([docs/POP-OUT-AND-AUDIO.md](../../docs/POP-OUT-AND-AUDIO.md)).
+- **In-game overlay** shows who's in voice and the last messages over a game
+  ([docs/WATCH-AND-OVERLAY.md](../../docs/WATCH-AND-OVERLAY.md)).
+- **Themed title bar.** The title bar takes the app's theme colors, in the main window and pop-outs.
 
 Keys: Ctrl + / Ctrl − / Ctrl 0 zoom, F5 or Ctrl R reload, Esc backs out of a sign-in page.
 
@@ -60,5 +67,4 @@ SmartScreen asks once ("More info", "Run anyway").
 
 ## Not done yet
 
-- Global keybinds (push-to-talk, mute, deafen) and pop-out chats wait for calls and the chat UI.
 - Opening the right conversation when you click a notification needs routes in the web client.

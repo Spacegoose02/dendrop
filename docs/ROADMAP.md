@@ -6,9 +6,10 @@ feature board into a build order.
 
 **Top priority:** private direct messaging (text and calls) between people you trust, so Dendrop can replace Discord DMs first.
 
-**Current state:** every phase has landed. What's left is listed under [Still to do](#still-to-do)
-at the end: mostly forward secrecy, encrypting server channels, and checks on real phones. The
-card status table is kept up to date as pieces land.
+**Current state:** every phase has landed, and work has moved on to extras beyond the original
+board. Open pull requests are listed under [In progress](#in-progress), and what's left under
+[Still to do](#still-to-do): mostly forward secrecy, encrypting server channels, and checks on
+real phones. The card status table is kept up to date as pieces land.
 
 ---
 
@@ -154,7 +155,16 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Systems | Windows 11 | 2 | Done: Electron installer with tray, auto-update and background push to talk |
 | Systems | Linux | 2 | Done: AppImage and .deb |
 | Systems | Android APK | 2 | Done: debug APK on every release; a signed release APK too once the keystore secrets are added ([packages/android/README.md](../packages/android/README.md)) |
-| Systems | SSO with TinyAuth | 1 | Done |
+| Systems | SSO with TinyAuth | 1 | Done, including linking TinyAuth to an existing account and letting admins move a TinyAuth login between accounts ([SIGN-IN.md](SIGN-IN.md)) |
+| Systems | Google sign-in and linked sign-ins | 1 | Done: Google, TinyAuth and a password on one account, with sign-up and each method switched on or off by a super admin ([SIGN-IN.md](SIGN-IN.md)) |
+| Systems | Two-step sign-in and passkeys | 1 | Done ([SIGN-IN.md](SIGN-IN.md)) |
+| Systems | Audit logs | 3 | Done: an instance log and a log per server ([AUDIT-LOG.md](AUDIT-LOG.md)) |
+| Systems | Backups and restore | 0 | Done ([BACKUPS.md](BACKUPS.md)) |
+| Systems | Built-in HTTPS | 0 | Done: a self-signed option, plus guides for Tailscale, reverse proxies and Cloudflare Tunnel ([HTTPS.md](HTTPS.md)) |
+| Systems | Server health | 0 | Done: CPU, memory, disks, storage, who's connected and message counts in Instance admin |
+| Systems | iPhone app | 2 | Done: the same web client and encryption, with iOS's own call screen and APNs notifications ([packages/ios](../packages/ios/README.md)); needs a check on a real phone |
+| Systems | App updates | 2 | Done: the PC app and the Android app check GitHub Releases for new versions |
+| Systems | Themed PC title bar | 2, 7 | Done: the PC app's title bar takes the theme's colors, in the main window and pop-outs |
 | Systems | MFA usable | 1 | Done (enforced in TinyAuth, plus Dendrop's own two-step sign-in) |
 | Systems | Automatically adjust input sensitivity | 4 | Done (automatic, manual threshold, or always on) |
 | Systems | Noise suppression with levels | 4 | Done: off, smart (RNNoise in an AudioWorklet, the same in every browser) and the browser's own (with voice isolation where it has it) |
@@ -201,9 +211,21 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Features | Activity privacy | 1 | Done: read receipts and showing what you're playing can each be turned off, and you can appear offline |
 | Features | Invite links | 3 | Done (links with expiry and use limits, and invites to friends) |
 | Features | Server chat profile / rename | 7 | Done (name, description, per-server nickname) |
+| Features | Change your username | 1 | Done: in Settings, with a "Pick your username" step after a first TinyAuth or Google sign-in; renames show in the audit log |
+| Features | Name and text colors | 7 | Done: your own name and message colors, adjusted so they stay readable on every theme |
+| Features | Polls, quick games, nudges and reminders | 3 | Done: polls, tic-tac-toe, rock paper scissors and dice, raccoon nudges in DMs, and reminders on any message |
+| Features | Voice messages | 3 | Done: record up to 5 minutes from the composer; audio files play inline |
+| Features | Edit history | 3 | Done: click (edited) to see every earlier version, decrypted on your device in encrypted chats |
+| Features | Notes to self | 1 | Done: a private chat with only you in it ([MESSAGES.md](MESSAGES.md)) |
+| Features | Couples kit | 1 | Done: a private corner of a DM between two adults, switched on per account by a super admin ([COUPLES.md](COUPLES.md)) |
 | Features | User profiles | 7 | Done: profile picture, banner, about me, pronouns and a custom status that clears itself, on a profile card with Playing now, roles and raccoon rank; kid profiles follow parents' rules ([PROFILES.md](PROFILES.md)) |
 | Features | Server chat banner | 7 | Done (icon and banner) |
 | Servers | Categories, slowmode, read-only channels | 3 | Done ([MODERATION.md](MODERATION.md)) |
+| Servers | Custom roles with colors | 3, 7 | Done: roles with permissions and a rank order, colored names in the server, and automod exemptions by role ([MODERATION.md](MODERATION.md)) |
+| Servers | Levels and raccoon ranks | 7 | Done: XP for chatting, eight raccoon ranks, a leaderboard, and a switch to turn levels off |
+| Servers | Welcome screen | 3 | Done: a welcome message, rules members can be asked to agree to, and roles they pick for themselves |
+| Servers | Copy channel ID | 8 | Done: right-click a channel for the ID the bot API uses ([BOTS.md](BOTS.md)) |
+| Voice | Play together | 4, 8 | Done: a voice channel opens when two or more members play the same game in LootDen, kid-safe and respecting activity privacy |
 | Servers | Scheduled events and stage channels | 4 | Done: events with RSVPs, reminders and weekly repeats; stage channels with raised hands ([EVENTS.md](EVENTS.md)) |
 | Voice | Watch together | 4 | Done: synced videos in voice and stage channels from the channel's chat or a link, with a queue; YouTube when a super admin turns it on; kids get chat videos only ([WATCH-AND-OVERLAY.md](WATCH-AND-OVERLAY.md)) |
 | Integrations | LootDen integration | 8 | Done: playing now, alerts through webhooks, game-link cards with Send to PC, game nights with a voice channel, family wall screenshots (kid-safe) and kid accounts from LootDen's kid profiles, LootDen bedtime and game time in kids' time rules, and "Surprise us" picks shared through a webhook (with LootDen's Share to chat button) ([LOOTDEN.md](LOOTDEN.md)) |
@@ -217,18 +239,29 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Kid safe chat | Webhook alert notifications | 5 | Done: in-app alerts and a content-free webhook per parent (ntfy, Apprise, Home Assistant) |
 | Kid safe chat | Parents as ghost admins when alerted | 5 | Done: read-only view of an alerted chat, end-to-end encrypted to parents, with an audit log the kid sees |
 | Sounds | Sounds for deafen/mute events | 4 | Done (mute, unmute, deafen, undeafen, join, leave; can be turned off) |
-| Sounds | Incoming call / message notifications | 2 | Done: calls ring full screen on Android and on iOS's call screen; content-free message notifications on phones and the PC app |
+| Sounds | Soundboard | 4 | Done ([VOICE-AUDIO.md](VOICE-AUDIO.md)) |
+| Sounds | Incoming call / message notifications | 2 | Done: calls ring on Android with Answer and Decline (on the lock screen too, and calls keep going with the screen off) and on iOS's call screen; content-free message notifications on phones and the PC app |
 | Automod | Automod settings | 6 | Done (blocked words, spam and mentions, links, new accounts; block, alert, timeout; exempt roles and channels; mod log) |
 | Look alike | Layout reference 1 (settings) | 1, 7 | Done: settings is a full page with a left-hand menu (Your account, App, Data); on a phone the menu and each page take turns filling the screen |
 | Look alike | Layout reference 2 (main chat) | 1, 7 | Done: server rail, channel list with members, chat, and your controls bottom-left |
+
+## In progress
+
+These are open pull requests, not merged yet.
+
+- **Spam limits** on sending messages, uploads and friend requests, per account ([#74](https://github.com/Spacegoose02/dendrop/pull/74)).
+- **Mark all as read**, for one server or everything ([#75](https://github.com/Spacegoose02/dendrop/pull/75)).
+- **Keyword alerts**: get notified when a word you pick comes up, matched on the device in encrypted chats ([#76](https://github.com/Spacegoose02/dendrop/pull/76)).
+- **Server templates**: start a server from Family, Gaming or Friends, or copy one of yours ([#77](https://github.com/Spacegoose02/dendrop/pull/77)).
+- **Send later**: schedule a message for a set time ([#78](https://github.com/Spacegoose02/dendrop/pull/78)).
 
 ## Still to do
 
 - **Forward secrecy** for encrypted DMs (a Signal-style or MLS ratchet), see [ENCRYPTION.md](ENCRYPTION.md).
 - **End-to-end encryption for server channels and voice channels.** DM calls are encrypted today; server channels are not yet.
 - **Signed Android release:** the build is ready; it needs the keystore secrets added once.
-- **Checks on real devices:** Android bubbles, the lock-screen call screen, and the iPhone app.
-- **Android call screen with Answer and Decline buttons:** needs the call id in the push, and a foreground service so calls keep going with the screen off.
+- **Checks on real devices:** Android bubbles, Answer and Decline on the Android lock screen, calls with the screen off, and the iPhone app.
+- **Opening the right chat from a PC app notification:** clicking one opens the app but not that conversation yet.
 - **Den Duty help asks** from chat, once Den Duty's API has them.
 - **Other languages.** Everything is English for now.
 
