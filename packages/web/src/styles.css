@@ -1814,6 +1814,40 @@ button.attachment-file {
     opacity: 0.2;
   }
 }
+@media (max-width: 520px) {
+  .voice-recorder {
+    gap: 6px;
+  }
+  .voice-recorder .rec-limit,
+  .voice-recorder:not(.paused) .rec-word {
+    display: none;
+  }
+}
+.voice-recorder.paused .rec-dot {
+  animation: none;
+  opacity: 0.4;
+}
+.voice-recorder > span {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.mic-level {
+  position: relative;
+  flex: 0 1 72px;
+  min-width: 28px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--dd-border);
+}
+.mic-level > span {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--dd-accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
 .composer-row[hidden] {
   display: none;
 }
@@ -1829,6 +1863,29 @@ button.attachment-file {
 .audio-attachment audio {
   width: 100%;
   height: 36px;
+}
+.audio-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.audio-head .grow {
+  flex: 1;
+  min-width: 0;
+}
+.speed-button {
+  min-width: 40px;
+  padding: 1px 8px;
+  border: 1px solid var(--dd-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dd-text-muted);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.speed-button:hover {
+  color: var(--dd-text);
 }
 .reminder-tray {
   display: grid;
