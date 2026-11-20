@@ -153,6 +153,99 @@ export function applyOutput(el: HTMLMediaElement, p: AudioPrefs): void {
 /** Whether this browser can pick speakers (Chrome, Edge, the desktop app; not Firefox or Safari yet). */
 export const canPickOutput = (): boolean => typeof (HTMLMediaElement.prototype as { setSinkId?: unknown }).setSinkId === "function";
 
+// ---- Per-person volume and local mute --------------------------------------------------
+
+export interface UserVolume {
+  /** How loud this person plays for you, 0 to 200 (100 is normal; above 100 boosts a quiet mic). */
+  volume: number;
+  /** Muted just for you on this device. */
+  muted: boolean;
+}
+
+export const DEFAULT_USER_VOLUME: UserVolume = { volume: 100, muted: false };
+
+const USER_VOLUMES_KEY = "dendrop.userVolumes";
+const USER_VOLUMES_EVENT = "dendrop-user-volumes";
+
+export function clampUserVolume(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 100;
+  return Math.max(0, Math.min(200, Math.round(n)));
+}
+
+export function loadUserVolumes(): Record<string, UserVolume> {
+  try {
+    if (typeof localStorage === "undefined") return {};
+    const raw = JSON.parse(localStorage.getItem(USER_VOLUMES_KEY) ?? "{}") as Record<string, Partial<UserVolume>>;
+    const out: Record<string, UserVolume> = {};
+    for (const [id, entry] of Object.entries(raw ?? {})) {
+      if (!entry || typeof entry !== "object") continue;
+      const volume = clampUserVolume(entry.volume ?? 100);
+      const muted = entry.muted === true;
+      if (volume !== 100 || muted) out[id] = { volume, muted };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function userVolume(userId: string | number, map: Record<string, UserVolume> = loadUserVolumes()): UserVolume {
+  return map[String(userId)] ?? DEFAULT_USER_VOLUME;
+}
+
+export function saveUserVolume(userId: string | number, patch: Partial<UserVolume>): UserVolume {
+  const id = String(userId);
+  const map = loadUserVolumes();
+  const prev = map[id] ?? DEFAULT_USER_VOLUME;
+  const next: UserVolume = {
+    volume: patch.volume === undefined ? prev.volume : clampUserVolume(patch.volume),
+    muted: patch.muted === undefined ? prev.muted : Boolean(patch.muted),
+  };
+  if (next.volume === 100 && !next.muted) delete map[id];
+  else map[id] = next;
+  try {
+    if (typeof localStorage !== "undefined") {
+      if (Object.keys(map).length === 0) localStorage.removeItem(USER_VOLUMES_KEY);
+      else localStorage.setItem(USER_VOLUMES_KEY, JSON.stringify(map));
+    }
+  } catch {
+    // Private windows can refuse storage; the change still applies when callers re-read via event.
+  }
+  if (typeof dispatchEvent === "function") dispatchEvent(new CustomEvent(USER_VOLUMES_EVENT, { detail: map }));
+  return next;
+}
+
+/** Per-person volumes, kept up to date across tabs and panels. */
+export function useUserVolumes(): Record<string, UserVolume> {
+  const [volumes, setVolumes] = useState(loadUserVolumes);
+  useEffect(() => {
+    const update = (e?: Event) => {
+      const detail = (e as CustomEvent<Record<string, UserVolume>> | undefined)?.detail;
+      setVolumes(detail ? { ...detail } : loadUserVolumes());
+    };
+    const onStorage = (e: StorageEvent) => e.key === USER_VOLUMES_KEY && update();
+    addEventListener(USER_VOLUMES_EVENT, update);
+    addEventListener("storage", onStorage);
+    return () => {
+      removeEventListener(USER_VOLUMES_EVENT, update);
+      removeEventListener("storage", onStorage);
+    };
+  }, []);
+  return volumes;
+}
+
+/**
+ * Combined linear gain for a remote person: 0 when deafened or locally muted, up to 2.0 when
+ * boosted to 200% at full speaker volume.
+ */
+export function effectiveUserGain(prefs: Pick<AudioPrefs, "outputVolume">, uv: UserVolume, deafened = false): number {
+  if (deafened || uv.muted) return 0;
+  const master = Math.max(0, Math.min(100, prefs.outputVolume)) / 100;
+  const person = clampUserVolume(uv.volume) / 100;
+  return Math.round(master * person * 10000) / 10000;
+}
+
 /** A readable message for a mic that couldn't start. */
 export function micError(err: Error): string {
   if (!window.isSecureContext) return INSECURE_MEDIA;
@@ -213,6 +306,8 @@ export class VoiceGate {
   private meter: LevelMeter | null = null;
   private clone: MediaStreamTrack | null = null;
   private level: () => number;
+  private sensitivity: () => AudioPrefs["sensitivity"];
+  private onChange: (open: boolean, level: number, threshold: number) => void;
   private floor = -60;
   private openUntil = 0;
   private timer: ReturnType<typeof setInterval>;
@@ -221,9 +316,11 @@ export class VoiceGate {
   /** `source` is the mic track to measure, or a function giving its level (the mic pipeline's meter). */
   constructor(
     source: MediaStreamTrack | (() => number),
-    private sensitivity: () => AudioPrefs["sensitivity"],
-    private onChange: (open: boolean, level: number, threshold: number) => void,
+    sensitivity: () => AudioPrefs["sensitivity"],
+    onChange: (open: boolean, level: number, threshold: number) => void,
   ) {
+    this.sensitivity = sensitivity;
+    this.onChange = onChange;
     if (typeof source === "function") this.level = source;
     else {
       const clone = source.clone();
