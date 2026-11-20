@@ -39,6 +39,7 @@ import { BOT_REPLY_EVENT, type BotReplyDetail } from "./Bots.tsx";
 import { Chat, type ChannelInfo } from "./Chat.tsx";
 import { canPinIn, ForumView, PinsDialog, runsThreads, ThreadActions } from "./Threads.tsx";
 import { excerptOf, ReminderTray, type FiredReminder } from "./Fun.tsx";
+import { SCHEDULED_EVENT, type ScheduledEventDetail } from "./Scheduled.tsx";
 import { Friends } from "./Friends.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { IncomingCall } from "./IncomingCall.tsx";
@@ -558,6 +559,15 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           });
           break;
         }
+        case "scheduled.updated":
+          window.dispatchEvent(new CustomEvent<ScheduledEventDetail>(SCHEDULED_EVENT, { detail: { kind: "updated", scheduled: e.scheduled } }));
+          if (e.scheduled.error && document.visibilityState !== "visible" && typeof Notification !== "undefined" && Notification.permission === "granted") {
+            new Notification("A scheduled message couldn't be sent", { body: e.scheduled.error });
+          }
+          break;
+        case "scheduled.removed":
+          window.dispatchEvent(new CustomEvent<ScheduledEventDetail>(SCHEDULED_EVENT, { detail: { kind: "removed", id: e.id, conversationId: e.conversationId } }));
+          break;
         case "couples.updated":
           window.dispatchEvent(new CustomEvent<CouplesEventDetail>(COUPLES_EVENT, { detail: { conversationId: e.conversationId, noteFrom: e.noteFrom } }));
           break;

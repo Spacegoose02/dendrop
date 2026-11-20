@@ -1711,6 +1711,32 @@ export interface Reminder {
   firedAt: string | null;
 }
 
+/**
+ * A message you scheduled to send later. Only you see it until it goes out, when it becomes a
+ * normal message (and this goes away). Encrypted chats keep the ciphertext, like messages.
+ */
+export interface ScheduledMessage {
+  id: number;
+  conversationId: number;
+  body: string;
+  keyVersion: number | null;
+  /** Encrypted messages only: who it pings, since the server can't read it. */
+  mentions: number[];
+  mentionsEveryone: boolean;
+  replyToId: number | null;
+  sendAt: string;
+  createdAt: string;
+  /** Why it couldn't be sent when its time came. It waits until you edit, retry or cancel it. */
+  error: string | null;
+}
+
+export const SCHEDULE_LIMITS = {
+  /** Messages waiting to go out, per person. */
+  pending: 100,
+  /** How far ahead a message can be scheduled, in days. */
+  days: 366,
+} as const;
+
 export const FUN_LIMITS = {
   pollQuestion: 300,
   pollOption: 80,
@@ -1957,6 +1983,10 @@ export type ServerEvent =
   | { type: "interaction.reply"; interactionId: number; messageId: number; conversationId: number; botId: number; content: string }
   /** One of your reminders went off: the message it's about, if you can still see it. */
   | { type: "reminder"; reminder: Reminder; message: Message | null }
+  /** One of your scheduled messages was made, edited, or couldn't be sent (error is set). Only to you. */
+  | { type: "scheduled.updated"; scheduled: ScheduledMessage }
+  /** One of your scheduled messages went out (messageId) or was cancelled. Only to you. */
+  | { type: "scheduled.removed"; id: number; conversationId: number; messageId: number | null }
   /**
    * A couples kit you're in changed: fetch it again (/api/couples/:id), since each person sees
    * their own view. noteFrom is set when a love note just arrived for you.

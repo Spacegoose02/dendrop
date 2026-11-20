@@ -1,4 +1,4 @@
-# Search, replies, mentions, notifications, formatting and link previews
+# Search, replies, mentions, send later, notifications, formatting and link previews
 
 Everyday message features. Everything here respects end-to-end encryption: the server never
 reads an encrypted chat to make any of it work.
@@ -11,6 +11,31 @@ PC. It works like any DM (replies, edits, search, reminders, end-to-end encrypti
 it up), it's made the first time you open it, and it never counts as unread. There are no calls
 in it. In the API, `POST /api/conversations` with your own `userId` opens it, and the
 conversation comes back with `isNotes: true`.
+
+## Send later
+
+Type a message and press **🕒** next to Send to schedule it: in 20 minutes, in 1 or 3 hours, this
+evening, tomorrow morning, next week, or any date and time up to a year ahead. A line above the
+message box says what's waiting in that chat; **See scheduled** lists them, where you can edit the
+words or time, send one right now, or cancel it. Only you see a scheduled message until it goes
+out, and then it's a normal message, sent as you.
+
+- **Text only** for now: messages with files can't be scheduled yet. A reply stays a reply.
+- **Encrypted chats stay encrypted.** The app encrypts the message when you schedule it and the
+  server keeps only the ciphertext. If the chat's key changes before it goes out, it can't be sent;
+  edit it (the app encrypts it again) and it goes at its time.
+- **Same rules as sending now.** When its time comes it's checked like any message: you're still in
+  the chat, nobody blocked anyone, kids' chat hours and family filter, read-only and closed
+  channels, and automod. If one says no, it stays in the list with why, your phone gets a ping,
+  and it waits for you to edit, retry (**Send now**) or cancel it. Slowmode just makes it wait.
+- Up to 100 scheduled messages per person. They're checked every 15 seconds, so one can go out a
+  few seconds after its minute.
+
+API: `GET /api/scheduled` (`?conversationId=` for one chat), `POST /api/conversations/:id/scheduled`
+with `{ body, keyVersion?, mentions?, mentionsEveryone?, replyToId?, sendAt }`,
+`PATCH /api/scheduled/:id` (`{ body, keyVersion, ... }` together and/or `sendAt`; clears an error),
+`POST /api/scheduled/:id/send` and `DELETE /api/scheduled/:id`. Your devices hear
+`scheduled.updated` and `scheduled.removed` on the gateway.
 
 ## Search
 

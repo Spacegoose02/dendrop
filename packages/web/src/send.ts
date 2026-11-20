@@ -1,4 +1,4 @@
-import type { Conversation, Message } from "@dendrop/shared";
+import type { Conversation, Message, ScheduledMessage } from "@dendrop/shared";
 import { api, apiForm } from "./api.ts";
 import { encryptFile, encryptMessage, keyring } from "./e2ee.ts";
 import { mentionsIn } from "./mentions.ts";
@@ -41,4 +41,23 @@ export async function postMessage(c: Conversation, meId: number, plain: boolean,
   for (const [k, v] of Object.entries(fields)) form.append(k, v);
   for (const f of files) form.append("file", f, f.name);
   return apiForm<Message>(url, form);
+}
+
+/**
+ * The words of a scheduled message, ready for the server: encrypted under the newest key once
+ * the chat has one (with who it pings, which the server can't read), plain otherwise.
+ */
+export async function scheduledWords(c: Conversation, meId: number, plain: boolean, body: string): Promise<Record<string, unknown>> {
+  const version = plain ? null : await keyring.forSending(c);
+  if (!version) return { body, keyVersion: null };
+  const pings = mentionsIn(body);
+  return { body: await encryptMessage(c.id, meId, version, body), keyVersion: version, mentions: pings.ids, mentionsEveryone: pings.everyone };
+}
+
+/** Schedules a text message to go out at `sendAt`. */
+export async function scheduleMessage(c: Conversation, meId: number, plain: boolean, body: string, sendAt: Date, extras: SendExtras = {}): Promise<ScheduledMessage> {
+  const words = await scheduledWords(c, meId, plain, body);
+  return api<ScheduledMessage>(`/api/conversations/${c.id}/scheduled`, {
+    body: { ...words, sendAt: sendAt.toISOString(), ...(extras.reply ? { replyToId: extras.reply.replyToId } : {}) },
+  });
 }

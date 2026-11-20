@@ -48,7 +48,8 @@ import { fromMentionTokens, mentionSuggestions, mentionsIn, toMentionTokens, typ
 import { NotifyMenu } from "./notify.tsx";
 import { ReportDialog, useBlockedIds } from "./Safety.tsx";
 import { LinkPreviews } from "./LinkPreview.tsx";
-import { postMessage } from "./send.ts";
+import { postMessage, scheduleMessage } from "./send.ts";
+import { ScheduledBar, ScheduledDialog, ScheduleMenu, useScheduled, whenText } from "./Scheduled.tsx";
 import { startForward, toggleSaved, useSavedIds } from "./Inbox.tsx";
 import { clearJump, openSearch, requestJump, useJumpTarget } from "./Search.tsx";
 
@@ -196,6 +197,10 @@ export function Chat({
   const [pollDraft, setPollDraft] = useState<Partial<NewPoll> | null>(null);
   const [remindFor, setRemindFor] = useState<number | null>(null);
   const [recording, setRecording] = useState(false);
+  /** Send later: the "when?" menu by Send, this chat's scheduled messages, and their list. */
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const scheduled = useScheduled(conversation.id, me.id);
+  const [scheduledOpen, setScheduledOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
     if (!notice) return;
@@ -420,6 +425,33 @@ export function Chat({
       setError((err as Error).message);
     } finally {
       setSending(false);
+    }
+  };
+
+  /** Send later: schedules the draft (text only) to go out at `when`, and clears it. */
+  const scheduleDraft = async (when: Date) => {
+    setScheduleOpen(false);
+    const body = toMentionTokens(toTokens(draft.trim(), emojis), conversation.members);
+    if (!body || files.length > 0) return;
+    if (filter && findBlockedWords(body, filter).length) {
+      setError("That message has a word your family filter blocks. Your parents get a heads-up (not the word).");
+      void report("profanity");
+      return;
+    }
+    const reply = replyTo ? { replyToId: replyTo.id, replyPing } : undefined;
+    setError(null);
+    try {
+      try {
+        await scheduleMessage(conversation, me.id, !!channel, body, when, { reply });
+      } catch (err) {
+        if (!(err instanceof ApiError && err.status === 409)) throw err;
+        await scheduleMessage(await api<Conversation>(`/api/conversations/${conversation.id}`), me.id, !!channel, body, when, { reply });
+      }
+      setDraft("");
+      setReplyTo(null);
+      setNotice(`🕒 Scheduled for ${whenText(when.toISOString())}.`);
+    } catch (err) {
+      setError((err as Error).message);
     }
   };
 
@@ -1101,6 +1133,7 @@ export function Chat({
             {notice}
           </p>
         )}
+        <ScheduledBar list={scheduled} onOpen={() => setScheduledOpen(true)} />
         {files.length > 0 && (
           <div className="pending-files">
             {files.map((f, i) => (
@@ -1246,6 +1279,22 @@ export function Chat({
               🎤
             </button>
           )}
+          {(draft.trim() || files.length > 0) && (
+            <div className="emoji-wrap">
+              <button
+                className="ghost icon"
+                data-fun-toggle
+                onClick={() => setScheduleOpen(!scheduleOpen)}
+                disabled={files.length > 0 || sending || !!timeUp || !!timedOutUntil || !!channel?.readOnly}
+                title={files.length > 0 ? "Messages with files can't be scheduled yet" : "Send later"}
+                aria-label="Send later"
+                aria-expanded={scheduleOpen}
+              >
+                🕒
+              </button>
+              {scheduleOpen && <ScheduleMenu onPick={(when) => void scheduleDraft(when)} onClose={() => setScheduleOpen(false)} />}
+            </div>
+          )}
           <button className="primary send" onClick={() => void send()} disabled={sending || !!timeUp || !!timedOutUntil || !!channel?.readOnly || slowLeft > 0 || (!draft.trim() && files.length === 0)} aria-label="Send">
             {sending ? (
               "…"
@@ -1265,6 +1314,18 @@ export function Chat({
         </div>
       </footer>
       {showInfo && <EncryptionInfo me={me} conversation={conversation} onClose={() => setShowInfo(false)} />}
+      {scheduledOpen && (
+        <ScheduledDialog
+          list={scheduled}
+          conversation={conversation}
+          meId={me.id}
+          plain={!!channel}
+          toDraft={(body) => fromMentionTokens(fromTokens(body, emojis), conversation.members)}
+          fromDraft={(text) => toMentionTokens(toTokens(text, emojis), conversation.members)}
+          onSent={(m) => void showChanged(m)}
+          onClose={() => setScheduledOpen(false)}
+        />
+      )}
       {pollDraft && <PollDialog encrypted={!channel && !!conversation.e2ee} initial={pollDraft} onCreate={createPoll} onClose={() => setPollDraft(null)} />}
       {couplesOpen && showCouples && <CouplesKitDialog me={me} conversation={conversation} onClose={() => setCouplesOpen(false)} />}
     </section>
