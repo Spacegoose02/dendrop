@@ -1934,6 +1934,61 @@ h5.md-h {
   color: var(--dd-accent);
   word-break: break-all;
 }
+.md-link-labelled {
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+/* The real site, shown next to a labelled link whose text names a different one. */
+.md-link-host {
+  color: var(--dd-warning);
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+.md-table-wrap {
+  margin: 4px 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.md-table {
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.md-table th,
+.md-table td {
+  padding: 4px 10px;
+  border: 1px solid var(--dd-border);
+  text-align: left;
+  vertical-align: top;
+}
+.md-table th {
+  background: var(--dd-bg-rail);
+  font-weight: 600;
+}
+.md-table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--dd-bg-rail) 50%, transparent);
+}
+/* Code coloring (markdown-syntax.ts). Built from theme colors so every theme gets a fitting set;
+   a theme can set --dd-code-* to choose its own. */
+.tok-comment {
+  color: var(--dd-code-comment, var(--dd-text-muted));
+  font-style: italic;
+}
+.tok-string {
+  color: var(--dd-code-string, var(--dd-online));
+}
+.tok-number,
+.tok-literal {
+  color: var(--dd-code-number, var(--dd-warning));
+}
+.tok-keyword,
+.tok-tag {
+  color: var(--dd-code-keyword, var(--dd-accent));
+  font-weight: 600;
+}
+.tok-fn,
+.tok-attr {
+  color: var(--dd-code-fn, color-mix(in srgb, var(--dd-accent) 55%, var(--dd-text)));
+}
 .spoiler {
   border-radius: var(--dd-radius-sm);
   background: var(--dd-text-faint);
