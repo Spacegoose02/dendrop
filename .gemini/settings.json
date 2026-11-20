@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "name": "agent-log", "type": "command", "command": "node \"$GEMINI_PROJECT_DIR/scripts/agent-log.mjs\" check", "timeout": 15000 }] }
+    ],
+    "BeforeAgent": [
+      { "hooks": [{ "name": "agent-log", "type": "command", "command": "node \"$GEMINI_PROJECT_DIR/scripts/agent-log.mjs\" check", "timeout": 15000 }] }
+    ],
+    "AfterTool": [
+      { "matcher": ".*", "hooks": [{ "name": "agent-log", "type": "command", "command": "node \"$GEMINI_PROJECT_DIR/scripts/agent-log.mjs\" check --every 60", "timeout": 15000 }] }
+    ]
+  }
+}
