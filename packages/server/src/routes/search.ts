@@ -28,10 +28,14 @@ export function searchRoutes(app: FastifyInstance, ctx: Context): void {
 
   app.get("/api/notification-settings", async (req) => ctx.notifications.settings(requireUser(req).id));
 
-  /** { conversationId, level } or { serverId, level }; level is all, mentions, nothing or null (back to the default). */
-  app.put<{ Body: { conversationId?: unknown; serverId?: unknown; level?: unknown } }>("/api/notification-settings", async (req) => {
+  /**
+   * { conversationId, level } or { serverId, level }; level is all, mentions, nothing or null
+   * (back to the default). Or { keywords: [...] } to replace your keyword alerts.
+   */
+  app.put<{ Body: { conversationId?: unknown; serverId?: unknown; level?: unknown; keywords?: unknown } }>("/api/notification-settings", async (req) => {
     const me = requireUser(req);
     const b = req.body ?? {};
+    if (b.keywords !== undefined) return ctx.notifications.setKeywords(me.id, b.keywords);
     const level = b.level === undefined ? null : b.level;
     if (b.conversationId !== undefined) {
       const cid = Number(b.conversationId);
@@ -45,7 +49,7 @@ export function searchRoutes(app: FastifyInstance, ctx: Context): void {
       }
       return ctx.notifications.set(me.id, "server", sid, level);
     }
-    throw new HttpError(400, "Say which conversationId or serverId");
+    throw new HttpError(400, "Say which conversationId or serverId, or send keywords");
   });
 
   // ---- Link previews ----------------------------------------------------------------------

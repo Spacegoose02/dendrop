@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { NotificationSettings, NotifyLevel } from "@dendrop/shared";
+import { LIMITS, type NotificationSettings, type NotifyLevel } from "@dendrop/shared";
 import { api } from "./api.ts";
 
 // ---- Your notification settings, shared by every part of the app ----------------------------
@@ -22,6 +22,12 @@ function load(): void {
   });
 }
 
+/** Your settings right now, for code outside React (loads them the first time). */
+export function notificationSettings(): NotificationSettings {
+  load();
+  return current;
+}
+
 export function useNotificationSettings(): NotificationSettings {
   useEffect(load, []);
   return useSyncExternalStore(
@@ -35,7 +41,7 @@ export function useNotificationSettings(): NotificationSettings {
 
 const LEVELS: { id: NotifyLevel; label: string; detail: string }[] = [
   { id: "all", label: "All messages", detail: "A notification for every new message." },
-  { id: "mentions", label: "Only @mentions", detail: "Only when someone pings you, replies to you, or uses @everyone." },
+  { id: "mentions", label: "Only @mentions", detail: "Only when someone pings you, replies to you, uses @everyone, or writes one of your keywords." },
   { id: "nothing", label: "Nothing (muted)", detail: "No notifications and no unread dot." },
 ];
 
@@ -107,5 +113,74 @@ export function NotifyMenu({ conversationId, serverId, serverName }: { conversat
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Keyword alerts, in Settings > Notifications: words or phrases that ping you like an @mention
+ * when someone else writes them.
+ */
+export function KeywordAlertsSection() {
+  const settings = useNotificationSettings();
+  const keywords = settings.keywords ?? [];
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async (next: string[]) => {
+    setBusy(true);
+    setError(null);
+    try {
+      setNotificationSettings(await api<NotificationSettings>("/api/notification-settings", { method: "PUT", body: { keywords: next } }));
+      return true;
+    } catch (err) {
+      setError((err as Error).message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const add = async () => {
+    const word = draft.trim().replace(/\s+/g, " ");
+    if (!word) return;
+    if (keywords.some((k) => k.toLowerCase() === word.toLowerCase())) return setDraft("");
+    if (await save([...keywords, word])) setDraft("");
+  };
+
+  return (
+    <section className="keyword-alerts">
+      <h3>Keyword alerts</h3>
+      <p className="muted small">
+        Get pinged when someone writes one of these words, like a name or "game night", even without an @mention. They count as a mention everywhere you
+        haven't muted. Matches whole words and ignores capitals. In end-to-end encrypted chats only your app can read the messages, so those alerts show
+        in the app but can't wake your phone.
+      </p>
+      {keywords.length > 0 && (
+        <ul className="keyword-list">
+          {keywords.map((k) => (
+            <li key={k}>
+              <span>{k}</span>
+              <button className="ghost icon small" disabled={busy} aria-label={`Remove ${k}`} title="Remove" onClick={() => void save(keywords.filter((x) => x !== k))}>
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void add();
+        }}
+      >
+        <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Add a word or phrase" maxLength={LIMITS.keywordLength} disabled={busy || keywords.length >= LIMITS.keywordAlerts} aria-label="New keyword" />
+        <button type="submit" disabled={busy || !draft.trim() || keywords.length >= LIMITS.keywordAlerts}>
+          Add
+        </button>
+      </form>
+      {keywords.length >= LIMITS.keywordAlerts && <p className="muted small">That's the most you can have ({LIMITS.keywordAlerts}). Remove one to add another.</p>}
+      {error && <p className="error small">{error}</p>}
+    </section>
   );
 }
