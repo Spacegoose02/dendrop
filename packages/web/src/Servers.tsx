@@ -121,6 +121,7 @@ export function ServerSidebar({
   inVoice,
   onOpen,
   onSettings,
+  onMarkRead,
   onInvite,
   onChannel,
   automodAlerts = 0,
@@ -140,6 +141,8 @@ export function ServerSidebar({
   inVoice: number | null;
   onOpen: (c: Channel) => void;
   onSettings: () => void;
+  /** Marks the server's channels and threads as read; missing when nothing is unread. */
+  onMarkRead?: () => void;
   onInvite: () => void;
   /** Make a channel (null, of this kind, in this category) or edit one. */
   onChannel: (c: Channel | null, kind?: ChannelKind, categoryId?: number | null) => void;
@@ -267,6 +270,11 @@ export function ServerSidebar({
         {server.bannerUrl && <img className="server-banner" src={server.bannerUrl} alt="" />}
         <div className="server-title">
           <strong className="ellipsis">{server.name}</strong>
+          {onMarkRead && (
+            <button className="ghost mark-all-read" onClick={onMarkRead} title="Mark this server as read" aria-label="Mark this server as read">
+              ✓
+            </button>
+          )}
           <button className="ghost" onClick={onSettings} title="Server settings" aria-label="Server settings">
             ⚙
           </button>

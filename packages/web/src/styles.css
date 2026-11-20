@@ -2624,3 +2624,21 @@ h5.md-h {
 .edit-history li.current {
   border-left: 3px solid var(--dd-accent);
 }
+
+/* "Mark all as read" (✓) beside the Direct messages and server titles. */
+.sidebar-header.with-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sidebar-header .mark-all-read {
+  margin: -10px -8px -10px 0;
+}
+.mark-all-read {
+  font-weight: 700;
+  color: var(--dd-text-muted);
+}
+.mark-all-read:hover {
+  color: var(--dd-accent);
+}

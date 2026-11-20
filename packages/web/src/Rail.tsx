@@ -62,6 +62,7 @@ export function ServerRail({
   onRail,
   renderServer,
   folderAlert,
+  onMarkRead,
 }: {
   servers: ChatServer[];
   rail: RailItem[];
@@ -70,6 +71,8 @@ export function ServerRail({
   renderServer: (s: ChatServer, extra: { onContextMenu: (e: ReactMouseEvent) => void; draggable: boolean; onDragStart: (e: DragEvent) => void; onDragOver: (e: DragEvent) => void; onDrop: (e: DragEvent) => void }) => ReactNode;
   /** A folder's unread state: whether anything in it is unread, and its pings. */
   folderAlert: (serverIds: number[]) => { unread: boolean; mentions: number };
+  /** Marks these servers' channels and threads as read. */
+  onMarkRead?: (serverIds: number[]) => void;
 }) {
   const items = arrangeRail(rail, servers);
   const byId = new Map(servers.map((s) => [s.id, s]));
@@ -257,6 +260,17 @@ export function ServerRail({
           {menuServerItem && (
             <>
               <strong className="small ellipsis">{byId.get(menuServerItem.serverId)?.name}</strong>
+              {onMarkRead && folderAlert([menuServerItem.serverId]).unread && (
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    onMarkRead([menuServerItem.serverId]);
+                    setMenu(null);
+                  }}
+                >
+                  Mark as read
+                </button>
+              )}
               {menuServerItem.folderId ? (
                 <>
                   <button role="menuitem" onClick={() => outOfFolder(menuServerItem.serverId, menuServerItem.folderId!)}>
@@ -291,6 +305,17 @@ export function ServerRail({
           )}
           {menuFolder && (
             <>
+              {onMarkRead && folderAlert(menuFolder.serverIds).unread && (
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    onMarkRead(menuFolder.serverIds);
+                    setMenu(null);
+                  }}
+                >
+                  Mark folder as read
+                </button>
+              )}
               {renaming?.id === menuFolder.id ? (
                 <form
                   onSubmit={(e) => {

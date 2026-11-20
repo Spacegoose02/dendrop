@@ -62,6 +62,49 @@ describe("unread counts, mark as unread, Do Not Disturb and appearing offline", 
     assert.equal((await call(bob, "POST", `/api/conversations/${dm}/unread`, { messageId: 999999 })).status, 404);
   });
 
+  it("marks everything as read, or just one server's channels and threads", async () => {
+    const den = (await call(ann, "POST", "/api/servers", { name: "Den two", isPublic: true })).body as ChatServer;
+    const other = (await call(ann, "POST", "/api/servers", { name: "Elsewhere", isPublic: true })).body as ChatServer;
+    await call(bob, "POST", `/api/servers/${den.id}/join`);
+    await call(bob, "POST", `/api/servers/${other.id}/join`);
+    const denChannel = den.channels[0]!.conversationId;
+    const otherChannel = other.channels[0]!.conversationId;
+    const parent = await say(ann, denChannel, "start a thread here");
+    const thread = (await call(ann, "POST", `/api/messages/${parent}/thread`, {})).body as { conversationId: number };
+    await say(ann, thread.conversationId, `in the thread <@${bobId}>`);
+    await say(ann, otherChannel, "over here");
+    const dmLast = await say(ann, dm, "and a DM");
+    const has = async (cid: number) => (await unread(bob)).some((u) => u.conversationId === cid);
+    assert.ok(await has(denChannel));
+    assert.ok(await has(thread.conversationId));
+
+    // One server: its channels and threads clear, nothing else does.
+    const bobLive = await listen(s, bob);
+    const annLive = await listen(s, ann);
+    const r = (await call(bob, "POST", "/api/unread/read-all", { serverId: den.id })).body as { conversationIds: number[] };
+    assert.deepEqual(new Set(r.conversationIds), new Set([denChannel, thread.conversationId]));
+    assert.deepEqual((await bobLive.waitFor("unread")).unread.count, 0);
+    assert.equal(await has(denChannel), false);
+    assert.equal(await has(thread.conversationId), false);
+    assert.ok(await has(otherChannel));
+    assert.ok(await has(dm));
+
+    // Everything: the rest clears, and Ann sees Bob read her DM.
+    await call(bob, "POST", `/api/conversations/${dm}/unread`, { messageId: dmLast });
+    const all = (await call(bob, "POST", "/api/unread/read-all", {})).body as { conversationIds: number[] };
+    assert.ok(all.conversationIds.includes(dm) && all.conversationIds.includes(otherChannel));
+    assert.deepEqual(await unread(bob), []);
+    const read = await annLive.waitFor("read");
+    assert.equal(read.userId, bobId);
+    const reads = (await call(ann, "GET", `/api/conversations/${dm}`)).body.reads as { userId: number; messageId: number }[];
+    assert.equal(reads.find((x) => x.userId === bobId)!.messageId, dmLast);
+    // Nothing left: nothing to do. A bad server id is turned away.
+    assert.deepEqual((await call(bob, "POST", "/api/unread/read-all")).body, { conversationIds: [] });
+    assert.equal((await call(bob, "POST", "/api/unread/read-all", { serverId: "nope" })).status, 400);
+    bobLive.ws.close();
+    annLive.ws.close();
+  });
+
   it("Do Not Disturb keeps messages coming but without notifications, and can end by itself", async () => {
     const bobLive = await listen(s, bob);
     const me = (await call(bob, "PUT", "/api/me/presence", { presence: "dnd", minutes: 60 })).body as Me;
