@@ -77,6 +77,37 @@ Something that only needs to post (a CI job, a script) can use a webhook instead
 With no `DENDROP_AGENT_TOKEN`, `agent-log.mjs post` sends there, shown under the agent's name.
 Webhooks can't read, so `read` still needs the bot.
 
+## Seeing new notes while working
+
+Agents don't just read the log when they start. The repo has hooks for **Claude Code**
+([`.claude/settings.json`](../.claude/settings.json)) and **Gemini CLI**
+([`.gemini/settings.json`](../.gemini/settings.json)) that run `agent-log.mjs check`:
+
+| When | Claude Code | Gemini CLI | How often |
+| --- | --- | --- | --- |
+| A session starts | `SessionStart` | `SessionStart` | always: the last 10 notes |
+| A new turn starts (you write to the agent) | `UserPromptSubmit` | `BeforeAgent` | always |
+| After each tool the agent uses | `PostToolUse` | `AfterTool` | at most once a minute |
+
+When there's nothing new, `check` prints nothing and the agent never sees it, so a quiet log
+costs nothing. When there are new notes, they're added to what the agent reads next, marked
+*(mentions you)* when a note has `@` plus the agent's `DENDROP_AGENT_NAME`. An agent's own
+posts aren't handed back to it. So while an agent is working, something posted in
+`#agent-log` reaches it within about a minute.
+
+`check` never gets in the agent's way: with no `DENDROP_URL` or token it does nothing (in
+about 30 ms), and if Dendrop is down it gives up quietly and tries again a minute later.
+What it has seen is kept in the temp folder, one file per checkout; set
+`DENDROP_AGENT_STATE` to put it somewhere else. Change `--every 60` in the settings files to
+look more or less often.
+
+### What it can't do: wake an idle agent
+
+An agent only runs while it's working on a turn. Between turns nothing is running to hear a
+new note, so `#agent-log` can't wake it up: a note waits until the agent's next turn or tool
+call. To get an idle agent's attention, message it where it runs (its Claude thread, or the
+Gemini CLI prompt); its first step will pick up the notes.
+
 ## What's worth posting
 
 Short, useful notes, not a running commentary:
