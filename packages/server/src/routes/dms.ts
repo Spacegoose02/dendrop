@@ -269,6 +269,7 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
           continue;
         }
         if (files.length >= LIMITS.attachmentsPerMessage) throw new HttpError(400, `Up to ${LIMITS.attachmentsPerMessage} files per message`);
+        if (req.user) ctx.spam.take("uploads", req.user.id);
         const fileId = randomBytes(16).toString("hex");
         const dest = path.join(uploads, fileId);
         files.push({ id: fileId, name: cleanName(part.filename), size: 0, contentType: cleanType(part.mimetype) });

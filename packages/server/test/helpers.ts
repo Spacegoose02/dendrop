@@ -5,6 +5,7 @@ import WebSocket from "ws";
 import type { ServerEvent } from "@dendrop/shared";
 import { buildApp, type BuiltApp } from "../src/app.js";
 import { loadConfig, type ServerConfig } from "../src/config.js";
+import { SpamGuard } from "../src/spam.js";
 
 process.env.NODE_ENV = "test";
 
@@ -17,7 +18,8 @@ export interface TestServer extends BuiltApp {
 export async function startServer(env: Record<string, string> = {}, options: Parameters<typeof buildApp>[2] = {}): Promise<TestServer> {
   const dir = mkdtempSync(path.join(tmpdir(), "dendrop-test-"));
   const config: ServerConfig = loadConfig({ DENDROP_DATA_DIR: dir, DENDROP_WEB_DIR: path.join(dir, "no-web"), ...env });
-  const built = await buildApp(config, undefined, options);
+  // Tests send lots of messages quickly, so spam limits are off unless a test brings its own.
+  const built = await buildApp(config, undefined, { spam: SpamGuard.off(), ...options });
   await built.app.listen({ port: 0, host: "127.0.0.1" });
   const addr = built.app.server.address();
   const port = typeof addr === "object" && addr ? addr.port : 0;
