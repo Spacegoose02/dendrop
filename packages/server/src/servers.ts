@@ -22,6 +22,7 @@ import {
   WELCOME_LIMITS,
   MAX_SLOWMODE,
   type ChannelCategory,
+  SERVER_TEMPLATES,
 } from "@dendrop/shared";
 import { now, tx, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
@@ -90,6 +91,30 @@ interface RequestRow {
 }
 
 export type ImageKind = "icon" | "banner";
+
+/**
+ * What a new server starts with, from a template or a copy of another server. Channels and the
+ * welcome screen point at roles and categories by their index in these lists.
+ */
+interface Layout {
+  /** Highest first. */
+  roles: { name: string; color: string | null; permissions: ServerPermission[] }[];
+  categories: string[];
+  channels: {
+    name: string;
+    kind: ChannelKind;
+    topic: string;
+    category: number | null;
+    locked: boolean;
+    roles: number[];
+    readOnly: boolean;
+    postRoles: number[];
+    slowmode: number;
+    tags: string[];
+  }[];
+  welcome?: { enabled: boolean; message: string; rules: string[]; requireAgree: boolean; roles: { role: number; description: string; emoji: string }[] };
+  settings?: { memberInvites: boolean; playTogether: boolean; levels: boolean };
+}
 
 const MODERATORS: ServerRole[] = ["owner", "admin"];
 export const isModerator = (role: ServerRole | undefined): boolean => !!role && MODERATORS.includes(role);
@@ -446,10 +471,16 @@ export class ServerRepo {
     if (n >= LIMITS.serversPerUser) throw new HttpError(400, `You can be in up to ${LIMITS.serversPerUser} servers`);
   }
 
-  create(owner: UserRecord, input: { name?: unknown; description?: unknown; isPublic?: unknown }): number {
+  /**
+   * Makes a server owned by `owner`. It starts with one #general channel, or with the channels,
+   * categories and roles of a template ({ template: "family" }, see SERVER_TEMPLATES) or of a
+   * server you manage ({ copyFrom: serverId }). A copy brings no members, messages or files.
+   */
+  create(owner: UserRecord, input: { name?: unknown; description?: unknown; isPublic?: unknown; template?: unknown; copyFrom?: unknown }): number {
     if (!this.canCreate(owner)) throw new HttpError(403, "You need a super admin's approval to make servers");
     const name = cleanText(input.name, LIMITS.serverName, "The server name", false);
     const description = input.description === undefined ? "" : cleanText(input.description, LIMITS.serverDescription, "The description", true);
+    const layout = this.startingLayout(owner, input);
     this.checkServerCount(owner.id);
     return this.atomic(() => {
       const t = now();
@@ -458,9 +489,147 @@ export class ServerRepo {
         .run(name, description, owner.id, input.isPublic === true ? 1 : 0, t);
       const sid = Number(res.lastInsertRowid);
       this.db.prepare("INSERT INTO server_members (server_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)").run(sid, owner.id, t);
-      this.insertChannel(sid, "general", "", false, []);
+      if (layout) this.applyLayout(sid, layout);
+      else this.insertChannel(sid, "general", "", false, []);
       return sid;
     });
+  }
+
+  /** The layout a new server starts with, from { template } or { copyFrom }, or null for a plain one. */
+  private startingLayout(owner: UserRecord, input: { template?: unknown; copyFrom?: unknown }): Layout | null {
+    const template = input.template ?? null;
+    const copyFrom = input.copyFrom ?? null;
+    if (template !== null && copyFrom !== null) throw new HttpError(400, "Pick a template or a server to copy, not both");
+    if (template !== null) {
+      const t = SERVER_TEMPLATES.find((x) => x.id === template);
+      if (!t) throw new HttpError(400, "There's no such template");
+      return this.templateLayout(t);
+    }
+    if (copyFrom !== null) {
+      const from = Number(copyFrom);
+      // Same answer for a server that doesn't exist and one you're not in.
+      if (!Number.isInteger(from) || !this.role(from, owner.id)) throw new HttpError(404, "No such server");
+      if (!this.can(from, owner.id, "manageServer")) throw new HttpError(403, "You need Manage server there to copy it");
+      return this.copyLayout(from, owner.id);
+    }
+    return null;
+  }
+
+  private templateLayout(t: (typeof SERVER_TEMPLATES)[number]): Layout {
+    const roleIndex = (name: string) => {
+      const i = t.roles.findIndex((r) => r.name === name);
+      if (i < 0) throw new Error(`Template ${t.id} has no role ${name}`);
+      return i;
+    };
+    const categories: string[] = [];
+    const channels: Layout["channels"] = [];
+    for (const cat of t.categories) {
+      const category = cat.name === null ? null : categories.push(cat.name) - 1;
+      for (const c of cat.channels) {
+        const kind = c.kind ?? "text";
+        channels.push({
+          name: cleanChannelName(c.name),
+          kind,
+          topic: c.topic ?? "",
+          category,
+          locked: !!c.locked,
+          roles: (c.roles ?? []).map(roleIndex),
+          readOnly: !!c.readOnly,
+          postRoles: (c.postRoles ?? []).map(roleIndex),
+          slowmode: c.slowmode ?? 0,
+          tags: kind === "forum" ? cleanTags(c.tags ?? []) : [],
+        });
+      }
+    }
+    return { roles: t.roles.map((r) => ({ name: r.name, color: r.color, permissions: [...r.permissions] })), categories, channels };
+  }
+
+  /**
+   * The layout of a server: its roles, categories, the channels `viewerId` can see (with who can
+   * see and post in them, by role), the welcome screen and its settings. People picked one by
+   * one for a locked channel aren't copied: the new server has no members yet.
+   */
+  private copyLayout(serverId: number, viewerId: number): Layout {
+    const r = this.row(serverId)!;
+    const roles = this.roleRows(serverId);
+    const roleAt = new Map(roles.map((x, i) => [x.id, i]));
+    const cats = this.categories(serverId);
+    const catAt = new Map(cats.map((x, i) => [x.id, i]));
+    const toIndexes = (ids: number[]) => ids.flatMap((id) => (roleAt.has(id) ? [roleAt.get(id)!] : []));
+    const role = this.role(serverId, viewerId);
+    const channels = this.channelRows(serverId)
+      .filter((c) => this.canSee(c, viewerId, role))
+      .map((c) => ({
+        name: c.name,
+        kind: CHANNEL_KINDS.includes(c.kind) ? c.kind : ("text" as ChannelKind),
+        topic: c.topic,
+        category: c.category_id === null ? null : (catAt.get(c.category_id) ?? null),
+        locked: !!c.locked,
+        roles: toIndexes(this.roleAccess(c.id)),
+        readOnly: !!c.read_only,
+        postRoles: toIndexes(this.postRoles(c.id)),
+        slowmode: c.slowmode,
+        tags: c.kind === "forum" ? (JSON.parse(c.tags) as string[]) : [],
+      }));
+    const w = this.welcome(serverId);
+    return {
+      roles: roles.map((x) => ({ name: x.name, color: x.color, permissions: this.permsOf(x) })),
+      categories: cats.map((c) => c.name),
+      channels,
+      welcome: {
+        enabled: w.enabled,
+        message: w.message,
+        rules: w.rules,
+        requireAgree: w.requireAgree,
+        roles: w.roles.flatMap((x) => (roleAt.has(x.roleId) ? [{ role: roleAt.get(x.roleId)!, description: x.description, emoji: x.emoji }] : [])),
+      },
+      settings: { memberInvites: !!r.member_invites, playTogether: !!r.play_together, levels: !!r.levels },
+    };
+  }
+
+  /** Fills a brand new server with a layout. Runs inside create's transaction. */
+  private applyLayout(serverId: number, l: Layout): void {
+    const t = now();
+    const roleIds = l.roles.map(
+      (r, i) =>
+        Number(
+          this.db
+            .prepare("INSERT INTO server_roles (server_id, name, color, position, permissions, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+            .run(serverId, r.name, r.color, i, JSON.stringify(r.permissions), t).lastInsertRowid,
+        ),
+    );
+    const catIds = l.categories.map(
+      (name, i) => Number(this.db.prepare("INSERT INTO server_categories (server_id, name, position, created_at) VALUES (?, ?, ?, ?)").run(serverId, name, i, t).lastInsertRowid),
+    );
+    const ids = (indexes: number[]) => indexes.map((i) => roleIds[i]!);
+    for (const c of l.channels) {
+      const cid = this.insertChannel(serverId, c.name, c.topic, c.locked, [], c.kind, c.locked ? ids(c.roles) : [], c.tags);
+      this.applyChannelExtras(cid, {
+        categoryId: c.category === null ? null : catIds[c.category]!,
+        slowmode: c.slowmode,
+        readOnly: c.readOnly,
+        postRoleIds: c.readOnly ? ids(c.postRoles) : [],
+      });
+    }
+    if (l.welcome) {
+      const w = l.welcome;
+      this.db
+        .prepare("INSERT INTO server_welcome (server_id, enabled, message, rules, require_agree, roles, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run(
+          serverId,
+          w.enabled ? 1 : 0,
+          w.message,
+          JSON.stringify(w.rules),
+          w.requireAgree ? 1 : 0,
+          JSON.stringify(w.roles.map((x) => ({ roleId: roleIds[x.role]!, description: x.description, emoji: x.emoji }))),
+          t,
+        );
+    }
+    if (l.settings) {
+      this.db
+        .prepare("UPDATE servers SET member_invites = ?, play_together = ?, levels = ? WHERE id = ?")
+        .run(l.settings.memberInvites ? 1 : 0, l.settings.playTogether ? 1 : 0, l.settings.levels ? 1 : 0, serverId);
+    }
   }
 
   update(serverId: number, patch: { name?: unknown; description?: unknown; isPublic?: unknown; memberInvites?: unknown; playTogether?: unknown; levels?: unknown }): void {
