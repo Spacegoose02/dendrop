@@ -385,6 +385,24 @@ export function dmRoutes(app: FastifyInstance, ctx: Context): void {
   /** Unread counts for every conversation with unread messages: DMs, groups, channels and threads. */
   app.get("/api/unread", async (req) => convos.unread(requireUser(req).id));
 
+  /**
+   * "Mark all as read": everything, or only one server's channels and threads (`serverId`). Your
+   * other devices clear their counts too, and people with read receipts on see you caught up.
+   */
+  app.post<{ Body: { serverId?: unknown } | null }>("/api/unread/read-all", async (req) => {
+    const me = requireUser(req);
+    const serverId = req.body?.serverId === undefined || req.body?.serverId === null ? undefined : id(req.body.serverId);
+    const cleared = convos.markAllRead(me.id, serverId);
+    for (const { conversationId, messageId } of cleared) {
+      gateway.send([me.id], { type: "unread", unread: { conversationId, count: 0, mentions: 0 } });
+      if (messageId && me.readReceipts) {
+        const others = convos.memberIds(conversationId).filter((u) => u !== me.id && users.byId(u)?.readReceipts);
+        gateway.send(others, { type: "read", conversationId, userId: me.id, messageId });
+      }
+    }
+    return { conversationIds: cleared.map((c) => c.conversationId) };
+  });
+
   /** "Mark as unread" from a message on. Only for you: read receipts others saw stay. */
   app.post<{ Params: { id: string }; Body: { messageId?: unknown } }>("/api/conversations/:id/unread", async (req) => {
     const me = requireUser(req);
