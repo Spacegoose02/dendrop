@@ -91,6 +91,43 @@ describe("agent log script", () => {
     assert.equal(down.stdout, "");
   });
 
+  it("works as an Antigravity hook: emits injectSteps.systemMessage and throttles mid-turn PreInvocation", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "agent-log-agy-"));
+    const a = { DENDROP_AGENT_STATE: path.join(dir, "a.json"), DENDROP_AGENT_NAME: "Fix Safari export" };
+    const b = { DENDROP_AGENT_STATE: path.join(dir, "b.json"), DENDROP_AGENT_NAME: "Release 0.9" };
+    const hook = async (who: Record<string, string>, event: string, payload: object, ...args: string[]) => {
+      const { stdout } = await agent(["check", "--event", event, "--format", "antigravity", ...args], {
+        ...who,
+        DENDROP_HOOK_INPUT: JSON.stringify({ conversationId: "conv-1", workspacePaths: ["/repo"], ...payload }),
+      });
+      return stdout.trim()
+        ? (JSON.parse(stdout) as { injectSteps: Array<{ systemMessage: { systemMessage: string } }> })
+        : null;
+    };
+
+    // SessionStart emits injectSteps.systemMessage with recent notes.
+    const start = await hook(a, "SessionStart", {});
+    assert.equal(start!.injectSteps.length, 1);
+    assert.match(start!.injectSteps[0]!.systemMessage.systemMessage, /Recent notes[\s\S]*PR is up/);
+
+    // Another agent posts; mid-turn PreInvocation (invocationNum > 0) is throttled to once a minute.
+    await agent(["post", "Own note"], a);
+    await agent(["post", "Mid-turn heads up"], b);
+    assert.equal(await hook(a, "PreInvocation", { invocationNum: 1 }, "--every", "60"), null);
+
+    // Start of a new turn (invocationNum === 0) checks immediately and omits own posts.
+    const turn = await hook(a, "PreInvocation", { invocationNum: 0 }, "--every", "60");
+    assert.equal(turn!.injectSteps.length, 1);
+    assert.match(turn!.injectSteps[0]!.systemMessage.systemMessage, /New in Dendrop's #agent-log[\s\S]*Mid-turn heads up/);
+    assert.doesNotMatch(turn!.injectSteps[0]!.systemMessage.systemMessage, /Own note/);
+
+    // With --every 0, mid-turn PreInvocation picks up subsequent notes.
+    await agent(["post", "@fix safari export ready for merge"], b);
+    const mid = await hook(a, "PreInvocation", { invocationNum: 2 }, "--every", "0");
+    assert.match(mid!.injectSteps[0]!.systemMessage.systemMessage, /\(mentions you\): \*\*Release 0\.9\*\*: @fix safari export ready for merge/);
+    assert.equal(await hook(a, "PreInvocation", { invocationNum: 3 }, "--every", "0"), null);
+  });
+
   it("says what's wrong instead of crashing", async () => {
     await assert.rejects(agent(["post", "hi"], { DENDROP_AGENT_CHANNEL: "nope" }), /can't see a text channel named #nope/);
     await assert.rejects(agent(["read"], { DENDROP_AGENT_TOKEN: "1.wrongwrongwrongwrong" }), /401/);
