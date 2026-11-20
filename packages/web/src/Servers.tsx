@@ -20,6 +20,7 @@ import {
   type VoiceChannelState,
   type ServerPermission,
   SLOWMODE_CHOICES,
+  SERVER_TEMPLATES,
 } from "@dendrop/shared";
 import { api, ApiError } from "./api.ts";
 import { AuditLogTab } from "./Audit.tsx";
@@ -121,6 +122,7 @@ export function ServerSidebar({
   inVoice,
   onOpen,
   onSettings,
+  onMarkRead,
   onInvite,
   onChannel,
   automodAlerts = 0,
@@ -140,6 +142,8 @@ export function ServerSidebar({
   inVoice: number | null;
   onOpen: (c: Channel) => void;
   onSettings: () => void;
+  /** Marks the server's channels and threads as read; missing when nothing is unread. */
+  onMarkRead?: () => void;
   onInvite: () => void;
   /** Make a channel (null, of this kind, in this category) or edit one. */
   onChannel: (c: Channel | null, kind?: ChannelKind, categoryId?: number | null) => void;
@@ -267,6 +271,11 @@ export function ServerSidebar({
         {server.bannerUrl && <img className="server-banner" src={server.bannerUrl} alt="" />}
         <div className="server-title">
           <strong className="ellipsis">{server.name}</strong>
+          {onMarkRead && (
+            <button className="ghost mark-all-read" onClick={onMarkRead} title="Mark this server as read" aria-label="Mark this server as read">
+              ✓
+            </button>
+          )}
           <button className="ghost" onClick={onSettings} title="Server settings" aria-label="Server settings">
             ⚙
           </button>
@@ -311,7 +320,9 @@ export function ServerSidebar({
           // Forums sit with the text channels. Channels in a category are listed under it instead.
           const list = loose.filter((c) => c.kind === kind || (kind === "text" && c.kind === "forum"));
           if (kind !== "text" && list.length === 0 && !mod) return null;
-          if (kind === "text" && list.length === 0 && server.categories.length > 0 && !mod) return null;
+          // Once a server uses categories (templates do), empty loose sections are just clutter;
+          // moderators add channels with each category's ＋ instead.
+          if (list.length === 0 && server.categories.length > 0) return null;
           const info = CHANNEL_KINDS[kind];
           return (
             <div key={kind}>
@@ -625,8 +636,12 @@ export function InviteLinkDialog({ code, onClose, onJoined }: { code: string; on
 }
 
 /** Makes a server, or asks a super admin for permission first. */
-export function CreateServer({ me, onClose, onCreated }: { me: Me; onClose: () => void; onCreated: (s: ChatServer) => void }) {
+export function CreateServer({ me, servers, onClose, onCreated }: { me: Me; servers: ChatServer[]; onClose: () => void; onCreated: (s: ChatServer) => void }) {
   const [name, setName] = useState("");
+  /** "blank", a template id, or "copy". */
+  const [start, setStart] = useState("blank");
+  const copyable = servers.filter((s) => can(s, "manageServer"));
+  const [copyFrom, setCopyFrom] = useState<number | null>(copyable[0]?.id ?? null);
   const [description, setDescription] = useState("");
   const [isPublic, setIsPublic] = useState(false);
   const [reason, setReason] = useState("");
@@ -640,7 +655,8 @@ export function CreateServer({ me, onClose, onCreated }: { me: Me; onClose: () =
   const create = async () => {
     setError(null);
     try {
-      onCreated(await api<ChatServer>("/api/servers", { body: { name, description, isPublic } }));
+      const from = start === "blank" ? {} : start === "copy" ? { copyFrom } : { template: start };
+      onCreated(await api<ChatServer>("/api/servers", { body: { name, description, isPublic, ...from } }));
     } catch (err) {
       setError((err as Error).message);
     }
@@ -683,6 +699,7 @@ export function CreateServer({ me, onClose, onCreated }: { me: Me; onClose: () =
         Name
         <input value={name} onChange={(e) => setName(e.target.value)} maxLength={LIMITS.serverName} placeholder="The den" autoFocus />
       </label>
+      <ServerStartPicker start={start} onStart={setStart} copyable={copyable} copyFrom={copyFrom} onCopyFrom={setCopyFrom} />
       <label>
         Description (optional)
         <input value={description} onChange={(e) => setDescription(e.target.value)} maxLength={LIMITS.serverDescription} />
@@ -695,10 +712,82 @@ export function CreateServer({ me, onClose, onCreated }: { me: Me; onClose: () =
         </span>
       </label>
       {error && <p className="error">{error}</p>}
-      <button className="primary wide" disabled={!name.trim()} onClick={() => void create()}>
+      <button className="primary wide" disabled={!name.trim() || (start === "copy" && copyFrom === null)} onClick={() => void create()}>
         Create server
       </button>
     </Modal>
+  );
+}
+
+/** Pick what a new server starts with: one #general channel, a template, or a copy of a server you manage. */
+function ServerStartPicker({
+  start,
+  onStart,
+  copyable,
+  copyFrom,
+  onCopyFrom,
+}: {
+  start: string;
+  onStart: (v: string) => void;
+  copyable: ChatServer[];
+  copyFrom: number | null;
+  onCopyFrom: (id: number) => void;
+}) {
+  const options = [
+    { id: "blank", emoji: "✨", name: "Blank", description: "Just a #general channel. Add the rest yourself." },
+    ...SERVER_TEMPLATES.map((t) => ({ id: t.id, emoji: t.emoji, name: t.name, description: t.description })),
+    ...(copyable.length ? [{ id: "copy", emoji: "📋", name: "Copy a server", description: "The channels, roles and welcome screen of one of your servers. No members or messages." }] : []),
+  ];
+  const template = SERVER_TEMPLATES.find((t) => t.id === start);
+  return (
+    <div className="server-start">
+      <span className="server-start-label">Start from</span>
+      <div className="server-start-grid" role="radiogroup" aria-label="Start from">
+        {options.map((o) => (
+          <button key={o.id} type="button" role="radio" aria-checked={start === o.id} className={start === o.id ? "active" : ""} onClick={() => onStart(o.id)} title={o.description}>
+            <span className="server-start-emoji">{o.emoji}</span>
+            <span>{o.name}</span>
+          </button>
+        ))}
+      </div>
+      <p className="muted small">{options.find((o) => o.id === start)?.description}</p>
+      {template && (
+        <div className="server-start-preview">
+          {template.categories.map((cat, i) => (
+            <div key={i}>
+              {cat.name && <div className="server-start-category">{cat.name}</div>}
+              {cat.channels.map((c) => (
+                <div key={c.name} className="server-start-channel">
+                  {channelMark({ kind: c.kind ?? "text", locked: !!c.locked })} {c.name}
+                  {c.readOnly && <span className="muted small"> · read only</span>}
+                </div>
+              ))}
+            </div>
+          ))}
+          {template.roles.length > 0 && (
+            <div className="server-start-roles">
+              {template.roles.map((r) => (
+                <span key={r.name} className="server-start-role" style={{ color: r.color ?? undefined }}>
+                  ● {r.name}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {start === "copy" && (
+        <label className="server-start-copy">
+          Server to copy
+          <select value={copyFrom ?? ""} onChange={(e) => onCopyFrom(Number(e.target.value))}>
+            {copyable.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+    </div>
   );
 }
 

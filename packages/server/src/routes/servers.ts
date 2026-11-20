@@ -125,7 +125,7 @@ export function serverRoutes(app: FastifyInstance, ctx: Context): void {
 
   app.get("/api/servers", async (req) => servers.list(requireUser(req).id));
 
-  app.post<{ Body: { name?: unknown; description?: unknown; isPublic?: unknown } }>("/api/servers", async (req) => {
+  app.post<{ Body: { name?: unknown; description?: unknown; isPublic?: unknown; template?: unknown; copyFrom?: unknown } }>("/api/servers", async (req) => {
     const me = requireUser(req);
     const sid = servers.create(me, req.body ?? {});
     push(sid);

@@ -593,13 +593,20 @@ function recorderType(): string {
 /** Records a voice message from the microphone. Hands back the file to send, or nothing if cancelled. */
 export function VoiceRecorder({ onDone, onError }: { onDone: (file: File | null) => void; onError: (msg: string) => void }) {
   const [secs, setSecs] = useState(0);
+  const [paused, setPaused] = useState(false);
   const rec = useRef<MediaRecorder | null>(null);
   const keep = useRef(true);
-  const started = useRef(0);
+  // Recorded time so far, not counting pauses: what's banked plus the running stretch.
+  const banked = useRef(0);
+  const since = useRef<number | null>(null);
+  const meter = useRef<HTMLSpanElement | null>(null);
+  const elapsed = () => banked.current + (since.current === null ? 0 : Date.now() - since.current);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
+    let audio: AudioContext | null = null;
     let tick: ReturnType<typeof setInterval> | undefined;
+    let frame = 0;
     let stopped = false;
     const chunks: Blob[] = [];
     (async () => {
@@ -612,28 +619,58 @@ export function VoiceRecorder({ onDone, onError }: { onDone: (file: File | null)
         r.ondataavailable = (e) => e.data.size && chunks.push(e.data);
         r.onstop = () => {
           stream?.getTracks().forEach((t) => t.stop());
-          const length = Math.max(1, Math.round((Date.now() - started.current) / 1000));
+          const length = Math.max(1, Math.round(elapsed() / 1000));
+          since.current = null;
           if (!keep.current || !chunks.length) return onDone(null);
           const mime = (r.mimeType || "audio/webm").split(";")[0]!;
           const ext = mime.includes("ogg") ? "ogg" : mime.includes("mp4") ? "m4a" : "webm";
           onDone(new File(chunks, `voice-message-${length}s.${ext}`, { type: mime }));
         };
-        started.current = Date.now();
+        since.current = Date.now();
         r.start(250);
         tick = setInterval(() => {
-          const s = (Date.now() - started.current) / 1000;
+          const s = elapsed() / 1000;
           setSecs(s);
-          if (s >= FUN_LIMITS.voiceSeconds) r.stop();
+          if (s >= FUN_LIMITS.voiceSeconds && r.state !== "inactive") r.stop();
         }, 250);
+        startMeter(stream);
       } catch {
         onError("Couldn't use the microphone. Check that Dendrop is allowed to use it.");
         onDone(null);
       }
     })();
+
+    // The level bar: loudness of the mic, drawn straight onto the element so it doesn't re-render.
+    function startMeter(s: MediaStream) {
+      try {
+        audio = new AudioContext();
+        const analyser = audio.createAnalyser();
+        analyser.fftSize = 512;
+        audio.createMediaStreamSource(s).connect(analyser);
+        const samples = new Float32Array(analyser.fftSize);
+        let level = 0;
+        const draw = () => {
+          analyser.getFloatTimeDomainData(samples);
+          let sum = 0;
+          for (const v of samples) sum += v * v;
+          // RMS, scaled up so normal speech fills most of the bar, with a quick rise and slow fall.
+          const now = rec.current?.state === "recording" ? Math.min(1, Math.sqrt(sum / samples.length) * 4) : 0;
+          level = now > level ? now : level * 0.85;
+          if (meter.current) meter.current.style.transform = `scaleX(${level.toFixed(3)})`;
+          frame = requestAnimationFrame(draw);
+        };
+        draw();
+      } catch {
+        // No level bar then; recording still works.
+      }
+    }
+
     return () => {
       stopped = true;
       clearInterval(tick);
-      if (rec.current?.state === "recording") {
+      cancelAnimationFrame(frame);
+      void audio?.close().catch(() => {});
+      if (rec.current && rec.current.state !== "inactive") {
         keep.current = false;
         rec.current.stop();
       }
@@ -645,24 +682,63 @@ export function VoiceRecorder({ onDone, onError }: { onDone: (file: File | null)
 
   const finish = (send: boolean) => {
     keep.current = send;
-    if (rec.current?.state === "recording") rec.current.stop();
+    if (rec.current && rec.current.state !== "inactive") rec.current.stop();
     else onDone(null);
   };
 
+  const togglePause = () => {
+    const r = rec.current;
+    if (!r) return;
+    if (r.state === "recording") {
+      r.pause();
+      if (since.current !== null) banked.current += Date.now() - since.current;
+      since.current = null;
+      setPaused(true);
+    } else if (r.state === "paused") {
+      r.resume();
+      since.current = Date.now();
+      setPaused(false);
+    }
+  };
+  const canPause = typeof MediaRecorder !== "undefined" && typeof MediaRecorder.prototype.pause === "function";
+
   return (
-    <div className="voice-recorder" role="status">
+    <div className={`voice-recorder${paused ? " paused" : ""}`} role="status">
       <span className="rec-dot" aria-hidden />
-      <span>Recording {clock(secs)}</span>
-      <span className="muted small">up to {clock(FUN_LIMITS.voiceSeconds)}</span>
+      <span>
+        <span className="rec-word">{paused ? "Paused" : "Recording"} </span>
+        {clock(secs)}
+      </span>
+      <span className="mic-level" aria-hidden title="Microphone level">
+        <span ref={meter} />
+      </span>
+      <span className="muted small rec-limit">up to {clock(FUN_LIMITS.voiceSeconds)}</span>
       <span className="grow" />
       <button className="ghost" onClick={() => finish(false)}>
         Cancel
       </button>
+      {canPause && (
+        <button className="ghost" onClick={togglePause} aria-pressed={paused}>
+          {paused ? "Resume" : "Pause"}
+        </button>
+      )}
       <button className="primary small-button" onClick={() => finish(true)}>
         Send
       </button>
     </div>
   );
+}
+
+/** Playback speeds for audio, and the one this person picked last time (kept on this device). */
+const SPEEDS = [1, 1.5, 2] as const;
+const SPEED_KEY = "dendrop.audioSpeed";
+function savedSpeed(): number {
+  try {
+    const n = Number(localStorage.getItem(SPEED_KEY));
+    return (SPEEDS as readonly number[]).includes(n) ? n : 1;
+  } catch {
+    return 1;
+  }
 }
 
 /**
@@ -672,6 +748,8 @@ export function VoiceRecorder({ onDone, onError }: { onDone: (file: File | null)
 export function AudioPlayer({ name, load }: { name: string; load: () => Promise<Blob> }) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [speed, setSpeed] = useState(savedSpeed);
+  const player = useRef<HTMLAudioElement | null>(null);
   const voice = voiceSeconds(name);
   useEffect(() => {
     let made: string | null = null;
@@ -690,13 +768,35 @@ export function AudioPlayer({ name, load }: { name: string; load: () => Promise<
     // The loader changes identity each render; the file doesn't.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name]);
+  useEffect(() => {
+    const a = player.current;
+    if (!a) return;
+    a.defaultPlaybackRate = speed;
+    a.playbackRate = speed;
+  }, [speed, url]);
+  const nextSpeed = () => {
+    const n = SPEEDS[(SPEEDS.indexOf(speed as (typeof SPEEDS)[number]) + 1) % SPEEDS.length]!;
+    setSpeed(n);
+    try {
+      localStorage.setItem(SPEED_KEY, String(n));
+    } catch {
+      // Just this message then.
+    }
+  };
   return (
     <div className="audio-attachment">
-      <span className="small">
-        {voice !== null ? "🎤 Voice message" : `🎵 ${name}`}
-        {voice !== null && <span className="muted"> · {clock(voice)}</span>}
+      <span className="small audio-head">
+        <span className="grow">
+          {voice !== null ? "🎤 Voice message" : `🎵 ${name}`}
+          {voice !== null && <span className="muted"> · {clock(voice)}</span>}
+        </span>
+        {url && (
+          <button className="speed-button" onClick={nextSpeed} title="Playback speed" aria-label={`Playback speed ${speed}x`}>
+            {speed}×
+          </button>
+        )}
       </span>
-      {failed ? <span className="muted small">Couldn't load it.</span> : url ? <audio controls preload="metadata" src={url} /> : <span className="muted small">Loading…</span>}
+      {failed ? <span className="muted small">Couldn't load it.</span> : url ? <audio ref={player} controls preload="metadata" src={url} /> : <span className="muted small">Loading…</span>}
     </div>
   );
 }

@@ -26,7 +26,7 @@ import type {
   VoiceChannelState,
   VoiceJoin,
 } from "@dendrop/shared";
-import { isVoiceKind } from "@dendrop/shared";
+import { isVoiceKind, matchesKeyword } from "@dendrop/shared";
 import { api, connectGateway, logout } from "./api.ts";
 import { PresencePicker, UnreadBadge } from "./Unread.tsx";
 import { ServerRail } from "./Rail.tsx";
@@ -66,7 +66,7 @@ import { ChannelDialog, CreateServer, Directory, InviteDialog, InviteLinkDialog,
 import { can } from "./roles.ts";
 import { ExpressionsContext } from "./expressions.tsx";
 import { patchUser, ProfileCard, ProfileContext, ProfileEditorDialog, StatusLine, type ProfileTarget } from "./Profile.tsx";
-import { setNotificationSettings } from "./notify.tsx";
+import { notificationSettings, setNotificationSettings } from "./notify.tsx";
 import { closeSearch, openSearch, requestJump, SearchPanel, useSearchOpen } from "./Search.tsx";
 import { playSoundboard } from "./soundboard.ts";
 
@@ -401,7 +401,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         case "message.created": {
           const m = e.message;
           feedOverlayMessage(m);
-          void reveal(m).then((shown) =>
+          const revealed = reveal(m);
+          void revealed.then((shown) =>
             setHistories((h) => {
               const cur = h[m.conversationId];
               if (!cur || cur.messages.some((x) => x.id === m.id)) return h;
@@ -424,17 +425,24 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             delete forConv[m.authorId];
             return { ...t, [m.conversationId]: forConv };
           });
-          const v = viewRef.current;
-          // Muted conversations don't get an unread dot (unless you're pinged).
-          if (e.muted && !e.mentioned) break;
-          if ((m.authorId !== me.id || m.webhook) && !(viewConversation(v, serversRef.current) === m.conversationId && document.hasFocus())) {
-            setUnread((u) => {
-              const n = new Map(u);
-              const cur = n.get(m.conversationId) ?? { count: 0, mentions: 0 };
-              n.set(m.conversationId, { count: cur.count + 1, mentions: cur.mentions + (e.mentioned ? 1 : 0) });
-              return n;
-            });
-          }
+          const own = m.authorId === me.id && !m.webhook;
+          const countUnread = (pinged: boolean) => {
+            // Muted conversations don't get an unread dot (unless you're pinged).
+            if (e.muted && !pinged) return;
+            if (!own && !(viewConversation(viewRef.current, serversRef.current) === m.conversationId && document.hasFocus())) {
+              setUnread((u) => {
+                const n = new Map(u);
+                const cur = n.get(m.conversationId) ?? { count: 0, mentions: 0 };
+                n.set(m.conversationId, { count: cur.count + 1, mentions: cur.mentions + (pinged ? 1 : 0) });
+                return n;
+              });
+            }
+          };
+          // The server can't read encrypted messages, so keyword alerts for those are checked
+          // here, once the message is open: a hit counts like a mention.
+          if (m.keyVersion && !m.deleted && !own && !e.mentioned) {
+            void revealed.then((shown) => countUnread(!shown.locked && matchesKeyword(shown.text, notificationSettings().keywords)));
+          } else countUnread(!!e.mentioned);
           break;
         }
         case "notifications.updated":
@@ -805,6 +813,23 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
   const eventsOf = (sv: ChatServer) => events.filter((x) => x.serverId === sv.id && (x.channelId === null || sv.channels.some((c) => c.id === x.channelId)));
   const serverUnread = (sv: ChatServer) => sv.channels.some((c) => unread.has(c.conversationId));
   const serverMentions = (sv: ChatServer) => sv.channels.reduce((n, c) => n + (unread.get(c.conversationId)?.mentions ?? 0), 0);
+  /**
+   * "Mark all as read": everything, or only some servers (their channels and threads). The counts
+   * clear here right away; the server tells your other devices.
+   */
+  const markAllRead = async (only?: ChatServer[]) => {
+    const scope = only ? new Set(only.flatMap((sv) => sv.channels.map((c) => c.conversationId))) : null;
+    try {
+      const cleared = only
+        ? (await Promise.all(only.map((sv) => api<{ conversationIds: number[] }>("/api/unread/read-all", { body: { serverId: sv.id } })))).flatMap((r) => r.conversationIds)
+        : (await api<{ conversationIds: number[] }>("/api/unread/read-all", { body: {} })).conversationIds;
+      for (const cid of cleared) scope?.add(cid);
+      setUnread((u) => (scope ? new Map([...u].filter(([cid]) => !scope.has(cid))) : new Map()));
+      setToast(only?.length === 1 ? `Marked ${only[0]!.name} as read` : only ? "Marked those servers as read" : "Marked everything as read");
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Couldn't mark that as read");
+    }
+  };
   const dialogServer = serverDialog && "serverId" in serverDialog ? servers.find((x) => x.id === serverDialog.serverId) : undefined;
   const incoming = friends.filter((f) => f.state === "incoming").length;
 
@@ -937,6 +962,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           servers={servers}
           rail={rail}
           onRail={setRail}
+          onMarkRead={(ids) => void markAllRead(servers.filter((x) => ids.includes(x.id)))}
           folderAlert={(ids) => {
             const in_ = servers.filter((x) => ids.includes(x.id));
             return { unread: in_.some(serverUnread), mentions: in_.reduce((n, x) => n + serverMentions(x), 0) };
@@ -985,6 +1011,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
               if (isVoiceKind(c.kind) && server?.calls) void joinVoice(currentServer, c);
             }}
             onSettings={() => setServerDialog({ kind: "settings", serverId: currentServer.id })}
+            onMarkRead={serverUnread(currentServer) ? () => void markAllRead([currentServer]) : undefined}
             automodAlerts={automodAlerts[currentServer.id] ?? 0}
             onModLog={() => {
               setAutomodAlerts((all) => ({ ...all, [currentServer.id]: 0 }));
@@ -998,7 +1025,14 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
           />
         ) : (
         <>
-        <header className="sidebar-header">Direct messages</header>
+        <header className="sidebar-header with-action">
+          Direct messages
+          {unread.size > 0 && (
+            <button className="ghost mark-all-read" onClick={() => void markAllRead()} title="Mark everything as read: all chats and servers" aria-label="Mark everything as read">
+              ✓
+            </button>
+          )}
+        </header>
         <div className="sidebar-body">
           <button className={`nav-item ${view.kind === "friends" ? "active" : ""}`} onClick={() => open({ kind: "friends" })}>
             <span className="nav-icon" aria-hidden>
@@ -1387,6 +1421,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       {serverDialog?.kind === "create" && (
         <CreateServer
           me={me}
+          servers={servers}
           onClose={() => setServerDialog(null)}
           onCreated={(sv) => {
             setServerDialog(null);

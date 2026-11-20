@@ -4,7 +4,22 @@ import E2EEWorker from "livekit-client/e2ee-worker?worker";
 import type { CallJoin, Conversation, Me } from "@dendrop/shared";
 import { api } from "./api.ts";
 import { Avatar } from "./Avatar.tsx";
-import { applyOutput, loadAudio, micError, playSound, useAudioPrefs, type AudioPrefs } from "./audio.ts";
+import {
+  applyOutput,
+  canPickOutput,
+  effectiveUserGain,
+  loadAudio,
+  micError,
+  playSound,
+  saveUserVolume,
+  soundContext,
+  useAudioPrefs,
+  userVolume,
+  useUserVolumes,
+  type AudioPrefs,
+  type UserVolume,
+} from "./audio.ts";
+import "./call.css";
 import { keyring } from "./e2ee.ts";
 import { voiceControls } from "./keybinds.ts";
 import { roomAudioOptions, useRoomAudio } from "./voiceAudio.ts";
@@ -215,27 +230,35 @@ export function CallPanel({
  */
 export function RemoteAudio({ room, deafened = false }: { room: Room; deafened?: boolean }) {
   const prefs = useAudioPrefs();
-  const tracks: RemoteTrack[] = [];
+  const volumes = useUserVolumes();
+  const tracks: { track: RemoteTrack; identity: string }[] = [];
   for (const p of room.remoteParticipants.values()) {
     for (const source of [Track.Source.Microphone, Track.Source.ScreenShareAudio]) {
       const t = p.getTrackPublication(source)?.track;
-      if (t) tracks.push(t as RemoteTrack);
+      if (t) tracks.push({ track: t as RemoteTrack, identity: p.identity });
     }
   }
   return (
     <>
-      {tracks.map((t) => (
-        <TrackAudio key={t.sid ?? t.mediaStreamTrack.id} track={t} muted={deafened} prefs={prefs} />
+      {tracks.map(({ track: t, identity }) => (
+        <TrackAudio key={t.sid ?? t.mediaStreamTrack.id} track={t} muted={deafened} prefs={prefs} person={userVolume(identity, volumes)} />
       ))}
     </>
   );
 }
 
-function TrackAudio({ track, muted, prefs }: { track: RemoteTrack; muted: boolean; prefs: AudioPrefs }) {
+function TrackAudio({ track, muted, prefs, person }: { track: RemoteTrack; muted: boolean; prefs: AudioPrefs; person: UserVolume }) {
   const ref = useRef<HTMLAudioElement>(null);
+  const boostGain = useRef<GainNode | null>(null);
+  const [boosting, setBoosting] = useState(false);
+  const gain = effectiveUserGain(prefs, person, muted);
+  const isMuted = muted || person.muted || gain === 0;
+  const wantBoost = !isMuted && person.volume > 100;
+
   useEffect(() => {
-    if (ref.current) applyOutput(ref.current, prefs);
-  }, [prefs]);
+    if (ref.current) applyOutput(ref.current, { ...prefs, outputVolume: Math.min(100, Math.round(gain * 100)) });
+  }, [prefs, gain]);
+
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -244,12 +267,67 @@ function TrackAudio({ track, muted, prefs }: { track: RemoteTrack; muted: boolea
       track.detach(el);
     };
   }, [track]);
-  return <audio ref={ref} autoPlay muted={muted} />;
+
+  // Above 100%, HTMLMediaElement.volume caps at 1.0, so pipe the track through a Web Audio GainNode.
+  useEffect(() => {
+    if (!wantBoost) {
+      boostGain.current = null;
+      setBoosting(false);
+      return;
+    }
+    let src: MediaStreamAudioSourceNode | null = null;
+    let node: GainNode | null = null;
+    let sinkEl: HTMLAudioElement | null = null;
+    try {
+      const ctx = soundContext();
+      src = ctx.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]));
+      node = ctx.createGain();
+      node.gain.value = gain;
+      if (prefs.outputId && canPickOutput()) {
+        const dest = ctx.createMediaStreamDestination();
+        src.connect(node).connect(dest);
+        sinkEl = new Audio();
+        sinkEl.srcObject = dest.stream;
+        applyOutput(sinkEl, { ...prefs, outputVolume: 100 });
+        void sinkEl.play().catch(() => {});
+      } else {
+        src.connect(node).connect(ctx.destination);
+      }
+      boostGain.current = node;
+      setBoosting(true);
+    } catch {
+      boostGain.current = null;
+      setBoosting(false);
+    }
+    return () => {
+      boostGain.current = null;
+      setBoosting(false);
+      try {
+        src?.disconnect();
+        node?.disconnect();
+      } catch {
+        // Already disconnected.
+      }
+      if (sinkEl) sinkEl.srcObject = null;
+    };
+    // `gain` is updated smoothly below without rebuilding the graph.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [track, wantBoost, prefs.outputId]);
+
+  useEffect(() => {
+    if (boostGain.current) boostGain.current.gain.value = gain;
+  }, [gain]);
+
+  return <audio ref={ref} autoPlay muted={isMuted || boosting} />;
 }
 
 /** One person in a call or voice channel: their camera or avatar, and their audio. */
 export function Tile({ p, isMe, myName, label }: { p: Participant; isMe: boolean; myName: string; label?: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const tileRef = useRef<HTMLDivElement>(null);
+  const [volOpen, setVolOpen] = useState(false);
+  const volumes = useUserVolumes();
+  const uv = isMe ? { volume: 100, muted: false } : userVolume(p.identity, volumes);
   const cam = p.getTrackPublication(Track.Source.Camera);
   const mic = p.getTrackPublication(Track.Source.Microphone);
   const camTrack = cam && !cam.isMuted ? cam.track : undefined;
@@ -263,14 +341,96 @@ export function Tile({ p, isMe, myName, label }: { p: Participant; isMe: boolean
     };
   }, [camTrack]);
 
+  useEffect(() => {
+    if (!volOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (tileRef.current && !tileRef.current.contains(e.target as Node)) setVolOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setVolOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      removeEventListener("keydown", onKey);
+    };
+  }, [volOpen]);
+
   const name = label ?? (isMe ? myName : p.name || p.identity);
+  const locallyMuted = !isMe && (uv.muted || uv.volume === 0);
+  const customVol = !isMe && (uv.muted || uv.volume !== 100);
+
   return (
-    <div className={`tile ${p.isSpeaking ? "speaking" : ""}`}>
+    <div
+      ref={tileRef}
+      className={`tile ${p.isSpeaking && !locallyMuted ? "speaking" : ""}`}
+      onContextMenu={
+        isMe
+          ? undefined
+          : (e) => {
+              e.preventDefault();
+              setVolOpen((o) => !o);
+            }
+      }
+    >
       {camTrack ? <video ref={videoRef} autoPlay playsInline muted={isMe} className={isMe ? "mirror" : ""} /> : <Avatar name={name} size={64} />}
+      {!isMe && (
+        <button
+          type="button"
+          className={`tile-vol-btn ${customVol ? "changed" : ""} ${locallyMuted ? "muted" : ""}`}
+          aria-label={`Volume for ${name}`}
+          aria-expanded={volOpen}
+          title="Adjust volume or mute for you (or right-click)"
+          onClick={() => setVolOpen((o) => !o)}
+        >
+          {locallyMuted ? "🔇 Muted" : uv.volume !== 100 ? `🔊 ${uv.volume}%` : "🔊"}
+        </button>
+      )}
+      {!isMe && volOpen && (
+        <div className="tile-vol-pop" role="dialog" aria-label={`Volume for ${name}`}>
+          <div className="tile-vol-head">
+            <strong className="ellipsis">{name}</strong>
+            <span className="muted">{locallyMuted ? "Muted for you" : `${uv.volume}%`}</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={200}
+            step={5}
+            value={uv.muted ? 0 : uv.volume}
+            aria-label={`${name} volume`}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              saveUserVolume(p.identity, { volume: v, muted: v === 0 });
+            }}
+          />
+          <div className="tile-vol-actions">
+            <button
+              type="button"
+              className="ghost"
+              aria-pressed={locallyMuted}
+              onClick={() =>
+                saveUserVolume(p.identity, {
+                  muted: !locallyMuted,
+                  ...(locallyMuted && uv.volume === 0 ? { volume: 100 } : {}),
+                })
+              }
+            >
+              {locallyMuted ? "🔊 Unmute for me" : "🔇 Mute for me"}
+            </button>
+            {customVol && (
+              <button type="button" className="ghost" onClick={() => saveUserVolume(p.identity, { volume: 100, muted: false })}>
+                100%
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       <span className="tile-name">
         {name}
         {isMe ? " (you)" : ""}
-        {mic?.isMuted || (isMe && !p.isMicrophoneEnabled) ? " 🔇" : ""}
+        {mic?.isMuted || (isMe && !p.isMicrophoneEnabled) ? " 🔇" : locallyMuted ? " 🔇 (for you)" : ""}
       </span>
     </div>
   );

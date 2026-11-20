@@ -120,15 +120,28 @@ API: `GET /api/notification-settings`, `PUT /api/notification-settings` with
 | `__underline__` | underline |
 | `~~strike~~` | ~~strike~~ |
 | `` `code` `` | `code` |
-| ```` ```js ```` … ```` ``` ```` | a code block with a Copy button |
+| ```` ```js ```` … ```` ``` ```` | a code block with a Copy button, colored when a language is named |
 | `\|\|spoiler\|\|` | hidden until clicked |
 | `> quote` | a quote |
 | `# Heading`, `## …`, `### …` | headings |
 | `- item`, `1. item` | lists |
+| `[label](https://…)` | a link showing *label* |
+| `\| a \| b \|` then `\| --- \| --: \|` | a table (`:--`, `:-:`, `--:` align a column) |
 
 A backslash shows the next character as typed (`\*not italic\*`). Formatting is turned into
 page elements directly, never HTML, so a message can't inject markup; links are only ever
 http(s) and open in a new tab.
+
+- **Links can't pretend to be somewhere else.** Hovering any link shows the site it goes to. If a
+  labelled link's text names a different site than the real one (`[paypal.com](https://evil.example)`),
+  or the real site is spelled with look-alike letters (punycode `xn--`), the real site is shown in
+  brackets right after it. Links with a user name in them (`https://bank.com@evil.example`) aren't
+  links at all.
+- **Code coloring** covers comments, strings, numbers, keywords and function names for common
+  languages: JavaScript/TypeScript, C, C++, C#, Java, Go, Rust, Kotlin, Swift, PHP, CSS, JSON,
+  Python, shell, Ruby, YAML, TOML, PowerShell, SQL, Lua, HTML and XML. Other languages, and blocks
+  over 20,000 characters, stay plain. Colors come from the theme; a theme can set `--dd-code-*`.
+- **Tables** scroll sideways on narrow screens and show up to 20 columns and 200 rows.
 
 ## Link previews
 

@@ -324,6 +324,54 @@ export const NOTIFY_LEVELS: NotifyLevel[] = ["all", "mentions", "nothing"];
 export interface NotificationSettings {
   conversations: Record<number, NotifyLevel>;
   servers: Record<number, NotifyLevel>;
+  /**
+   * Keyword alerts: words or short phrases that ping you like an @mention when someone else
+   * writes them (a kid's name, "game night"). Missing from older servers: none.
+   */
+  keywords?: string[];
+}
+
+/** Message tokens (<@1>, <:emoji:2>, <sticker:x:3>...) aren't words anyone typed: keywords skip them. */
+const TOKEN_RE = /<[^<>\s]{1,80}>/g;
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Cleans a list of keyword alerts: trimmed, inner spaces squeezed, no blanks or repeats
+ * (ignoring case), each at most LIMITS.keywordLength long, at most LIMITS.keywordAlerts of them.
+ * Returns an error message instead when the list breaks a rule.
+ */
+export function cleanKeywords(input: unknown): string[] | string {
+  if (!Array.isArray(input)) return "keywords is a list of words";
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of input) {
+    if (typeof raw !== "string") return "Each keyword is text";
+    const k = raw.trim().replace(/\s+/g, " ");
+    if (!k) continue;
+    if (k.length > LIMITS.keywordLength) return `Keywords can be up to ${LIMITS.keywordLength} characters`;
+    if (!/[\p{L}\p{N}]/u.test(k)) return "A keyword needs at least one letter or number";
+    const key = k.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(k);
+  }
+  if (out.length > LIMITS.keywordAlerts) return `Up to ${LIMITS.keywordAlerts} keywords`;
+  return out;
+}
+
+/**
+ * Whether a message's text has one of your keywords, as a whole word or phrase, ignoring case:
+ * "Sam" matches "sam's here" but not "Samuel" or "same". Used by the server for plain messages
+ * and by the app for end-to-end encrypted ones, which only it can read.
+ */
+export function matchesKeyword(text: string, keywords: readonly string[] | undefined): boolean {
+  if (!keywords?.length || !text) return false;
+  const plain = text.replace(TOKEN_RE, " ");
+  return keywords.some((k) => {
+    const words = k.trim().split(/\s+/).filter(Boolean).map(escapeRe);
+    if (!words.length) return false;
+    return new RegExp(`(?<![\\p{L}\\p{N}_])${words.join("\\s+")}(?![\\p{L}\\p{N}_])`, "iu").test(plain);
+  });
 }
 
 /** One message found by search. The client knows the conversations, so it names the place. */
@@ -1893,6 +1941,9 @@ export const LIMITS = {
   replyExcerpt: 200,
   /** People one message can ping. */
   mentionsPerMessage: 50,
+  /** Keyword alerts per person, and how long each can be. */
+  keywordAlerts: 25,
+  keywordLength: 40,
   /** Search words, and results per page. */
   searchQuery: 200,
   searchPage: 25,
@@ -1906,9 +1957,11 @@ export type ServerEvent =
   /**
    * A new message. `notify` says whether this person's settings want a notification for it
    * (missing from older servers: treat as true), `mentioned` whether it pings them, and `muted`
-   * whether they muted the conversation (no unread dot).
+   * whether they muted the conversation (no unread dot). `keyword` says it has one of their
+   * keyword alerts (plain messages only: the app checks encrypted ones itself); it pings like
+   * a mention, so `mentioned` is set too.
    */
-  | { type: "message.created"; message: Message; notify?: boolean; mentioned?: boolean; muted?: boolean }
+  | { type: "message.created"; message: Message; notify?: boolean; mentioned?: boolean; muted?: boolean; keyword?: boolean }
   /** Your notification settings changed (on another device). */
   | { type: "notifications.updated"; settings: NotificationSettings }
   | { type: "message.updated"; message: Message }
@@ -2275,3 +2328,4 @@ export interface Report {
   resolvedAt: string | null;
   resolvedBy: PublicUser | null;
 }
+export * from "./server-templates.js";

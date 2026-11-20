@@ -44,3 +44,17 @@ app plays it at their own **soundboard volume** (Settings, Voice and audio; 0 tu
 Deafened people don't hear them. One person can play a sound every 2 seconds.
 
 Sound files can only be fetched by members of their server.
+
+## Per-person volume and local mute
+
+In any call or voice channel, click the 🔊 button on someone's tile (or right-click their tile)
+to set how loud they play for you, from **0% to 200%**, or **Mute for me**:
+
+- **0% to 100%** scales their audio element alongside your master speaker volume.
+- **Above 100% (up to 200%)** routes their audio through a Web Audio `GainNode` to boost a
+  quiet microphone without touching anyone else's volume.
+- **Mute for me** silences them on your device only (shown as `🔇 Muted` on their tile and
+  `🔇 (for you)` next to their name), and stops their voice from ducking Watch Together videos.
+- Volumes and mutes are remembered per person in `localStorage` (`dendrop.userVolumes`) on that
+  device.
+

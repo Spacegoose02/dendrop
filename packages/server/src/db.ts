@@ -950,6 +950,10 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE users ADD COLUMN oidc_username TEXT;
   `,
   `
+  -- Keyword alerts: a JSON list of words or phrases that ping this person like an @mention.
+  ALTER TABLE users ADD COLUMN keyword_alerts TEXT;
+  `,
+  `
   -- "Send later": messages waiting for their time. Encrypted ones keep their ciphertext and key
   -- version, like messages. error is set when one couldn't go out; it then waits for its author.
   CREATE TABLE scheduled_messages (

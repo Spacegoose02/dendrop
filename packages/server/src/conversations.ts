@@ -656,6 +656,36 @@ export class ConversationRepo {
     return Number(res.changes) > 0 ? messageId : null;
   }
 
+  /**
+   * "Mark all as read": moves someone's read marker to the newest message in every conversation
+   * with anything unread, or only in one server's channels and threads. Returns the conversations
+   * it cleared, with the message each was read up to (null if the marker was already there and
+   * only a "mark as unread" was cleared).
+   */
+  markAllRead(userId: number, serverId?: number): { conversationId: number; messageId: number | null }[] {
+    let ids = this.unread(userId).map((u) => u.conversationId);
+    if (serverId !== undefined) {
+      const inServer = new Set(
+        (
+          this.db
+            .prepare(
+              `SELECT conversation_id AS cid FROM server_channels WHERE server_id = ?
+               UNION SELECT t.conversation_id FROM channel_threads t JOIN server_channels c ON c.id = t.channel_id WHERE c.server_id = ?`,
+            )
+            .all(serverId, serverId) as { cid: number }[]
+        ).map((r) => r.cid),
+      );
+      ids = ids.filter((cid) => inServer.has(cid));
+    }
+    const newest = this.db.prepare("SELECT MAX(id) AS id FROM messages WHERE conversation_id = ?");
+    return tx(this.db, () =>
+      ids.flatMap((cid) => {
+        const last = (newest.get(cid) as { id: number | null } | undefined)?.id;
+        return last ? [{ conversationId: cid, messageId: this.markRead(cid, userId, last) }] : [];
+      }),
+    );
+  }
+
   /** Marks a conversation unread from a message on, for this person only (read receipts stay). */
   markUnread(conversationId: number, userId: number, messageId: number): void {
     const msg = this.db.prepare("SELECT id FROM messages WHERE id = ? AND conversation_id = ?").get(messageId, conversationId);

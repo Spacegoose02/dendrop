@@ -1,7 +1,7 @@
 /** Applies this device's audio settings to a LiveKit room: mic choice and cleanup, and input sensitivity. */
 import { useEffect, useRef } from "react";
 import { RoomEvent, Track, type LocalAudioTrack, type Participant, type Room, type RoomOptions } from "livekit-client";
-import { micConstraints, setTalking, VoiceGate, type AudioPrefs } from "./audio.ts";
+import { micConstraints, setTalking, userVolume, VoiceGate, type AudioPrefs } from "./audio.ts";
 import { loadKeybinds, pttHeld, setVoiceActive, voiceControls } from "./keybinds.ts";
 import { canProcessMic, MicProcessor, micContext } from "./micProcessor.ts";
 
@@ -67,7 +67,11 @@ export function useRoomAudio(room: Room | null, prefs: AudioPrefs, onGate?: (ope
     const onActive = (speakers: Participant[]) =>
       setTalking(
         speakers.some((p) => p.isLocal),
-        speakers.some((p) => !p.isLocal),
+        speakers.some((p) => {
+          if (p.isLocal) return false;
+          const uv = userVolume(p.identity);
+          return !uv.muted && uv.volume > 0;
+        }),
       );
     room.on(RoomEvent.ActiveSpeakersChanged, onActive);
     return () => {

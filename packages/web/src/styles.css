@@ -1814,6 +1814,40 @@ button.attachment-file {
     opacity: 0.2;
   }
 }
+@media (max-width: 520px) {
+  .voice-recorder {
+    gap: 6px;
+  }
+  .voice-recorder .rec-limit,
+  .voice-recorder:not(.paused) .rec-word {
+    display: none;
+  }
+}
+.voice-recorder.paused .rec-dot {
+  animation: none;
+  opacity: 0.4;
+}
+.voice-recorder > span {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.mic-level {
+  position: relative;
+  flex: 0 1 72px;
+  min-width: 28px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--dd-border);
+}
+.mic-level > span {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--dd-accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
 .composer-row[hidden] {
   display: none;
 }
@@ -1829,6 +1863,29 @@ button.attachment-file {
 .audio-attachment audio {
   width: 100%;
   height: 36px;
+}
+.audio-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.audio-head .grow {
+  flex: 1;
+  min-width: 0;
+}
+.speed-button {
+  min-width: 40px;
+  padding: 1px 8px;
+  border: 1px solid var(--dd-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dd-text-muted);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.speed-button:hover {
+  color: var(--dd-text);
 }
 .reminder-tray {
   display: grid;
@@ -1933,6 +1990,61 @@ h5.md-h {
 .md-link {
   color: var(--dd-accent);
   word-break: break-all;
+}
+.md-link-labelled {
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+/* The real site, shown next to a labelled link whose text names a different one. */
+.md-link-host {
+  color: var(--dd-warning);
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+.md-table-wrap {
+  margin: 4px 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.md-table {
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.md-table th,
+.md-table td {
+  padding: 4px 10px;
+  border: 1px solid var(--dd-border);
+  text-align: left;
+  vertical-align: top;
+}
+.md-table th {
+  background: var(--dd-bg-rail);
+  font-weight: 600;
+}
+.md-table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--dd-bg-rail) 50%, transparent);
+}
+/* Code coloring (markdown-syntax.ts). Built from theme colors so every theme gets a fitting set;
+   a theme can set --dd-code-* to choose its own. */
+.tok-comment {
+  color: var(--dd-code-comment, var(--dd-text-muted));
+  font-style: italic;
+}
+.tok-string {
+  color: var(--dd-code-string, var(--dd-online));
+}
+.tok-number,
+.tok-literal {
+  color: var(--dd-code-number, var(--dd-warning));
+}
+.tok-keyword,
+.tok-tag {
+  color: var(--dd-code-keyword, var(--dd-accent));
+  font-weight: 600;
+}
+.tok-fn,
+.tok-attr {
+  color: var(--dd-code-fn, color-mix(in srgb, var(--dd-accent) 55%, var(--dd-text)));
 }
 .spoiler {
   border-radius: var(--dd-radius-sm);
@@ -2511,6 +2623,24 @@ h5.md-h {
 }
 .edit-history li.current {
   border-left: 3px solid var(--dd-accent);
+}
+
+/* "Mark all as read" (✓) beside the Direct messages and server titles. */
+.sidebar-header.with-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sidebar-header .mark-all-read {
+  margin: -10px -8px -10px 0;
+}
+.mark-all-read {
+  font-weight: 700;
+  color: var(--dd-text-muted);
+}
+.mark-all-read:hover {
+  color: var(--dd-accent);
 }
 
 /* Send later */

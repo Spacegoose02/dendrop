@@ -53,6 +53,40 @@ function cleanTime(v: unknown, what: string): number {
 
 const iso = (t: number) => new Date(t).toISOString();
 
+/** UTC timestamp for iCalendar (RFC 5545): YYYYMMDDTHHMMSSZ. */
+function icsTimestamp(t: number): string {
+  return new Date(t).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+/** Escapes text values in iCalendar lines (RFC 5545 §3.3.11). */
+function icsEscape(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/\r?\n/g, "\\n").replace(/;/g, "\\;").replace(/,/g, "\\,");
+}
+
+function icsSlug(name: string, fallback: string): string {
+  const s = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return s || fallback;
+}
+
+function buildIcs(vevents: string[][], calName: string): string {
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Dendrop//Scheduled Events//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    `X-WR-CALNAME:${icsEscape(calName)}`,
+    ...vevents.flat(),
+    "END:VCALENDAR",
+    "",
+  ];
+  return lines.join("\r\n");
+}
+
 /**
  * Scheduled events in servers: making and changing them, RSVPs, and the clock that reminds
  * people, starts events and ends them (see ScheduledEvent for the rules).
@@ -181,6 +215,65 @@ export class EventService {
       .prepare("SELECT e.* FROM server_events e JOIN server_members m ON m.server_id = e.server_id AND m.user_id = ? ORDER BY e.starts_at, e.id")
       .all(userId) as unknown as EventRow[];
     return rows.filter((r) => this.canSee(r, userId)).map((r) => this.toEvent(r, userId));
+  }
+
+  /** One event as an iCalendar (.ics) file, or 404 if the viewer can't see it. */
+  ics(eventId: number, userId: number): { filename: string; body: string } {
+    const r = this.visible(eventId, userId);
+    const serverName = this.serverName(r.server_id);
+    return {
+      filename: `${icsSlug(r.name, "event")}.ics`,
+      body: buildIcs([this.vevent(r, serverName)], r.name),
+    };
+  }
+
+  /** Every event in a server that this person can see, as one iCalendar (.ics) file. */
+  serverIcs(serverId: number, userId: number): { filename: string; body: string } {
+    if (!this.servers.role(serverId, userId)) throw new HttpError(404, "No such server");
+    const serverName = this.serverName(serverId);
+    const rows = (this.db.prepare("SELECT * FROM server_events WHERE server_id = ? ORDER BY starts_at, id").all(serverId) as unknown as EventRow[]).filter((r) =>
+      this.canSee(r, userId),
+    );
+    return {
+      filename: `${icsSlug(serverName, "events")}-events.ics`,
+      body: buildIcs(
+        rows.map((r) => this.vevent(r, serverName)),
+        `${serverName} events`,
+      ),
+    };
+  }
+
+  private serverName(serverId: number): string {
+    const r = this.db.prepare("SELECT name FROM servers WHERE id = ?").get(serverId) as { name: string } | undefined;
+    return r?.name ?? "Dendrop";
+  }
+
+  private vevent(r: EventRow, serverName: string): string[] {
+    const start = Date.parse(r.starts_at);
+    // Calendar apps need an end time; events without one get a 2-hour block on the calendar.
+    const end = r.ends_at ? Date.parse(r.ends_at) : start + 2 * HOUR;
+    const channel = r.channel_id === null ? undefined : this.servers.channelById(r.channel_id);
+    const where = channel ? `${serverName} · #${channel.name}` : r.location || serverName;
+    const lines = [
+      "BEGIN:VEVENT",
+      `UID:dendrop-event-${r.id}@dendrop`,
+      `DTSTAMP:${icsTimestamp(this.clock())}`,
+      `DTSTART:${icsTimestamp(start)}`,
+      `DTEND:${icsTimestamp(end)}`,
+      `SUMMARY:${icsEscape(r.name)}`,
+    ];
+    if (r.description) lines.push(`DESCRIPTION:${icsEscape(r.description)}`);
+    if (where) lines.push(`LOCATION:${icsEscape(where)}`);
+    if (r.repeats === "weekly") lines.push("RRULE:FREQ=WEEKLY");
+    lines.push(
+      "BEGIN:VALARM",
+      `TRIGGER:-PT${EVENT_LIMITS.reminderMinutes}M`,
+      "ACTION:DISPLAY",
+      `DESCRIPTION:${icsEscape(r.name)}`,
+      "END:VALARM",
+      "END:VEVENT",
+    );
+    return lines;
   }
 
   // ---- Changing -----------------------------------------------------------------

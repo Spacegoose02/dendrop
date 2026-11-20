@@ -44,6 +44,13 @@ started if it has no end time. A weekly event then moves on to the same time nex
 keeps everyone's RSVPs; any other event is gone once it ends. **Cancel event** removes it (every
 week of a weekly one).
 
+### Adding to your calendar
+
+Every event card has **📅 Add to calendar**, which downloads a standard `.ics` (iCalendar) file
+for Apple Calendar, Google Calendar, Outlook or any other calendar app, including a 15-minute
+reminder and weekly repeats (`RRULE:FREQ=WEEKLY`). **📅 Export all (.ics)** at the top of a
+server's Events dialog downloads every event you can see in that server as one `.ics` file.
+
 ## Stage channels
 
 A stage channel is a voice channel for an audience. Make one from the ＋ next to **Stage
@@ -69,8 +76,10 @@ People who are timed out can listen on a stage but can't be let up to speak.
 | --- | --- |
 | `GET /api/events` | Events in every server you're in |
 | `GET /api/servers/:id/events` | One server's events |
+| `GET /api/servers/:id/events.ics` | One server's events as an iCalendar (`.ics`) file |
 | `POST /api/servers/:id/events` | Makes one: `{ name, description?, channelId? \| location?, startsAt, endsAt?, repeat?: "none" \| "weekly" }` |
 | `GET /api/events/:id` | One event |
+| `GET /api/events/:id/ics` | One event as an iCalendar (`.ics`) file |
 | `PATCH /api/events/:id` | Changes one (same fields) |
 | `DELETE /api/events/:id` | Cancels one |
 | `PUT /api/events/:id/rsvp` | `{ status: "going" \| "interested" \| null }` |
@@ -81,3 +90,4 @@ People who are timed out can listen on a stage but can't be let up to speak.
 Gateway events: `event.updated`, `event.removed` and `event.reminder` (`minutes` is 15 for the
 heads-up and 0 when it goes live). Voice states carry `stage` for the channel, and `speaker`
 and `handRaised` for each person.
+

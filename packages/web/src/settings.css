@@ -611,3 +611,30 @@
   gap: 8px;
   margin-top: 4px;
 }
+
+/* Keyword alerts (Settings > Notifications) */
+.keyword-list {
+  list-style: none;
+  margin: 0.5rem 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.keyword-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.25rem 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: var(--dd-bg-raised);
+  border: 1px solid var(--dd-border);
+}
+.keyword-alerts form.row {
+  display: flex;
+  gap: 0.5rem;
+}
+.keyword-alerts form.row input {
+  flex: 1;
+  min-width: 0;
+}
