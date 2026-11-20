@@ -4,19 +4,48 @@ Private, self-hosted chat for family and friends: direct messages, calls and cha
 with a raccoon at heart. Runs in one Docker container (made for Unraid) and signs in with
 [TinyAuth](https://github.com/steveiliop56/tinyauth) or any OpenID Connect provider.
 
-See [the roadmap](docs/ROADMAP.md) for what's planned and in what order, and
-[docs/LOOTDEN.md](docs/LOOTDEN.md) for linking LootDen and posting into channels with webhooks,
-[docs/DENDUTY.md](docs/DENDUTY.md) for linking Den Duty, the family chore tracker,
-[docs/BOTS.md](docs/BOTS.md) for bots that post with buttons and answer clicks,
-[docs/AGENT-LOG.md](docs/AGENT-LOG.md) for the #agent-log channel where Claude agents leave each other notes,
-[docs/EVENTS.md](docs/EVENTS.md) for scheduled events with RSVPs and stage channels,
-[docs/EXPRESSIONS.md](docs/EXPRESSIONS.md) for custom emoji, stickers, reactions and GIFs,
-[docs/WATCH-AND-OVERLAY.md](docs/WATCH-AND-OVERLAY.md) for watching videos together in voice and the PC app's in-game overlay,
-[docs/MESSAGES.md](docs/MESSAGES.md) for search, replies, mentions, notification settings, formatting and link previews,
-[docs/COUPLES.md](docs/COUPLES.md) for the couples kit, a private corner of a chat between two adults,
-[docs/SIGN-IN.md](docs/SIGN-IN.md) for accounts, two-step sign-in and passkeys,
-[docs/AUDIT-LOG.md](docs/AUDIT-LOG.md) for who-did-what logs, and
-[docs/BACKUPS.md](docs/BACKUPS.md) for backups and restoring.
+See [the roadmap](docs/ROADMAP.md) for what's done, what's in progress and what's still to do.
+
+## Guides
+
+**Chatting**
+
+- [docs/MESSAGES.md](docs/MESSAGES.md): search, replies, mentions, notification settings, formatting, link previews and Notes to self
+- [docs/INBOX-AND-FOLDERS.md](docs/INBOX-AND-FOLDERS.md): forwarding, saved messages, the mentions inbox and server folders
+- [docs/UNREAD-AND-PRESENCE.md](docs/UNREAD-AND-PRESENCE.md): unread counts, mark as unread, Do Not Disturb and Invisible
+- [docs/THREADS.md](docs/THREADS.md): threads, forum channels and the pinned board
+- [docs/EXPRESSIONS.md](docs/EXPRESSIONS.md): custom emoji, stickers, reactions and GIFs
+- [docs/PROFILES.md](docs/PROFILES.md): profile pictures, banners, about me and custom status
+- [docs/COUPLES.md](docs/COUPLES.md): the couples kit, a private corner of a chat between two adults
+- [docs/ENCRYPTION.md](docs/ENCRYPTION.md): end-to-end encryption for DMs and group chats
+
+**Calls and voice**
+
+- [docs/VOICE-AUDIO.md](docs/VOICE-AUDIO.md): the mic pipeline, noise suppression and the soundboard
+- [docs/POP-OUT-AND-AUDIO.md](docs/POP-OUT-AND-AUDIO.md): pop-out chats, Android bubbles and call screen, ducking and quality of service
+- [docs/WATCH-AND-OVERLAY.md](docs/WATCH-AND-OVERLAY.md): watching videos together in voice and the PC app's in-game overlay
+- [docs/EVENTS.md](docs/EVENTS.md): scheduled events with RSVPs, and stage channels
+
+**Chat servers and moderation**
+
+- [docs/MODERATION.md](docs/MODERATION.md): categories, slowmode, read-only channels, permissions and voice moderation
+- [docs/AUTOMOD.md](docs/AUTOMOD.md): automod rules for server channels
+- [docs/SAFETY.md](docs/SAFETY.md): blocking, reports, sign-in limits, downloading your data and deleting your account
+- [docs/KIDS.md](docs/KIDS.md): kid accounts, parents' rules and alerts, and how they fit with encryption
+
+**Integrations and bots**
+
+- [docs/LOOTDEN.md](docs/LOOTDEN.md): linking LootDen, and posting into channels with webhooks
+- [docs/DENDUTY.md](docs/DENDUTY.md): linking Den Duty, the family chore tracker
+- [docs/BOTS.md](docs/BOTS.md): bots that post with buttons and answer clicks
+- [docs/AGENT-LOG.md](docs/AGENT-LOG.md): the #agent-log channel where AI agents leave each other notes
+
+**Running a server**
+
+- [docs/HTTPS.md](docs/HTTPS.md): HTTPS, built in or through Tailscale, a reverse proxy or Cloudflare Tunnel
+- [docs/SIGN-IN.md](docs/SIGN-IN.md): accounts, linked sign-ins, Google, two-step sign-in and passkeys
+- [docs/AUDIT-LOG.md](docs/AUDIT-LOG.md): who-did-what logs
+- [docs/BACKUPS.md](docs/BACKUPS.md): backups and restoring
 
 ## Running it
 
@@ -137,5 +166,5 @@ npm test
 | `packages/server` | Fastify API, WebSocket gateway at `/api/gateway`, SQLite, OIDC |
 | `packages/web` | React client |
 | `packages/desktop` | Electron app for Windows 11 and Linux, wrapping the web client ([README](packages/desktop/README.md)) |
-| `packages/android` | Capacitor Android app (Phase 2) |
+| `packages/android` | Capacitor Android app, with chat bubbles, a call screen and update checks ([README](packages/android/README.md)) |
 | `packages/ios` | Capacitor iPhone app, with CallKit calls and APNs notifications ([README](packages/ios/README.md)) |
