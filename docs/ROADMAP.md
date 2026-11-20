@@ -189,15 +189,16 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Backbone | Lock channels / owner chooses members | 3 | Done, plus roles with permissions, read-only channels and who-can-post ([MODERATION.md](MODERATION.md)) |
 | Backbone | Creator is owner of chat server | 3 | Done (owner and admin roles, ownership transfer) |
 | Backbone | Approval needed to create servers | 3 | Done |
-| Safety | Blocking, reporting, sign-in limits | 1 | Done: block people, report messages and people to server moderators or the super admin, sign-in attempts limited ([SAFETY.md](SAFETY.md)) |
+| Safety | Blocking, reporting, sign-in and spam limits | 1 | Done: block people, report messages and people to server moderators or the super admin, sign-in attempts and per-account message, upload and friend-request rates limited ([SAFETY.md](SAFETY.md)) |
 | Safety | Delete your account, download your data | 1 | Done ([SAFETY.md](SAFETY.md)) |
 | Features | Message read receipts | 1 | Done |
-| Features | Unread counts and mark as unread | 1 | Done ([UNREAD-AND-PRESENCE.md](UNREAD-AND-PRESENCE.md)) |
+| Features | Unread counts, mark as unread and mark all as read | 1 | Done ([UNREAD-AND-PRESENCE.md](UNREAD-AND-PRESENCE.md)) |
 | Features | Do Not Disturb and invisible | 1 | Done ([UNREAD-AND-PRESENCE.md](UNREAD-AND-PRESENCE.md)) |
 | Features | Message search | 3 | Done: full-text search of channels and plain DMs on the server; encrypted chats searched on the device ([MESSAGES.md](MESSAGES.md)) |
-| Features | Replies and @mentions | 3 | Done: replies with a ping switch, @name and @everyone (a server permission), per-chat and per-server notification settings, and a mentions inbox ([MESSAGES.md](MESSAGES.md), [INBOX-AND-FOLDERS.md](INBOX-AND-FOLDERS.md)) |
+| Features | Replies, @mentions and keyword alerts | 3 | Done: replies with a ping switch, @name and @everyone (a server permission), per-chat and per-server notification settings, keyword alerts (matched on the device in encrypted chats), and a mentions inbox ([MESSAGES.md](MESSAGES.md), [INBOX-AND-FOLDERS.md](INBOX-AND-FOLDERS.md)) |
 | Features | Forwarding and saved messages | 3 | Done ([INBOX-AND-FOLDERS.md](INBOX-AND-FOLDERS.md)) |
-| Features | Markdown | 3 | Done: bold, italic, underline, strike, code and code blocks, spoilers, quotes, headings, lists ([MESSAGES.md](MESSAGES.md)) |
+| Features | Send later (scheduled messages) | 3 | Done: schedule a message for a set time ([MESSAGES.md](MESSAGES.md)) |
+| Features | Markdown | 3 | Done: bold, italic, underline, strike, code and syntax-colored code blocks, spoilers, quotes, headings, lists, tables and `[label](url)` links ([MESSAGES.md](MESSAGES.md)) |
 | Features | Link previews | 3 | Done: off until a super admin turns them on; fetched by the server, never from the home network; off in encrypted chats unless opted in; kids need a parent's OK ([MESSAGES.md](MESSAGES.md)) |
 | Features | Emojis | 1 | Done: searchable picker, `:name:` suggestions, reactions ([EXPRESSIONS.md](EXPRESSIONS.md)) |
 | Features | GIFs | 3 | Done: GIPHY search, off until a super admin adds a key; searches and GIFs go through the server; kids need a parent's OK and get G only ([EXPRESSIONS.md](EXPRESSIONS.md)) |
@@ -214,19 +215,21 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Features | Change your username | 1 | Done: in Settings, with a "Pick your username" step after a first TinyAuth or Google sign-in; renames show in the audit log |
 | Features | Name and text colors | 7 | Done: your own name and message colors, adjusted so they stay readable on every theme |
 | Features | Polls, quick games, nudges and reminders | 3 | Done: polls, tic-tac-toe, rock paper scissors and dice, raccoon nudges in DMs, and reminders on any message |
-| Features | Voice messages | 3 | Done: record up to 5 minutes from the composer; audio files play inline |
+| Features | Voice messages | 3 | Done: record up to 5 minutes from the composer with a live level bar and pause/resume; audio files play inline with 1×/1.5×/2× speed |
 | Features | Edit history | 3 | Done: click (edited) to see every earlier version, decrypted on your device in encrypted chats |
 | Features | Notes to self | 1 | Done: a private chat with only you in it ([MESSAGES.md](MESSAGES.md)) |
 | Features | Couples kit | 1 | Done: a private corner of a DM between two adults, switched on per account by a super admin ([COUPLES.md](COUPLES.md)) |
 | Features | User profiles | 7 | Done: profile picture, banner, about me, pronouns and a custom status that clears itself, on a profile card with Playing now, roles and raccoon rank; kid profiles follow parents' rules ([PROFILES.md](PROFILES.md)) |
 | Features | Server chat banner | 7 | Done (icon and banner) |
 | Servers | Categories, slowmode, read-only channels | 3 | Done ([MODERATION.md](MODERATION.md)) |
+| Servers | Server templates | 3 | Done: start a server from Family, Gaming or Friends, or copy one of yours |
 | Servers | Custom roles with colors | 3, 7 | Done: roles with permissions and a rank order, colored names in the server, and automod exemptions by role ([MODERATION.md](MODERATION.md)) |
 | Servers | Levels and raccoon ranks | 7 | Done: XP for chatting, eight raccoon ranks, a leaderboard, and a switch to turn levels off |
 | Servers | Welcome screen | 3 | Done: a welcome message, rules members can be asked to agree to, and roles they pick for themselves |
 | Servers | Copy channel ID | 8 | Done: right-click a channel for the ID the bot API uses ([BOTS.md](BOTS.md)) |
 | Voice | Play together | 4, 8 | Done: a voice channel opens when two or more members play the same game in LootDen, kid-safe and respecting activity privacy |
-| Servers | Scheduled events and stage channels | 4 | Done: events with RSVPs, reminders and weekly repeats; stage channels with raised hands ([EVENTS.md](EVENTS.md)) |
+| Voice | Per-person volume and local mute | 4 | Done: 0–200% volume slider (Web Audio boost above 100%) and Mute for me on each tile ([VOICE-AUDIO.md](VOICE-AUDIO.md)) |
+| Servers | Scheduled events and stage channels | 4 | Done: events with RSVPs, reminders, weekly repeats and `.ics` calendar export; stage channels with raised hands ([EVENTS.md](EVENTS.md)) |
 | Voice | Watch together | 4 | Done: synced videos in voice and stage channels from the channel's chat or a link, with a queue; YouTube when a super admin turns it on; kids get chat videos only ([WATCH-AND-OVERLAY.md](WATCH-AND-OVERLAY.md)) |
 | Integrations | LootDen integration | 8 | Done: playing now, alerts through webhooks, game-link cards with Send to PC, game nights with a voice channel, family wall screenshots (kid-safe) and kid accounts from LootDen's kid profiles, LootDen bedtime and game time in kids' time rules, and "Surprise us" picks shared through a webhook (with LootDen's Share to chat button) ([LOOTDEN.md](LOOTDEN.md)) |
 | Integrations | Den Duty integration | 8 | Done: chores line, events in channels, chat pauses from time-outs and chores, and approving chores from chat ([DENDUTY.md](DENDUTY.md)); help asks wait on Den Duty's API |
@@ -244,16 +247,6 @@ color palettes, and naming. No other app's logos, names, or artwork.
 | Automod | Automod settings | 6 | Done (blocked words, spam and mentions, links, new accounts; block, alert, timeout; exempt roles and channels; mod log) |
 | Look alike | Layout reference 1 (settings) | 1, 7 | Done: settings is a full page with a left-hand menu (Your account, App, Data); on a phone the menu and each page take turns filling the screen |
 | Look alike | Layout reference 2 (main chat) | 1, 7 | Done: server rail, channel list with members, chat, and your controls bottom-left |
-
-## In progress
-
-These are open pull requests, not merged yet.
-
-- **Spam limits** on sending messages, uploads and friend requests, per account ([#74](https://github.com/Spacegoose02/dendrop/pull/74)).
-- **Mark all as read**, for one server or everything ([#75](https://github.com/Spacegoose02/dendrop/pull/75)).
-- **Keyword alerts**: get notified when a word you pick comes up, matched on the device in encrypted chats ([#76](https://github.com/Spacegoose02/dendrop/pull/76)).
-- **Server templates**: start a server from Family, Gaming or Friends, or copy one of yours ([#77](https://github.com/Spacegoose02/dendrop/pull/77)).
-- **Send later**: schedule a message for a set time ([#78](https://github.com/Spacegoose02/dendrop/pull/78)).
 
 ## Still to do
 

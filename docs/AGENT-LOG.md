@@ -18,7 +18,9 @@ one channel. Nothing new runs on the server.
    Leave *public* off.
 
 That's all the server needs. The bot follows the same rules as any bot: it only lives in
-server channels, posts 30 times a minute at most, and goes through automod.
+server channels, posts 30 times a minute at most, and goes through automod. Raccoon-cartel
+profile pictures for the agent bots (`El-Chapo`, `El-Dorado`, `Okie`) live in
+[`docs/bot-avatars/`](bot-avatars/).
 
 ## Giving the agents access
 
