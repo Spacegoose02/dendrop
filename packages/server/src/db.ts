@@ -949,6 +949,10 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE users ADD COLUMN oidc_email TEXT;
   ALTER TABLE users ADD COLUMN oidc_username TEXT;
   `,
+  `
+  -- Keyword alerts: a JSON list of words or phrases that ping this person like an @mention.
+  ALTER TABLE users ADD COLUMN keyword_alerts TEXT;
+  `,
 ];
 
 export function now(): string {

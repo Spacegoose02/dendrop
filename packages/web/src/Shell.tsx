@@ -26,7 +26,7 @@ import type {
   VoiceChannelState,
   VoiceJoin,
 } from "@dendrop/shared";
-import { isVoiceKind } from "@dendrop/shared";
+import { isVoiceKind, matchesKeyword } from "@dendrop/shared";
 import { api, connectGateway, logout } from "./api.ts";
 import { PresencePicker, UnreadBadge } from "./Unread.tsx";
 import { ServerRail } from "./Rail.tsx";
@@ -65,7 +65,7 @@ import { ChannelDialog, CreateServer, Directory, InviteDialog, InviteLinkDialog,
 import { can } from "./roles.ts";
 import { ExpressionsContext } from "./expressions.tsx";
 import { patchUser, ProfileCard, ProfileContext, ProfileEditorDialog, StatusLine, type ProfileTarget } from "./Profile.tsx";
-import { setNotificationSettings } from "./notify.tsx";
+import { notificationSettings, setNotificationSettings } from "./notify.tsx";
 import { closeSearch, openSearch, requestJump, SearchPanel, useSearchOpen } from "./Search.tsx";
 import { playSoundboard } from "./soundboard.ts";
 
@@ -400,7 +400,8 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         case "message.created": {
           const m = e.message;
           feedOverlayMessage(m);
-          void reveal(m).then((shown) =>
+          const revealed = reveal(m);
+          void revealed.then((shown) =>
             setHistories((h) => {
               const cur = h[m.conversationId];
               if (!cur || cur.messages.some((x) => x.id === m.id)) return h;
@@ -423,17 +424,24 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
             delete forConv[m.authorId];
             return { ...t, [m.conversationId]: forConv };
           });
-          const v = viewRef.current;
-          // Muted conversations don't get an unread dot (unless you're pinged).
-          if (e.muted && !e.mentioned) break;
-          if ((m.authorId !== me.id || m.webhook) && !(viewConversation(v, serversRef.current) === m.conversationId && document.hasFocus())) {
-            setUnread((u) => {
-              const n = new Map(u);
-              const cur = n.get(m.conversationId) ?? { count: 0, mentions: 0 };
-              n.set(m.conversationId, { count: cur.count + 1, mentions: cur.mentions + (e.mentioned ? 1 : 0) });
-              return n;
-            });
-          }
+          const own = m.authorId === me.id && !m.webhook;
+          const countUnread = (pinged: boolean) => {
+            // Muted conversations don't get an unread dot (unless you're pinged).
+            if (e.muted && !pinged) return;
+            if (!own && !(viewConversation(viewRef.current, serversRef.current) === m.conversationId && document.hasFocus())) {
+              setUnread((u) => {
+                const n = new Map(u);
+                const cur = n.get(m.conversationId) ?? { count: 0, mentions: 0 };
+                n.set(m.conversationId, { count: cur.count + 1, mentions: cur.mentions + (pinged ? 1 : 0) });
+                return n;
+              });
+            }
+          };
+          // The server can't read encrypted messages, so keyword alerts for those are checked
+          // here, once the message is open: a hit counts like a mention.
+          if (m.keyVersion && !m.deleted && !own && !e.mentioned) {
+            void revealed.then((shown) => countUnread(!shown.locked && matchesKeyword(shown.text, notificationSettings().keywords)));
+          } else countUnread(!!e.mentioned);
           break;
         }
         case "notifications.updated":

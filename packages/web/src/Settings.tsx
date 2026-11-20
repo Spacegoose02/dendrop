@@ -21,6 +21,7 @@ import { api } from "./api.ts";
 import { SignInSection } from "./SignIns.tsx";
 import { ProfileEditor } from "./Profile.tsx";
 import { AudioSettings } from "./AudioSettings.tsx";
+import { KeywordAlertsSection } from "./notify.tsx";
 import { useColors } from "./colors.ts";
 import { securityCode } from "./e2ee.ts";
 import { HTTPS_GUIDE, isSecure } from "./secure.ts";
@@ -288,7 +289,12 @@ function SettingsPage({
         </section>
       );
     case "notifications":
-      return <DeviceNotificationsSection />;
+      return (
+        <>
+          <DeviceNotificationsSection />
+          <KeywordAlertsSection />
+        </>
+      );
     case "voice":
       return <AudioSettings />;
     case "theme":

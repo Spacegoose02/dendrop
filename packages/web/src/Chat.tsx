@@ -4,6 +4,7 @@ import {
   INLINE_IMAGE_TYPES,
   LIMITS,
   maskBlockedWords,
+  matchesKeyword,
   type Attachment,
   type Call,
   type Conversation,
@@ -45,7 +46,7 @@ import { useColors } from "./colors.ts";
 import { conversationTitle, upsert, type History } from "./util.ts";
 import { Markdown, plainText } from "./markdown.tsx";
 import { fromMentionTokens, mentionSuggestions, mentionsIn, toMentionTokens, typedMention } from "./mentions.ts";
-import { NotifyMenu } from "./notify.tsx";
+import { NotifyMenu, useNotificationSettings } from "./notify.tsx";
 import { ReportDialog, useBlockedIds } from "./Safety.tsx";
 import { LinkPreviews } from "./LinkPreview.tsx";
 import { postMessage } from "./send.ts";
@@ -623,6 +624,7 @@ export function Chat({
     }
   };
   const nameOf = (id: number) => members.get(id)?.displayName ?? "Someone";
+  const keywords = useNotificationSettings().keywords;
   const mine_ = (m: ChatMessage) => m.authorId === me.id && !m.webhook;
   const maskText = (t: string) => (filter ? maskBlockedWords(t, filter) : t);
   /** Scrolls to a message and highlights it for a moment; older pages load until it's there. */
@@ -788,7 +790,7 @@ export function Chat({
           const prev = messages[i - 1];
           const newDay = !prev || day(prev.createdAt) !== day(m.createdAt);
           const grouped = !newDay && continues(prev, m) && !m.replyTo;
-          const pingsMe = !m.deleted && !mine_(m) && (!!m.mentionsEveryone || !!m.mentions?.includes(me.id));
+          const pingsMe = !m.deleted && !mine_(m) && (!!m.mentionsEveryone || !!m.mentions?.includes(me.id) || matchesKeyword(m.text, keywords));
           const author = m.webhook ? undefined : members.get(m.authorId);
           const authorName = m.webhook ? m.webhook.name : (author?.displayName ?? "Someone who left");
           const mine = m.authorId === me.id && !m.webhook;

@@ -152,10 +152,10 @@ describe("search, replies, mentions and notification settings", () => {
   });
 
   it("follows per-conversation and per-server notification settings", async () => {
-    assert.deepEqual((await call(cat, "GET", "/api/notification-settings")).body, { conversations: {}, servers: {} });
+    assert.deepEqual((await call(cat, "GET", "/api/notification-settings")).body, { conversations: {}, servers: {}, keywords: [] });
     assert.equal((await call(cat, "PUT", "/api/notification-settings", { serverId, level: "mentions" })).status, 200);
     const settings = (await call(cat, "PUT", "/api/notification-settings", { conversationId: group.id, level: "nothing" })).body as NotificationSettings;
-    assert.deepEqual(settings, { conversations: { [group.id]: "nothing" }, servers: { [serverId]: "mentions" } });
+    assert.deepEqual(settings, { conversations: { [group.id]: "nothing" }, servers: { [serverId]: "mentions" }, keywords: [] });
     assert.equal((await call(cat, "PUT", "/api/notification-settings", { conversationId: group.id, level: "loud" })).status, 400);
     const outCookie = await account(s, "out2");
     assert.equal((await call(outCookie, "PUT", "/api/notification-settings", { conversationId: group.id, level: "all" })).status, 404);
