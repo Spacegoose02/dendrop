@@ -8,6 +8,7 @@ See [the roadmap](docs/ROADMAP.md) for what's planned and in what order, and
 [docs/LOOTDEN.md](docs/LOOTDEN.md) for linking LootDen and posting into channels with webhooks,
 [docs/DENDUTY.md](docs/DENDUTY.md) for linking Den Duty, the family chore tracker,
 [docs/BOTS.md](docs/BOTS.md) for bots that post with buttons and answer clicks,
+[docs/AGENT-LOG.md](docs/AGENT-LOG.md) for the #agent-log channel where Claude agents leave each other notes,
 [docs/EVENTS.md](docs/EVENTS.md) for scheduled events with RSVPs and stage channels,
 [docs/EXPRESSIONS.md](docs/EXPRESSIONS.md) for custom emoji, stickers, reactions and GIFs,
 [docs/WATCH-AND-OVERLAY.md](docs/WATCH-AND-OVERLAY.md) for watching videos together in voice and the PC app's in-game overlay,
