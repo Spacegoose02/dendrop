@@ -54,4 +54,22 @@ export function eventRoutes(app: FastifyInstance, ctx: Context): void {
 
   /** Ends it now. Returns next week's event for a weekly one, or { event: null }. */
   app.post<{ Params: { eventId: string } }>("/api/events/:eventId/end", async (req) => ({ event: events.endNow(id(req.params.eventId), requireUser(req)) }));
+
+  /** Downloads one event as an iCalendar (.ics) file for Apple, Google or Outlook calendars. */
+  app.get<{ Params: { eventId: string } }>("/api/events/:eventId/ics", async (req, reply) => {
+    const { filename, body } = events.ics(id(req.params.eventId), requireUser(req).id);
+    return reply
+      .header("content-type", "text/calendar; charset=utf-8")
+      .header("content-disposition", `attachment; filename="${filename}"`)
+      .send(body);
+  });
+
+  /** Downloads every event you can see in a server as one iCalendar (.ics) file. */
+  app.get<{ Params: { id: string } }>("/api/servers/:id/events.ics", async (req, reply) => {
+    const { filename, body } = events.serverIcs(id(req.params.id), requireUser(req).id);
+    return reply
+      .header("content-type", "text/calendar; charset=utf-8")
+      .header("content-disposition", `attachment; filename="${filename}"`)
+      .send(body);
+  });
 }

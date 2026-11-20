@@ -85,11 +85,18 @@ export function EventsDialog({
 
   return (
     <Modal title={`Events · ${server.name}`} onClose={onClose} wide>
-      {can(server, "manageEvents") && (
+      {(can(server, "manageEvents") || events.length > 0) && (
         <div className="row">
-          <button className="primary small-button" onClick={() => setEditing("new")}>
-            ＋ New event
-          </button>
+          {can(server, "manageEvents") && (
+            <button className="primary small-button" onClick={() => setEditing("new")}>
+              ＋ New event
+            </button>
+          )}
+          {events.length > 0 && (
+            <a className="chip" href={`/api/servers/${server.id}/events.ics`} download title="Download all events as an .ics calendar file">
+              📅 Export all (.ics)
+            </a>
+          )}
         </div>
       )}
       {error && <p className="error">{error}</p>}
@@ -137,6 +144,9 @@ export function EventsDialog({
                 >
                   ★ Interested
                 </button>
+                <a className="chip" href={`/api/events/${e.id}/ics`} download title="Add to Apple, Google or Outlook calendar">
+                  📅 Add to calendar
+                </a>
                 {e.status === "live" && channel && callsEnabled && (
                   <button className="accept small-button" onClick={() => onJoin(channel)}>
                     Join {channel.kind === "stage" ? "stage" : "voice"}

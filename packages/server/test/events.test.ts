@@ -172,6 +172,55 @@ describe("scheduled events", () => {
     assert.equal((await call(owner, "DELETE", `/api/events/${e.id}`)).status, 200);
   });
 
+  it("exports events as iCalendar (.ics) files and respects locked-channel visibility", async () => {
+    const start = at + 2 * HOUR;
+    const weekly = (
+      await make(owner, {
+        name: "Friday Game Night, Part 1; Snacks",
+        description: "Bring pizza,\nand controllers",
+        channelId: lounge.id,
+        startsAt: iso(start),
+        repeat: "weekly",
+      })
+    ).body as ScheduledEvent;
+    const locked = (
+      await make(owner, {
+        name: "Parents planning",
+        channelId: secret.id,
+        startsAt: iso(start + HOUR),
+        endsAt: iso(start + 2 * HOUR),
+      })
+    ).body as ScheduledEvent;
+
+    const single = await s.app.inject({ method: "GET", url: `/api/events/${weekly.id}/ics`, headers: { cookie: bob } });
+    assert.equal(single.statusCode, 200);
+    assert.match(String(single.headers["content-type"]), /^text\/calendar/);
+    assert.equal(single.headers["content-disposition"], 'attachment; filename="friday-game-night-part-1-snacks.ics"');
+    assert.match(single.body, /BEGIN:VCALENDAR\r\n/);
+    assert.match(single.body, /SUMMARY:Friday Game Night\\, Part 1\\; Snacks\r\n/);
+    assert.match(single.body, /DESCRIPTION:Bring pizza\\,\\nand controllers\r\n/);
+    assert.match(single.body, /LOCATION:Den · #lounge\r\n/);
+    assert.match(single.body, /RRULE:FREQ=WEEKLY\r\n/);
+    assert.match(single.body, /TRIGGER:-PT15M\r\n/);
+
+    // Bob can't see the locked parents channel, so its .ics is 404 and omitted from his server .ics.
+    assert.equal((await s.app.inject({ method: "GET", url: `/api/events/${locked.id}/ics`, headers: { cookie: bob } })).statusCode, 404);
+    assert.equal((await s.app.inject({ method: "GET", url: `/api/servers/${sid}/events.ics`, headers: { cookie: out } })).statusCode, 404);
+
+    const bobAll = await s.app.inject({ method: "GET", url: `/api/servers/${sid}/events.ics`, headers: { cookie: bob } });
+    assert.equal(bobAll.statusCode, 200);
+    assert.equal(bobAll.headers["content-disposition"], 'attachment; filename="den-events.ics"');
+    assert.match(bobAll.body, /Friday Game Night/);
+    assert.doesNotMatch(bobAll.body, /Parents planning/);
+
+    const annAll = await s.app.inject({ method: "GET", url: `/api/servers/${sid}/events.ics`, headers: { cookie: ann } });
+    assert.match(annAll.body, /Friday Game Night/);
+    assert.match(annAll.body, /Parents planning/);
+
+    await call(owner, "DELETE", `/api/events/${weekly.id}`);
+    await call(owner, "DELETE", `/api/events/${locked.id}`);
+  });
+
   it("takes places outside the server, and goes away with the server", async () => {
     const e = (await make(owner, { name: "Picnic", location: "Grandma's house", startsAt: iso(at + HOUR) })).body as ScheduledEvent;
     assert.deepEqual([e.channelId, e.location], [null, "Grandma's house"]);
