@@ -31,8 +31,12 @@ messages later, or hear clicks.
 ## Making one
 
 Server settings → **Bots** → *Make a bot*. It's added to that server and its token is shown
-once. *Settings* on the bot sets its description, events address, *reads messages* and *public*,
-shows its signing secret, and makes a new token.
+once. *Settings* on the bot sets its picture, description, events address, *reads messages* and
+*public*, shows its signing secret, and makes a new token.
+
+A bot's picture (PNG, JPEG, GIF or WebP, same size limit as people's) shows next to its messages
+and in member lists. Only its owner can set it: `PUT /api/bots/:id/avatar` with the picture as
+multipart form data, and `DELETE /api/bots/:id/avatar` to take it off.
 
 ## The bot API
 

@@ -23,7 +23,7 @@ import type { Gateway } from "./gateway.js";
 import type { LootdenFetch } from "./lootden.js";
 import type { PushService } from "./push.js";
 import { ServerRepo } from "./servers.js";
-import { toPublic, type UserRecord, type UserRepo } from "./users.js";
+import { pictureUrl, toPublic, type UserRecord, type UserRepo } from "./users.js";
 
 /** Same shape as LootDen's: just enough of fetch, swapped out in tests. */
 export type BotFetch = LootdenFetch;
@@ -186,6 +186,7 @@ export class BotService {
       id: u.id,
       username: u.username,
       displayName: u.displayName,
+      avatar: pictureUrl(u.id, u.avatarFile),
       description: r.description,
       owner: owner ? toPublic(owner) : null,
       isPublic: !!r.is_public,

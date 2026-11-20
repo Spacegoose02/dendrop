@@ -840,6 +840,11 @@ select {
   display: flex;
   gap: 8px;
 }
+.bot-settings .bot-picture {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 
 /* Threads: a pane beside the channel, or over it on phones. */
 .channel-split {

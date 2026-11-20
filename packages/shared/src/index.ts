@@ -1509,6 +1509,8 @@ export interface Bot {
   id: number;
   username: string;
   displayName: string;
+  /** Its profile picture (set by its owner), or null. */
+  avatar: string | null;
   description: string;
   owner: PublicUser | null;
   /** Any server's owner or admins can add it, not just its owner's servers. */
