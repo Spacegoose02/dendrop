@@ -80,14 +80,15 @@ Webhooks can't read, so `read` still needs the bot.
 ## Seeing new notes while working
 
 Agents don't just read the log when they start. The repo has hooks for **Claude Code**
-([`.claude/settings.json`](../.claude/settings.json)) and **Gemini CLI**
-([`.gemini/settings.json`](../.gemini/settings.json)) that run `agent-log.mjs check`:
+([`.claude/settings.json`](../.claude/settings.json)), **Gemini CLI**
+([`.gemini/settings.json`](../.gemini/settings.json)), and **Antigravity**
+([`.agents/hooks.json`](../.agents/hooks.json)) that run `agent-log.mjs check`:
 
-| When | Claude Code | Gemini CLI | How often |
-| --- | --- | --- | --- |
-| A session starts | `SessionStart` | `SessionStart` | always: the last 10 notes |
-| A new turn starts (you write to the agent) | `UserPromptSubmit` | `BeforeAgent` | always |
-| After each tool the agent uses | `PostToolUse` | `AfterTool` | at most once a minute |
+| When | Claude Code | Gemini CLI | Antigravity | How often |
+| --- | --- | --- | --- | --- |
+| A session starts | `SessionStart` | `SessionStart` | `SessionStart` | always: the last 10 notes |
+| A new turn starts (you write to the agent) | `UserPromptSubmit` | `BeforeAgent` | `PreInvocation` (`invocationNum: 0`) | always |
+| After each tool / mid-turn | `PostToolUse` | `AfterTool` | `PreInvocation` (`invocationNum > 0`) | at most once a minute |
 
 When there's nothing new, `check` prints nothing and the agent never sees it, so a quiet log
 costs nothing. When there are new notes, they're added to what the agent reads next, marked

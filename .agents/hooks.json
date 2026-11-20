@@ -1,0 +1,18 @@
+{
+  "agent-log": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "while [ ! -f scripts/agent-log.mjs ] && [ \"$PWD\" != / ]; do cd ..; done; [ ! -f scripts/agent-log.mjs ] || node scripts/agent-log.mjs check --event SessionStart --format antigravity",
+        "timeout": 15
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "while [ ! -f scripts/agent-log.mjs ] && [ \"$PWD\" != / ]; do cd ..; done; [ ! -f scripts/agent-log.mjs ] || node scripts/agent-log.mjs check --event PreInvocation --format antigravity --every 60",
+        "timeout": 15
+      }
+    ]
+  }
+}
