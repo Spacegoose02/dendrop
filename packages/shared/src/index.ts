@@ -2245,3 +2245,4 @@ export interface Report {
   resolvedAt: string | null;
   resolvedBy: PublicUser | null;
 }
+export * from "./server-templates.js";

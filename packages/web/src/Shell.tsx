@@ -1377,6 +1377,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
       {serverDialog?.kind === "create" && (
         <CreateServer
           me={me}
+          servers={servers}
           onClose={() => setServerDialog(null)}
           onCreated={(sv) => {
             setServerDialog(null);

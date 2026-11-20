@@ -1592,3 +1592,86 @@ select {
 .health-meter.bad span {
   background: var(--dd-danger);
 }
+
+/* Create server: what it starts with */
+.server-start {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.server-start-label {
+  font-weight: 600;
+}
+.server-start-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+.server-start-grid button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 6px;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-bg-raised);
+  color: var(--dd-text);
+  cursor: pointer;
+}
+.server-start-grid button:hover {
+  background: var(--dd-bg-hover);
+}
+.server-start-grid button.active {
+  border-color: var(--dd-accent);
+  box-shadow: 0 0 0 1px var(--dd-accent);
+}
+.server-start-emoji {
+  font-size: 22px;
+}
+.server-start-preview {
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-bg-input);
+  font-size: 13px;
+}
+.server-start-category {
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--dd-text-muted);
+}
+.server-start-preview > div:first-child .server-start-category {
+  margin-top: 0;
+}
+.server-start-channel {
+  padding: 1px 0 1px 6px;
+  color: var(--dd-text);
+}
+.server-start-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--dd-border);
+}
+.server-start-role {
+  font-weight: 600;
+}
+.server-start-copy select {
+  display: block;
+  font: inherit;
+  width: 100%;
+  margin-top: 4px;
+  padding: 9px 10px;
+  border-radius: var(--dd-radius-sm);
+  border: 1px solid var(--dd-border);
+  background: var(--dd-bg-input);
+  color: var(--dd-text);
+}
