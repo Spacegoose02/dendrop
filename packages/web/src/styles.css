@@ -2679,3 +2679,91 @@ h5.md-h {
   display: grid;
   gap: 6px;
 }
+
+/* App downloads (Downloads.tsx): the sign-in page's section and the corner button. */
+.app-downloads {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--dd-border);
+}
+.app-downloads.in-dialog {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.app-downloads h2 {
+  font-size: 15px;
+  margin: 0 0 10px;
+}
+.app-download-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.app-download-main > span {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.25;
+}
+.app-download-main small {
+  font-weight: 500;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.app-download-none {
+  font-size: 13px;
+  margin: 0;
+}
+.app-download-others {
+  font-size: 13px;
+  margin: 10px 0 0;
+  line-height: 1.6;
+}
+.app-download-others a {
+  color: var(--dd-accent);
+}
+.app-download-others a {
+  white-space: nowrap;
+}
+.rail-corner {
+  margin-top: auto;
+  color: var(--dd-text-muted);
+}
+.rail-corner:hover {
+  color: var(--dd-text);
+}
+.app-update {
+  color: var(--dd-online);
+  position: relative;
+}
+.app-update::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dd-online);
+}
+.app-update.busy {
+  animation: app-update-pulse 1.2s ease-in-out infinite;
+}
+.app-update.failed {
+  color: var(--dd-danger);
+}
+.app-update.failed::after {
+  background: var(--dd-danger);
+}
+@keyframes app-update-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-update.busy {
+    animation: none;
+  }
+}

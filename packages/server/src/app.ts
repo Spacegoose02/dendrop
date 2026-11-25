@@ -29,6 +29,7 @@ import { searchRoutes } from "./routes/search.js";
 import { safetyRoutes } from "./routes/safety.js";
 import { inboxRoutes } from "./routes/inbox.js";
 import { DendutyLink, type DendutyFetch } from "./denduty.js";
+import { DownloadsService, type DownloadsFetch } from "./downloads.js";
 import { EventService } from "./events.js";
 import type { LevelService } from "./levels.js";
 import { builtinLivekit } from "./livekit.js";
@@ -111,6 +112,8 @@ export interface Context {
   profiles: ProfileService;
   /** Watch together's server-wide settings (YouTube on or off). */
   watch: WatchSettingsStore;
+  /** The app downloads on the latest GitHub release, for the sign-in page's download buttons. */
+  downloads: DownloadsService;
   /** Set by the server routes: sends a server's members its new state (and prunes voice). */
   serverChanged?: (serverId: number) => void;
   /** Set by the server routes: XP and raccoon ranks. */
@@ -142,7 +145,7 @@ export interface BuiltApp {
 export async function buildApp(
   config: ServerConfig,
   db: Db = openDb(path.join(config.dataDir, "dendrop.db")),
-  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2]; apnsSend?: ConstructorParameters<typeof PushService>[3]; webhookPost?: WebhookPost; lootdenFetch?: LootdenFetch; dendutyFetch?: DendutyFetch; botFetch?: BotFetch; gifFetch?: GifFetch; previewFetch?: PreviewFetch; spam?: SpamGuard } = {},
+  options: { callRingMs?: number; pushPost?: ConstructorParameters<typeof PushService>[2]; apnsSend?: ConstructorParameters<typeof PushService>[3]; webhookPost?: WebhookPost; lootdenFetch?: LootdenFetch; dendutyFetch?: DendutyFetch; botFetch?: BotFetch; gifFetch?: GifFetch; previewFetch?: PreviewFetch; downloadsFetch?: DownloadsFetch; spam?: SpamGuard } = {},
 ): Promise<BuiltApp> {
   const logger = process.env.NODE_ENV === "test" ? false : { level: process.env.DENDROP_LOG_LEVEL ?? "info" };
   // Built-in HTTPS (config.tls) is the same app on an https server; the types are the plain one's.
@@ -181,6 +184,7 @@ export async function buildApp(
     spam: options.spam ?? new SpamGuard(),
     events: new EventService(db, users, gateway, push),
     watch: new WatchSettingsStore(db),
+    downloads: new DownloadsService(options.downloadsFetch),
     couples: new CouplesService(db, users, gateway, path.join(config.dataDir, "uploads"), (ids) => void push.notify(ids, "message")),
     profiles: new ProfileService(db, users, gateway, path.join(config.dataDir, "uploads")),
     onClientEvent: [],
@@ -233,6 +237,11 @@ export async function buildApp(
   recordAudit(app, ctx.audit, db);
 
   app.get("/api/health", async () => ({ status: "ok" }));
+  // No sign-in needed: the sign-in page offers the apps too.
+  app.get("/api/downloads", async (_req, reply) => {
+    void reply.header("cache-control", "public, max-age=300");
+    return ctx.downloads.latest();
+  });
 
   await app.register(async (api) => authRoutes(api, ctx));
   await app.register(async (api) => signInRoutes(api, ctx));

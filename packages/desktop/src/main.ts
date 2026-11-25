@@ -804,6 +804,11 @@ function registerIpc(): void {
     await checkForUpdate(true);
     return { state: update.state, version: update.version, error: update.error };
   });
+  ipcMain.handle("dd:installUpdate", async (e) => {
+    fromServer(e);
+    await installNow();
+    return { state: update.state, version: update.version, error: update.error };
+  });
 }
 
 // ---- Start ----------------------------------------------------------------------------

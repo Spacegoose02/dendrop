@@ -341,6 +341,37 @@ public class DendropPlugin extends Plugin {
         call.resolve(result);
     }
 
+    /**
+     * For the page's update button: {version} when a newer app is out, {} when this is the
+     * newest (or GitHub couldn't be reached).
+     */
+    @PluginMethod
+    public void appUpdate(PluginCall call) {
+        io.execute(() -> {
+            JSObject result = new JSObject();
+            try {
+                UpdateChecker.Update u = UpdateChecker.latest();
+                if (u != null) result.put("version", u.version);
+            } catch (Exception ignored) {
+                // Offline or GitHub is busy: no button this time.
+            }
+            call.resolve(result);
+        });
+    }
+
+    /** The update button was tapped: download the update appUpdate found, in the browser. */
+    @PluginMethod
+    public void openUpdate(PluginCall call) {
+        UpdateChecker.Update u = UpdateChecker.known();
+        Activity activity = getActivity();
+        if (u == null || activity == null) {
+            call.reject("No update to download");
+            return;
+        }
+        activity.runOnUiThread(() -> UpdateChecker.open(activity, u));
+        call.resolve();
+    }
+
     /** Returns null when a Dendrop server answers at url, or what went wrong. */
     private static String checkServer(String url) {
         try {

@@ -30,6 +30,7 @@ import { isVoiceKind, matchesKeyword } from "@dendrop/shared";
 import { api, connectGateway, logout } from "./api.ts";
 import { PresencePicker, UnreadBadge } from "./Unread.tsx";
 import { ServerRail } from "./Rail.tsx";
+import { AppCorner } from "./Downloads.tsx";
 import { canPopOut, popOut, popout } from "./popout.ts";
 import { ForwardDialog, InboxPanel, setSaved, startForward, useForwarding, type InboxTab } from "./Inbox.tsx";
 import { startWebPush } from "./webpush.ts";
@@ -994,6 +995,7 @@ export function Shell({ me: initialMe, onSignedOut }: { me: Me; onSignedOut: () 
         >
           ＋{invites.length > 0 && <span className="rail-badge">{invites.length}</span>}
         </button>
+        <AppCorner />
       </nav>
 
       <aside className="sidebar">
