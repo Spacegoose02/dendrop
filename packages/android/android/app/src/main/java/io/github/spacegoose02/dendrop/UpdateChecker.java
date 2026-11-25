@@ -85,6 +85,38 @@ final class UpdateChecker {
         });
     }
 
+    private static final long BUTTON_CHECK_EVERY_MS = 3600_000L;
+    @Nullable private static Update latest;
+    private static long latestAt = 0;
+
+    /**
+     * For the page's update button: the newer app, or null when this one is the newest. Asks
+     * GitHub at most once an hour. Blocks, so call it off the main thread.
+     */
+    @Nullable
+    static synchronized Update latest() throws Exception {
+        long now = System.currentTimeMillis();
+        if (latestAt != 0 && now - latestAt < BUTTON_CHECK_EVERY_MS) return latest;
+        latest = pick(new JSONObject(get(LATEST)), BuildConfig.VERSION_NAME, BuildConfig.BUILD_TYPE.equals("debug"));
+        latestAt = now;
+        return latest;
+    }
+
+    /** The update the page's button showed last, if any. */
+    @Nullable
+    static synchronized Update known() {
+        return latest;
+    }
+
+    /** Hands the APK (or the release page) to the browser, which downloads it. */
+    static void open(Activity activity, Update update) {
+        try {
+            activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(update.url)));
+        } catch (ActivityNotFoundException ignored) {
+            // No browser to hand the download to.
+        }
+    }
+
     private static void ask(Activity activity, SharedPreferences prefs, Update update) {
         showing = true;
         new AlertDialog.Builder(activity)
@@ -93,13 +125,7 @@ final class UpdateChecker {
                 "You have " + BuildConfig.VERSION_NAME.replace("-debug", "") + ". Download the new app, then open it to install. " +
                 "Android may ask you to allow installs from your browser first."
             )
-            .setPositiveButton("Download", (d, w) -> {
-                try {
-                    activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(update.url)));
-                } catch (ActivityNotFoundException ignored) {
-                    // No browser to hand the download to.
-                }
-            })
+            .setPositiveButton("Download", (d, w) -> open(activity, update))
             .setNeutralButton("Skip this version", (d, w) -> prefs.edit().putString(KEY_SKIPPED, update.version).apply())
             .setNegativeButton("Not now", (d, w) -> prefs.edit().putLong(KEY_SNOOZED_UNTIL, System.currentTimeMillis() + REMIND_AFTER_MS).apply())
             .setOnDismissListener((d) -> showing = false)

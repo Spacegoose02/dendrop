@@ -2330,4 +2330,29 @@ export interface Report {
   resolvedAt: string | null;
   resolvedBy: PublicUser | null;
 }
+/** Which system an app build is for. */
+export type AppPlatform = "windows" | "macos" | "linux" | "android" | "ios";
+
+/** One app build on the latest GitHub release, for the download buttons. */
+export interface AppDownload {
+  platform: AppPlatform;
+  /** installer and portable are Windows; appimage and deb Linux; apk Android. */
+  kind: "installer" | "portable" | "appimage" | "deb" | "apk";
+  /** For a button: "Windows installer", "Linux (.deb)". */
+  label: string;
+  file: string;
+  /** The file on its GitHub release. */
+  url: string;
+  size: number;
+}
+
+/** GET /api/downloads: the apps people can install, from the newest published release. */
+export interface AppDownloads {
+  /** "0.9.0", or null when no release could be found. */
+  version: string | null;
+  /** The release's page on GitHub, with every file and the checksums. */
+  releaseUrl: string;
+  /** Best first for each system (the Windows installer before the portable .exe). */
+  files: AppDownload[];
+}
 export * from "./server-templates.js";

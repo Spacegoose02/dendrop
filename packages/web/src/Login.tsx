@@ -2,6 +2,8 @@ import { useState, type FormEvent } from "react";
 import { startAuthentication, type PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
 import type { AuthInfo, Me, TwoFactorChallenge } from "@dendrop/shared";
 import { api } from "./api.ts";
+import { AppDownloadsPanel } from "./Downloads.tsx";
+import { inInstalledApp } from "./appPlatform.ts";
 
 /** A passkey prompt that the person closed, rather than one that failed. */
 const cancelled = (err: unknown) => err instanceof Error && (err.name === "NotAllowedError" || err.name === "AbortError");
@@ -129,6 +131,7 @@ export function Login({ info, onSignedIn }: { info: AuthInfo; onSignedIn: (me: M
             {signup ? "I already have an account" : "Make an account"}
           </button>
         )}
+        {current !== "setup" && !inInstalledApp() && <AppDownloadsPanel />}
       </div>
     </main>
   );

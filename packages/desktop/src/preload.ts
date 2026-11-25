@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld("dendrop", {
   /** The app's settings (tray, startup, notifications, updates); pass a patch to change them. */
   appSettings: (patch?: object) => ipcRenderer.invoke("dd:appSettings", patch),
   checkForUpdates: () => ipcRenderer.invoke("dd:checkForUpdates"),
+  /** Restarts into a downloaded update (the page's update button). */
+  installUpdate: () => ipcRenderer.invoke("dd:installUpdate"),
   changeServer: () => ipcRenderer.invoke("dd:changeServer"),
   /** Screens and windows to share, for the app's own picker; then pickScreen says which before sharing. */
   screenSources: () => ipcRenderer.invoke("dd:screenSources"),
