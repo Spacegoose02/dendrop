@@ -21,6 +21,7 @@ import type { FamilyService } from "./family.js";
 import { FriendRepo } from "./friends.js";
 import type { Gateway } from "./gateway.js";
 import type { LootdenFetch } from "./lootden.js";
+import type { NotificationService } from "./notifications.js";
 import type { PushService } from "./push.js";
 import { ServerRepo } from "./servers.js";
 import { pictureUrl, toPublic, type UserRecord, type UserRepo } from "./users.js";
@@ -142,6 +143,7 @@ export class BotService {
     private readonly push: PushService,
     private readonly fetchImpl: BotFetch = defaultFetch,
     private readonly log: (msg: string, err?: unknown) => void = () => {},
+    private readonly notifications?: NotificationService,
   ) {
     this.servers = new ServerRepo(db, users);
     this.convos = new ConversationRepo(db, users, new FriendRepo(db, users));
@@ -429,7 +431,7 @@ export class BotService {
     const c = this.channel(bot, channelId);
     if (c.kind !== "text") throw new HttpError(400, "Bots can only post in text channels");
     const buttons = cleanButtons(input.buttons) ?? null;
-    const text = cleanBody(input.content);
+    const text = this.withMentions(c.conversationId, cleanBody(input.content));
     this.ratelimit(bot.id);
     this.automod.checkMessage(c.conversationId, bot, text);
     const m = this.convos.send(c.conversationId, bot.id, text, [], null, null, buttons);
@@ -453,7 +455,7 @@ export class BotService {
     this.ratelimit(bot.id);
     let out = m;
     if (input.content !== undefined) {
-      const text = cleanBody(input.content);
+      const text = this.withMentions(m.conversationId, cleanBody(input.content));
       this.automod.checkMessage(m.conversationId, bot, text, true);
       out = this.convos.edit(messageId, bot.id, text);
     }
@@ -468,8 +470,34 @@ export class BotService {
     this.announce(message.conversationId, message, "message.updated");
   }
 
+  /**
+   * Turns a plain `@username` into a real mention (`<@id>`) when that person is in the channel,
+   * so a bot can ping someone without looking up their id. Unknown names are left as text, and
+   * `@everyone` is never a ping from a bot.
+   */
+  private withMentions(conversationId: number, text: string): string {
+    if (!text.includes("@")) return text;
+    const byName = new Map<string, number>();
+    for (const uid of this.convos.memberIds(conversationId)) {
+      const u = this.users.byId(uid);
+      if (u) byName.set(u.username.toLowerCase(), u.id);
+    }
+    return text.replace(/(?<![\w@<.])@([A-Za-z0-9_.-]{2,32})/g, (whole, name: string) => {
+      // A name can't end in a dot, so "@dropden." is dropden at the end of a sentence.
+      const trimmed = name.replace(/\.+$/, "");
+      const uid = byName.get(trimmed.toLowerCase());
+      return uid === undefined ? whole : `<@${uid}>${name.slice(trimmed.length)}`;
+    });
+  }
+
   private announce(conversationId: number, m: Message, type: "message.created" | "message.updated"): void {
     const memberIds = this.convos.memberIds(conversationId);
+    // New messages go through notifications like anyone else's, so @mentions ping people and
+    // their notification settings (all, mentions only, nothing, Do Not Disturb) are kept.
+    if (type === "message.created" && this.notifications) {
+      this.notifications.deliver(m, memberIds, m.authorId);
+      return;
+    }
     this.gateway.send(memberIds, { type, message: m });
     if (type === "message.created") {
       void this.push.notify(

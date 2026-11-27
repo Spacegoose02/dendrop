@@ -160,6 +160,7 @@ export async function buildApp(
   const family = new FamilyService(db, users, gateway, { publicUrl: config.publicUrl }, options.webhookPost);
   const push = new PushService(db, { publicUrl: config.publicUrl, allowHttp: config.pushAllowHttp, apns: config.apns }, options.pushPost, options.apnsSend);
   const automod = new AutomodService(db, users, gateway, { publicUrl: config.publicUrl });
+  const notifications = new NotificationService(db, gateway, push);
   const ctx: Context = {
     config,
     db,
@@ -177,9 +178,9 @@ export async function buildApp(
     automod,
     lootden: new LootdenLink(db, users, gateway, options.lootdenFetch),
     denduty: new DendutyLink(db, users, gateway, family, push, options.dendutyFetch),
-    bots: new BotService(db, users, gateway, automod, family, push, options.botFetch, (msg, err) => app.log.warn({ err }, msg)),
+    bots: new BotService(db, users, gateway, automod, family, push, options.botFetch, (msg, err) => app.log.warn({ err }, msg), notifications),
     gifs: new GifService(db, family, config.dataDir, options.gifFetch),
-    notifications: new NotificationService(db, gateway, push),
+    notifications,
     linkPreviews: new LinkPreviewService(db, family, config.dataDir, options.previewFetch),
     spam: options.spam ?? new SpamGuard(),
     events: new EventService(db, users, gateway, push),

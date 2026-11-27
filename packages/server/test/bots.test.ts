@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import WebSocket from "ws";
-import type { Bot, ChatServer, Message, NewBotToken, ServerEvent, ServerInvite } from "@dendrop/shared";
+import type { Bot, ChatServer, Message, MessageInPlace, NewBotToken, ServerEvent, ServerInvite } from "@dendrop/shared";
 import { signEvent } from "../src/bots.js";
 import { now } from "../src/db.js";
 import { ServerRepo } from "../src/servers.js";
@@ -217,6 +217,28 @@ describe("bots", () => {
     const bobs = (await call(bob, "POST", `/api/conversations/${general.conversationId}/messages`, { body: "mine" })).body as Message;
     assert.equal((await asBot("PATCH", `/messages/${bobs.id}`, { content: "hacked" })).status, 404);
     assert.equal((await asBot("DELETE", `/messages/${bobs.id}`)).status, 404);
+  });
+
+  it("pings people it @mentions, like anyone else's message", async () => {
+    const bobLive = await listen(s, bob);
+    const r = await asBot("POST", `/channels/${general.id}/messages`, { content: "Hey @Bob. Also @nobody, @everyone and mail@bob.example" });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const m = r.body as Message;
+    // A known username becomes a real mention; unknown names, @everyone and emails stay text.
+    assert.equal(m.body, `Hey <@${bobId}>. Also @nobody, @everyone and mail@bob.example`);
+    assert.deepEqual(m.mentions, [bobId]);
+    assert.equal(m.mentionsEveryone, false);
+    const live = (await bobLive.waitFor("message.created")) as Extract<ServerEvent, { type: "message.created" }> & { notify?: boolean; mentioned?: boolean };
+    assert.equal(live.notify, true);
+    assert.equal(live.mentioned, true);
+    bobLive.ws.close();
+    // It shows in Bob's mentions inbox.
+    const inbox = (await call(bob, "GET", "/api/mentions")).body as MessageInPlace[];
+    assert.ok(inbox.some((x) => x.message.id === m.id));
+    // An edit can add a mention too.
+    const plain = (await asBot("POST", `/channels/${general.id}/messages`, { content: "later" })).body as Message;
+    assert.deepEqual(plain.mentions, []);
+    assert.deepEqual((await asBot("PATCH", `/messages/${plain.id}`, { content: "later @bob" })).body.mentions, [bobId]);
   });
 
   it("only reads other people's messages when its owner turns that on", async () => {

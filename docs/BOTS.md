@@ -54,6 +54,14 @@ A session cookie never counts here, and a bot token counts nowhere else.
 | `POST /interactions/:id/reply` | `{ content }`: answers a click; only the clicker sees it. Once per click, within 15 minutes. |
 | `GET /gateway` | WebSocket of events (send `{"type":"ping"}` to keep it alive). |
 
+### Mentions
+
+Write `@username` in `content` to ping someone in the channel, the same as typing it in the app:
+it's stored as a real mention (`<@userId>`, which also works if you know the id), so they get a
+notification, it shows in their mentions inbox, and their notification settings and Do Not
+Disturb are kept. Names that aren't in the channel stay plain text. `@everyone` never pings from
+a bot. Edits work the same way, so a `PATCH` can add a mention.
+
 To get a channel's ID, right-click the channel in the server's channel list and pick
 **Copy channel ID**, or call `GET /servers` as the bot.
 
